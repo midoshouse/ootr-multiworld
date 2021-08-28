@@ -1,0 +1,24 @@
+[package]
+name = "ootrmwd"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+async-proto = "0.8.2"
+chrono = "0.4"
+
+[dependencies.derive_more]
+version = "0.99"
+default-features = false
+features = ["from"]
+
+[dependencies.multiworld]
+path = "../multiworld"
+
+[dependencies.tokio]
+version = "1"
+features = ["macros", "net", "rt-multi-thread", "sync"]
+
+[dependencies.wheel]
+git = "https://github.com/fenhl/wheel"
+branch = "main"

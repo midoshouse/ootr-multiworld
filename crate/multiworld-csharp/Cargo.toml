@@ -1,0 +1,19 @@
+[package]
+name = "multiworld-csharp"
+version = "0.1.0"
+edition = "2018"
+
+[lib]
+name = "multiworld"
+crate-type = ["cdylib"]
+
+[dependencies]
+itertools = "0.10"
+libc = "0.2"
+
+[dependencies.async-proto]
+version = "0.8.2"
+features = ["blocking"]
+
+[dependencies.multiworld]
+path = "../multiworld"

@@ -8,3 +8,7 @@ This is an alternative implementation of [multiworld](https://wiki.ootrandomizer
 * Additional client for Project64
 * Allow the server to use data about obtained items for auto-tracking for restreams
 * Easier configuration: read player name and number from the game
+
+# Credits
+
+* Some code based on [Bizhawk Shuffler 2](https://github.com/authorblues/bizhawk-shuffler-2)

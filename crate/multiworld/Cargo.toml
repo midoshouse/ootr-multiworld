@@ -1,0 +1,21 @@
+[package]
+name = "multiworld"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+async-recursion = "0.3"
+chrono = "0.4"
+
+[dependencies.async-proto]
+version = "0.8.2"
+features = ["blocking"]
+
+[dependencies.derive_more]
+version = "0.99"
+default-features = false
+features = ["from"]
+
+[dependencies.tokio]
+version = "1"
+features = ["net", "sync"]
