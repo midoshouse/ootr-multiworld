@@ -2,12 +2,16 @@ This is an alternative implementation of [multiworld](https://wiki.ootrandomizer
 
 # Goals
 
-* Reduce code complexity by focusing on OoTR
-* Establish connections through a dedicated server, skipping the need for port forwarding or Hamachi
-* BizHawk client written as an external tool, improving performance compared to Lua scripting
-* Additional client for Project64
-* Allow the server to use data about obtained items for auto-tracking for restreams
-* Easier configuration: read player name and number from the game
+- [x] Reduce code complexity by focusing on OoTR
+- [x] Establish connections through a dedicated server, skipping the need for port forwarding or Hamachi
+- [ ] Use a WebSocket connection if direct TCP is not available or encryption is desired
+- [ ] Still allow players to host locally (without a dedicated server) if desired
+- [x] BizHawk client written as an external tool, improving performance compared to Lua scripting
+- [ ] Additional client for Project64
+- [ ] Automatically keep room list clean by closing rooms after a period of inactivity
+- [ ] Backup system to allow players to restore closed rooms or move to a different host
+- [ ] Allow the server to use data about obtained items for auto-tracking for restreams
+- [x] Easier configuration: read player name and number from the game
 
 # Credits
 
