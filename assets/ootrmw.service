@@ -1,0 +1,15 @@
+[Unit]
+Description=Ocarina of Time Randomizer multiworld server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Restart=always
+ExecStartPre=/usr/bin/git pull
+ExecStart=/home/fenhl/.cargo/bin/cargo run --release --package=ootrmwd
+User=fenhl
+Group=fenhl
+WorkingDirectory=/opt/git/github.com/fenhl/ootr-multiworld/master
+
+[Install]
+WantedBy=multi-user.target
