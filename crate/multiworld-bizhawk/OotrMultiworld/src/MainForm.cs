@@ -406,28 +406,38 @@ namespace Net.Fenhl.OotrMultiworld {
                 ReadPlayerID();
                 SyncPlayerNames();
             } else if (this.lobbyClient == null) {
-                using (var res = Native.connect_ipv4()) { //TODO try IPv6 first
-                    if (res.IsOk()) {
-                        this.lobbyClient = res.Unwrap();
-                        var numRooms = this.lobbyClient.NumRooms();
-                        this.state.Text = $"Join or create a room:";
-                        SuspendLayout();
-                        this.rooms.SelectedItem = null;
-                        this.rooms.Items.Clear();
-                        for (ulong i = 0; i < numRooms; i++) {
-                            this.rooms.Items.Add(this.lobbyClient.RoomName(i).AsString());
-                        }
-                        this.rooms.Enabled = true;
-                        ResumeLayout(true);
+                using (var res6 = Native.connect_ipv6()) {
+                    if (res6.IsOk()) {
+                        OnConnect(res6.Unwrap());
                     } else {
-                        //TODO retry with IPv4
-                        using (var err = res.DebugErr()) {
-                            this.state.Text = $"error: {err.AsString()}";
+                        using (var res4 = Native.connect_ipv4()) {
+                            if (res4.IsOk()) {
+                                OnConnect(res4.Unwrap());
+                            } else {
+                                //TODO TCP connections unavailable, try WebSocket instead. If that fails too, offer self-hosting/direct connections
+                                using (var err = res4.DebugErr()) {
+                                    this.state.Text = $"error: {err.AsString()}";
+                                }
+                                this.rooms.Items[0] = "Failed to load room list";
+                            }
                         }
-                        this.rooms.Items[0] = "Failed to load room list";
                     }
                 }
             }
+        }
+
+        private void OnConnect(LobbyClient lobbyClient) {
+            this.lobbyClient = lobbyClient;
+            var numRooms = this.lobbyClient.NumRooms();
+            this.state.Text = $"Join or create a room:";
+            SuspendLayout();
+            this.rooms.SelectedItem = null;
+            this.rooms.Items.Clear();
+            for (ulong i = 0; i < numRooms; i++) {
+                this.rooms.Items.Add(this.lobbyClient.RoomName(i).AsString());
+            }
+            this.rooms.Enabled = true;
+            ResumeLayout(true);
         }
 
         public override void UpdateValues(ToolFormUpdateType type) {
