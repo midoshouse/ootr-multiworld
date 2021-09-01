@@ -83,7 +83,7 @@ impl Room {
 
     async fn write_all(&mut self, msg: &ServerMessage) {
         let mut notified = HashSet::new();
-        while let Some((&client_id, (_, writer))) = self.clients.iter().filter(|&(client_id, _)| !notified.contains(client_id)).next() {
+        while let Some((&client_id, (_, writer))) = self.clients.iter().find(|&(client_id, _)| !notified.contains(client_id)) {
             let mut writer = writer.lock().await;
             if let Err(e) = msg.write(&mut *writer).await {
                 eprintln!("{} error sending message: {:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), e);
@@ -176,7 +176,7 @@ impl Room {
                 if !self.player_queues.get(&target_world).map_or(false, |queue| queue.iter().any(|item| item.source == source && item.key == key)) {
                     let base_queue = &self.base_queue; //TODO (Rust 2021) remove this line
                     self.player_queues.entry(target_world).or_insert_with(|| base_queue.clone()).push(Item { source, key, kind });
-                    if let Some((&target_client, _)) = self.clients.iter().filter(|(_, (p, _))| p.map_or(false, |p| p.world == target_world)).next() {
+                    if let Some((&target_client, _)) = self.clients.iter().find(|(_, (p, _))| p.map_or(false, |p| p.world == target_world)) {
                         self.write(target_client, &ServerMessage::GetItem(kind)).await;
                     }
                 }

@@ -48,6 +48,7 @@ namespace Net.Fenhl.OotrMultiworld {
         [DllImport("multiworld")] internal static extern UnitResult room_client_send_item(RoomClient room_client, uint key, ushort kind, byte target_world);
         [DllImport("multiworld")] internal static extern ushort room_client_item_queue_len(RoomClient room_client);
         [DllImport("multiworld")] internal static extern ushort room_client_item_kind_at_index(RoomClient room_client, ushort index);
+        [DllImport("multiworld")] internal static extern IntPtr room_client_get_player_name(RoomClient room_client, byte world);
     }
 
     internal class StringHandle : SafeHandle {
@@ -189,6 +190,12 @@ namespace Net.Fenhl.OotrMultiworld {
             var res = Native.room_client_set_player_name(this, namePtr);
             Marshal.FreeHGlobal(namePtr);
             return res;
+        }
+
+        internal List<byte> GetPlayerName(byte world) {
+            var name = new byte[8];
+            Marshal.Copy(Native.room_client_get_player_name(this, world), name, 0, 8);
+            return name.ToList();
         }
 
         internal StringHandle State() => Native.room_client_format_state(this);
@@ -397,7 +404,7 @@ namespace Net.Fenhl.OotrMultiworld {
             this.playerID = null;
             if (this.roomClient != null) {
                 ReadPlayerID();
-                ReadPlayerName();
+                SyncPlayerNames();
             } else if (this.lobbyClient == null) {
                 using (var res = Native.connect_ipv4()) { //TODO try IPv6 first
                     if (res.IsOk()) {
@@ -434,7 +441,7 @@ namespace Net.Fenhl.OotrMultiworld {
                 if (this.playerID == null) {
                     ReadPlayerID();
                 } else {
-                    ReadPlayerName();
+                    SyncPlayerNames();
                 }
                 using (var res = this.roomClient.TryRecv()) {
                     if (res.IsOkSome()) {
@@ -446,7 +453,6 @@ namespace Net.Fenhl.OotrMultiworld {
                                     break;
                                 }
                                 case 1: { // sets a player name and changes room state
-                                    //TODO locally store all player names to initialize them on co-op context load
                                     if (this.coopContextAddr != null) {
                                         APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + msg.World() * 0x8, msg.Filename(), "System Bus");
                                     }
@@ -516,7 +522,7 @@ namespace Net.Fenhl.OotrMultiworld {
             this.roomState.Visible = true;
             ResumeLayout(true);
             ReadPlayerID();
-            ReadPlayerName();
+            SyncPlayerNames();
         }
 
         private void ReadPlayerID() {
@@ -560,12 +566,21 @@ namespace Net.Fenhl.OotrMultiworld {
             }
         }
 
-        private void ReadPlayerName() {
+        private void SyncPlayerNames() {
             if (this.playerID == null) {
                 this.playerName = new List<byte> { 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf };
             } else {
                 if (Enumerable.SequenceEqual(APIs.Memory.ReadByteRange(0x0020 + 0x1c, 6, "SRAM"), new List<byte>(Encoding.UTF8.GetBytes("ZELDAZ")))) {
+                    // get own player name from save file
                     this.playerName = APIs.Memory.ReadByteRange(0x0020 + 0x0024, 8, "SRAM");
+                    // fill player names in co-op context if own name is missing
+                    if (this.roomClient != null && this.coopContextAddr != null) {
+                        if (!Enumerable.SequenceEqual(APIs.Memory.ReadByteRange(this.coopContextAddr.Value + 0x14 + this.playerID.Value * 0x8, 8, "System Bus"), this.roomClient.GetPlayerName(this.playerID.Value))) {
+                            for (var world = 1; world < 256; world++) {
+                                APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + world * 0x8, this.roomClient.GetPlayerName((byte) world), "System Bus");
+                            }
+                        }
+                    }
                 } else {
                     // file 1 does not exist, reset player name
                     this.playerName = new List<byte> { 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf };

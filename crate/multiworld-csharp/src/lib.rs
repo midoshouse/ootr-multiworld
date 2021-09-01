@@ -569,3 +569,20 @@ fn render_filename(name: [u8; 8]) -> String {
     let room_client = &*room_client;
     room_client.item_queue[usize::from(index)]
 }
+
+/// # Safety
+///
+/// `room_client` must point at a valid `RoomClient`.
+///
+/// # Panics
+///
+/// If `world` is `0`.
+#[no_mangle] pub unsafe extern "C" fn room_client_get_player_name(room_client: *const RoomClient, world: u8) -> *const u8 {
+    let room_client = &*room_client;
+    let world = NonZeroU8::new(world).expect("tried to get player name for world 0");
+    if let Some(player) = room_client.players.iter().find(|p| p.world == world) {
+        &player.name[0]
+    } else {
+        &Player::DEFAULT_NAME[0]
+    }
+}
