@@ -11,6 +11,7 @@
         <Reference Include="BizHawk.Client.Common" HintPath="$(ProjectDir)../BizHawk/dll/BizHawk.Client.Common.dll" />
         <Reference Include="BizHawk.Client.EmuHawk" HintPath="$(ProjectDir)../BizHawk/EmuHawk.exe" />
         <Reference Include="BizHawk.Common" HintPath="$(ProjectDir)../BizHawk/dll/BizHawk.Common.dll" />
+        <Reference Include="BizHawk.Emulation.Common" HintPath="$(ProjectDir)../BizHawk/dll/BizHawk.Emulation.Common.dll" />
         <Reference Include="BizHawk.WinForms.Controls" HintPath="$(ProjectDir)../BizHawk/dll/BizHawk.WinForms.Controls.dll" />
     </ItemGroup>
     <ItemGroup>

@@ -444,7 +444,7 @@ namespace Net.Fenhl.OotrMultiworld {
             if (type != ToolFormUpdateType.PreFrame && type != ToolFormUpdateType.FastPreFrame) {
                 return;
             }
-            if (APIs.GameInfo.GetRomName() == "Null") {
+            if ((APIs.GameInfo.GetGameInfo()?.Name ?? "Null") == "Null") {
                 return;
             }
             if (this.roomClient != null) {
@@ -536,14 +536,14 @@ namespace Net.Fenhl.OotrMultiworld {
         }
 
         private void ReadPlayerID() {
-            if (APIs.GameInfo.GetRomName() == "Null") {
+            if ((APIs.GameInfo.GetGameInfo()?.Name ?? "Null") == "Null") {
                 this.playerID = null;
                 this.state.Text = "Please open the ROM…";
             } else {
                 var romIdent = APIs.Memory.ReadByteRange(0x20, 0x15, "ROM");
                 if (!Enumerable.SequenceEqual(romIdent, new List<byte>(Encoding.UTF8.GetBytes("THE LEGEND OF ZELDA \0")))) {
                     this.playerID = null;
-                    this.state.Text = $"Expected OoTR, found {APIs.GameInfo.GetRomName()}";
+                    this.state.Text = $"Expected OoTR, found {APIs.GameInfo.GetGameInfo()?.Name ?? "Null"}";
                 } else {
                     SuspendLayout();
                     //TODO also check OoTR version bytes and error on vanilla OoT
@@ -552,7 +552,7 @@ namespace Net.Fenhl.OotrMultiworld {
                         var randoContextAddr = APIs.Memory.ReadU32(0x1c6e90 + 0x15d4, "RDRAM");
                         if (randoContextAddr >= 0x8000_0000 && randoContextAddr != 0xffff_ffff) {
                             var newCoopContextAddr = APIs.Memory.ReadU32(randoContextAddr, "System Bus");
-                            if (newCoopContextAddr >= 0x8000_0000 && coopContextAddr != 0xffff_ffff) {
+                            if (newCoopContextAddr >= 0x8000_0000 && newCoopContextAddr != 0xffff_ffff) {
                                 //TODO COOP_VERSION check
                                 this.coopContextAddr = newCoopContextAddr;
                                 this.playerID = (byte?) APIs.Memory.ReadU8(newCoopContextAddr + 0x4, "System Bus");
