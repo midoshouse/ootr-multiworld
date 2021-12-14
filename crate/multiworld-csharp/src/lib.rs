@@ -27,6 +27,21 @@ use {
 };
 
 #[repr(transparent)]
+pub struct FfiBool(u32);
+
+impl From<bool> for FfiBool {
+    fn from(b: bool) -> Self {
+        Self(b.into())
+    }
+}
+
+impl From<FfiBool> for bool {
+    fn from(FfiBool(b): FfiBool) -> Self {
+        b != 0
+    }
+}
+
+#[repr(transparent)]
 pub struct HandleOwned<T: ?Sized>(*mut T);
 
 impl<T: ?Sized> HandleOwned<T> {
@@ -176,8 +191,8 @@ fn render_filename(name: [u8; 8]) -> String {
 /// # Safety
 ///
 /// `lobby_client_res` must point at a valid `DebugResult<LobbyClient>`.
-#[no_mangle] pub unsafe extern "C" fn lobby_client_result_is_ok(lobby_client_res: *const DebugResult<LobbyClient>) -> bool {
-    (&*lobby_client_res).is_ok()
+#[no_mangle] pub unsafe extern "C" fn lobby_client_result_is_ok(lobby_client_res: *const DebugResult<LobbyClient>) -> FfiBool {
+    (&*lobby_client_res).is_ok().into()
 }
 
 /// # Safety
@@ -264,8 +279,8 @@ fn render_filename(name: [u8; 8]) -> String {
 /// # Safety
 ///
 /// `room_client_res` must point at a valid `DebugResult<RoomClient>`.
-#[no_mangle] pub unsafe extern "C" fn room_client_result_is_ok(room_client_res: *const DebugResult<RoomClient>) -> bool {
-    (&*room_client_res).is_ok()
+#[no_mangle] pub unsafe extern "C" fn room_client_result_is_ok(room_client_res: *const DebugResult<RoomClient>) -> FfiBool {
+    (&*room_client_res).is_ok().into()
 }
 
 /// # Safety
@@ -321,8 +336,8 @@ fn render_filename(name: [u8; 8]) -> String {
 /// # Safety
 ///
 /// `unit_res` must point at a valid `DebugResult<()>`.
-#[no_mangle] pub unsafe extern "C" fn unit_result_is_ok(unit_res: *const DebugResult<()>) -> bool {
-    (&*unit_res).is_ok()
+#[no_mangle] pub unsafe extern "C" fn unit_result_is_ok(unit_res: *const DebugResult<()>) -> FfiBool {
+    (&*unit_res).is_ok().into()
 }
 
 /// # Safety
@@ -415,8 +430,8 @@ fn render_filename(name: [u8; 8]) -> String {
 /// # Safety
 ///
 /// `opt_msg_res` must point at a valid `DebugResult<Option<ServerMessage>>`.
-#[no_mangle] pub unsafe extern "C" fn opt_message_result_is_ok_some(opt_msg_res: *const DebugResult<Option<ServerMessage>>) -> bool {
-    (&*opt_msg_res).as_ref().map_or(false, |opt_msg| opt_msg.is_some())
+#[no_mangle] pub unsafe extern "C" fn opt_message_result_is_ok_some(opt_msg_res: *const DebugResult<Option<ServerMessage>>) -> FfiBool {
+    (&*opt_msg_res).as_ref().map_or(false, |opt_msg| opt_msg.is_some()).into()
 }
 
 /// # Safety
@@ -436,8 +451,8 @@ fn render_filename(name: [u8; 8]) -> String {
 /// # Safety
 ///
 /// `opt_msg_res` must point at a valid `DebugResult<Option<ServerMessage>>`.
-#[no_mangle] pub unsafe extern "C" fn opt_message_result_is_err(opt_msg_res: *const DebugResult<Option<ServerMessage>>) -> bool {
-    matches!(&*opt_msg_res, Ok(Some(ServerMessage::Error(_))) | Err(_))
+#[no_mangle] pub unsafe extern "C" fn opt_message_result_is_err(opt_msg_res: *const DebugResult<Option<ServerMessage>>) -> FfiBool {
+    matches!(&*opt_msg_res, Ok(Some(ServerMessage::Error(_))) | Err(_)).into()
 }
 
 /// # Safety
