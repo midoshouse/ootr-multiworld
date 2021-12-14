@@ -1,6 +1,5 @@
 use {
     std::{
-        array,
         convert::{
             TryFrom as _,
             TryInto as _,
@@ -150,7 +149,7 @@ fn render_filename(name: [u8; 8]) -> String {
         '┬', '?', '!', ':', '-', '(', ')', '゛', '゜', ',', '.', '/', '�', '�', '�', '�',
         '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�',
     ];
-    array::IntoIter::new(name).map(|c| filename_encoding[usize::from(c)]).collect() //TODO (Rust 2021) use `name.into_iter()` instead
+    name.into_iter().map(|c| filename_encoding[usize::from(c)]).collect()
 }
 
 #[no_mangle] pub extern "C" fn connect_ipv4() -> HandleOwned<DebugResult<LobbyClient>> {

@@ -174,8 +174,7 @@ impl Room {
                 }
             } else {
                 if !self.player_queues.get(&target_world).map_or(false, |queue| queue.iter().any(|item| item.source == source && item.key == key)) {
-                    let base_queue = &self.base_queue; //TODO (Rust 2021) remove this line
-                    self.player_queues.entry(target_world).or_insert_with(|| base_queue.clone()).push(Item { source, key, kind });
+                    self.player_queues.entry(target_world).or_insert_with(|| self.base_queue.clone()).push(Item { source, key, kind });
                     if let Some((&target_client, _)) = self.clients.iter().find(|(_, (p, _))| p.map_or(false, |p| p.world == target_world)) {
                         self.write(target_client, &ServerMessage::GetItem(kind)).await;
                     }
