@@ -583,12 +583,10 @@ namespace Net.Fenhl.OotrMultiworld {
                 if (Enumerable.SequenceEqual(APIs.Memory.ReadByteRange(0x0020 + 0x1c, 6, "SRAM"), new List<byte>(Encoding.UTF8.GetBytes("ZELDAZ")))) {
                     // get own player name from save file
                     this.playerName = APIs.Memory.ReadByteRange(0x0020 + 0x0024, 8, "SRAM");
-                    // fill player names in co-op context if own name is missing
+                    // always fill player names in co-op context (some player names may go missing seemingly at random while others stay intact, so this has to run every frame)
                     if (this.roomClient != null && this.coopContextAddr != null) {
-                        if (!Enumerable.SequenceEqual(APIs.Memory.ReadByteRange(this.coopContextAddr.Value + 0x14 + this.playerID.Value * 0x8, 8, "System Bus"), this.roomClient.GetPlayerName(this.playerID.Value))) {
-                            for (var world = 1; world < 256; world++) {
-                                APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + world * 0x8, this.roomClient.GetPlayerName((byte) world), "System Bus");
-                            }
+                        for (var world = 1; world < 256; world++) {
+                            APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + world * 0x8, this.roomClient.GetPlayerName((byte) world), "System Bus");
                         }
                     }
                 } else {
