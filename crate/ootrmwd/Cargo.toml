@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-async-proto = "0.10.0"
+async-proto = "0.12"
 chrono = "0.4"
 
 [dependencies.derive_more]
