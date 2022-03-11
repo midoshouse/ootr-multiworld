@@ -17,7 +17,7 @@ fn main() -> io::Result<()> {
     } else {
         Path::new("../../target/debug/multiworld.dll")
     }.canonicalize()?;
-    for target_path in &[Path::new("OotrMultiworld/src/multiworld.dll"), Path::new("OotrMultiworld/BizHawk/ExternalTools/multiworld.dll")] {
+    for target_path in &[Path::new("OotrMultiworld/src/multiworld.dll")/*, Path::new("OotrMultiworld/BizHawk/ExternalTools/multiworld.dll")*/] {
         if target_path.read_link().is_ok() { std::fs::remove_file(target_path)? }
         std::os::windows::fs::symlink_file(&source_path, target_path)?;
     }

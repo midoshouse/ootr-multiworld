@@ -70,7 +70,7 @@ pub struct DebugError(String);
 
 impl<E: fmt::Debug> From<E> for DebugError {
     fn from(e: E) -> DebugError {
-        DebugError(format!("{:?}", e))
+        DebugError(format!("{e:?}"))
     }
 }
 
@@ -87,16 +87,16 @@ pub type DebugResult<T> = Result<T, DebugError>;
 trait DebugResultExt {
     type T;
 
-    fn unwrap(self) -> Self::T;
+    fn debug_unwrap(self) -> Self::T;
 }
 
 impl<T> DebugResultExt for DebugResult<T> {
     type T = T;
 
-    fn unwrap(self) -> T {
+    fn debug_unwrap(self) -> T {
         match self {
             Ok(x) => x,
-            Err(e) => panic!("{}", e),
+            Err(e) => panic!("{e}"),
         }
     }
 }
@@ -198,7 +198,7 @@ fn render_filename(name: [u8; 8]) -> String {
 ///
 /// `lobby_client_res` must point at a valid `DebugResult<LobbyClient>`. This function takes ownership of the `DebugResult`.
 #[no_mangle] pub unsafe extern "C" fn lobby_client_result_unwrap(lobby_client_res: HandleOwned<DebugResult<LobbyClient>>) -> HandleOwned<LobbyClient> {
-    HandleOwned::new(lobby_client_res.into_box().unwrap())
+    HandleOwned::new(lobby_client_res.into_box().debug_unwrap())
 }
 
 /// # Safety
@@ -286,7 +286,7 @@ fn render_filename(name: [u8; 8]) -> String {
 ///
 /// `room_client_res` must point at a valid `DebugResult<RoomClient>`. This function takes ownership of the `DebugResult`.
 #[no_mangle] pub unsafe extern "C" fn room_client_result_unwrap(room_client_res: HandleOwned<DebugResult<RoomClient>>) -> HandleOwned<RoomClient> {
-    HandleOwned::new(room_client_res.into_box().unwrap())
+    HandleOwned::new(room_client_res.into_box().debug_unwrap())
 }
 
 /// # Safety
@@ -384,7 +384,7 @@ fn render_filename(name: [u8; 8]) -> String {
     let room_client = &*room_client;
     StringHandle::from_string(match (room_client.players.len(), room_client.num_unassigned_clients) {
         (0, 0) => unreachable!(), // the current client should always be in the room
-        (0, unassigned) => format!("{} client{} with no world", unassigned, if unassigned == 1 { "" } else { "s" }),
+        (0, unassigned) => format!("{unassigned} client{} with no world", if unassigned == 1 { "" } else { "s" }),
         (_, unassigned) => {
             let mut buf = room_client.players.iter()
                 .map(|player| if player.name == Player::DEFAULT_NAME {
@@ -398,7 +398,7 @@ fn render_filename(name: [u8; 8]) -> String {
                 })
                 .join("\r\n");
             if unassigned > 0 {
-                buf.push_str(&format!("\r\n…and {} client{} with no world", unassigned, if unassigned == 1 { "" } else { "s" }));
+                buf.push_str(&format!("\r\n…and {unassigned} client{} with no world", if unassigned == 1 { "" } else { "s" }));
             }
             buf
         }
@@ -437,7 +437,7 @@ fn render_filename(name: [u8; 8]) -> String {
 ///
 /// `opt_msg_res` must point at a valid `DebugResult<Option<ServerMessage>>>`. This function takes ownership of the `DebugResult`.
 #[no_mangle] pub unsafe extern "C" fn opt_message_result_unwrap_unwrap(room_client_res: HandleOwned<DebugResult<Option<ServerMessage>>>) -> HandleOwned<ServerMessage> {
-    HandleOwned::new(room_client_res.into_box().unwrap().unwrap())
+    HandleOwned::new(room_client_res.into_box().debug_unwrap().unwrap())
 }
 
 /// # Safety
@@ -460,7 +460,7 @@ fn render_filename(name: [u8; 8]) -> String {
 #[no_mangle] pub unsafe extern "C" fn opt_message_result_debug_err(opt_msg_res: HandleOwned<DebugResult<Option<ServerMessage>>>) -> StringHandle {
     StringHandle::from_string(match *opt_msg_res.into_box() {
         Ok(Some(ServerMessage::Error(e))) => e,
-        Ok(value) => panic!("tried to debug_err an Ok({:?})", value),
+        Ok(value) => panic!("tried to debug_err an Ok({value:?})"),
         Err(e) => e.0,
     })
 }

@@ -1,0 +1,15 @@
+[package]
+name = "multiworld-installer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+directories = "4"
+lazy-regex = "2"
+native-windows-gui = "1"
+nfd2 = "0.3"
+thiserror = "1"
+
+[dependencies.wheel]
+git = "https://github.com/fenhl/wheel"
+branch = "main"
