@@ -3,7 +3,10 @@
 use {
     std::{
         future::Future,
-        path::Path,
+        path::{
+            Path,
+            PathBuf,
+        },
         sync::Arc,
     },
     directories::UserDirs,
@@ -56,10 +59,8 @@ impl<I: Iterator> From<itertools::ExactlyOneError<I>> for Error {
 
 #[derive(Debug, Clone)]
 enum Message {
-    BizHawkInstallPath(String),
-    BizHawkLocatePath(String),
-    BrowseBizHawkInstallPath,
-    BrowseBizHawkLocatePath,
+    BizHawkPath(String),
+    BrowseBizHawkPath,
     Continue,
     Error(Arc<Error>),
     InstallTool,
@@ -81,6 +82,8 @@ fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) ->
 enum Page {
     Error(Arc<Error>),
     LocateBizHawk,
+    InstallBizHawk,
+    InstallBizHawkTool,
     AskLaunch,
 }
 
@@ -89,21 +92,10 @@ struct State {
     page: Page,
     // first page: locate or install BizHawk
     install_bizhawk: bool,
-    bizhawk_install_path: String,
-    bizhawk_locate_path: String,
+    bizhawk_path: String,
     // second page: installation success, ask whether to launch BizHawk now
     open_bizhawk: bool,
     should_exit: bool,
-}
-
-impl State {
-    fn bizhawk_dir(&self) -> &Path {
-        if self.install_bizhawk {
-            Path::new(&self.bizhawk_install_path)
-        } else {
-            Path::new(&self.bizhawk_locate_path)
-        }
-    }
 }
 
 impl Application for State {
@@ -113,12 +105,11 @@ impl Application for State {
 
     fn new((): ()) -> (Self, Command<Message>) {
         // check for existing BizHawk install in Downloads folder (where the bizhawk-co-op install scripts places it)
-        let (install_bizhawk, bizhawk_install_path, bizhawk_locate_path) = if let Some(user_dirs) = UserDirs::new() {
+        let (install_bizhawk, bizhawk_path) = if let Some(user_dirs) = UserDirs::new() {
             let bizhawk_install_path = user_dirs.home_dir().join("bin").join("BizHawk");
             if bizhawk_install_path.exists() {
                 (
                     false,
-                    bizhawk_install_path.to_str().expect("Windows paths are valid Unicode").to_owned(),
                     bizhawk_install_path.into_os_string().into_string().expect("Windows paths are valid Unicode"),
                 )
             } else if let Some(default_bizhawk_dir) = UserDirs::new()
@@ -133,18 +124,16 @@ impl Application for State {
             {
                 (
                     false,
-                    bizhawk_install_path.into_os_string().into_string().expect("Windows paths are valid Unicode"),
                     default_bizhawk_dir.into_os_string().into_string().expect("Windows paths are valid Unicode"),
                 )
             } else {
                 (
                     true,
                     bizhawk_install_path.into_os_string().into_string().expect("Windows paths are valid Unicode"),
-                    String::default(),
                 )
             }
         } else {
-            (true, String::default(), String::default())
+            (true, String::default())
         };
         (Self {
             http_client: reqwest::Client::builder()
@@ -156,7 +145,7 @@ impl Application for State {
             page: Page::LocateBizHawk,
             open_bizhawk: true,
             should_exit: false,
-            install_bizhawk, bizhawk_install_path, bizhawk_locate_path,
+            install_bizhawk, bizhawk_path,
         }, Command::none())
     }
 
@@ -166,23 +155,13 @@ impl Application for State {
 
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
-            Message::BizHawkInstallPath(new_path) => self.bizhawk_install_path = new_path,
-            Message::BizHawkLocatePath(new_path) => self.bizhawk_locate_path = new_path,
-            Message::BrowseBizHawkInstallPath => {
-                let current_path = self.bizhawk_install_path.clone();
+            Message::BizHawkPath(new_path) => self.bizhawk_path = new_path,
+            Message::BrowseBizHawkPath => {
+                let current_path = self.bizhawk_path.clone();
+                let install_bizhawk = self.install_bizhawk;
                 return cmd(async move {
-                    Ok(if let Some(bizhawk_dir) = AsyncFileDialog::new().set_title("Choose Location for BizHawk Installation").set_directory(Path::new(&current_path)).pick_folder().await {
-                        Message::BizHawkInstallPath(bizhawk_dir.path().to_str().expect("Windows paths are valid Unicode").to_owned())
-                    } else {
-                        Message::Nop
-                    })
-                })
-            }
-            Message::BrowseBizHawkLocatePath => {
-                let current_path = self.bizhawk_locate_path.clone();
-                return cmd(async move {
-                    Ok(if let Some(bizhawk_dir) = AsyncFileDialog::new().set_title("Select BizHawk Folder").set_directory(Path::new(&current_path)).pick_folder().await {
-                        Message::BizHawkLocatePath(bizhawk_dir.path().to_str().expect("Windows paths are valid Unicode").to_owned())
+                    Ok(if let Some(bizhawk_dir) = AsyncFileDialog::new().set_title(if install_bizhawk { "Choose Location for BizHawk Installation" } else { "Select BizHawk Folder" }).set_directory(Path::new(&current_path)).pick_folder().await {
+                        Message::BizHawkPath(bizhawk_dir.path().to_str().expect("Windows paths are valid Unicode").to_owned())
                     } else {
                         Message::Nop
                     })
@@ -191,11 +170,12 @@ impl Application for State {
             Message::Continue => match self.page {
                 Page::Error(_) => unreachable!(),
                 Page::LocateBizHawk => {
+                    self.page = Page::InstallBizHawk;
                     if self.install_bizhawk {
                         //TODO also install prereqs
                         //TODO indicate progress
                         let http_client = self.http_client.clone();
-                        let bizhawk_dir = self.bizhawk_dir().to_owned();
+                        let bizhawk_dir = PathBuf::from(self.bizhawk_path.clone());
                         return cmd(async move {
                             let release = Repo::new("TASEmulators", "BizHawk").latest_release(&http_client).await?.ok_or(Error::NoBizHawkReleases)?;
                             #[cfg(all(windows, target_arch = "x86_64"))] let asset = release.assets.into_iter()
@@ -221,9 +201,10 @@ impl Application for State {
                         return cmd(async { Ok(Message::InstallTool) })
                     }
                 }
+                Page::InstallBizHawk | Page::InstallBizHawkTool => unreachable!(),
                 Page::AskLaunch => {
                     if self.open_bizhawk {
-                        let bizhawk_dir = self.bizhawk_dir();
+                        let bizhawk_dir = PathBuf::from(self.bizhawk_path.clone());
                         if let Err(e) = std::process::Command::new(bizhawk_dir.join("EmuHawk.exe")).arg("--open-ext-tool-dll=OotrMultiworld").current_dir(bizhawk_dir).spawn() {
                             return cmd(async move { Err(e.into()) })
                         }
@@ -233,7 +214,8 @@ impl Application for State {
             }
             Message::Error(e) => self.page = Page::Error(e),
             Message::InstallTool => {
-                let bizhawk_dir = self.bizhawk_dir().to_owned();
+                self.page = Page::InstallBizHawkTool;
+                let bizhawk_dir = PathBuf::from(self.bizhawk_path.clone());
                 return cmd(async move {
                     let external_tools_dir = bizhawk_dir.join("ExternalTools");
                     fs::create_dir(&external_tools_dir).await.exist_ok()?;
@@ -261,27 +243,25 @@ impl Application for State {
             Page::LocateBizHawk => {
                 let continue_btn = if self.install_bizhawk {
                     let mut btn = Button::new(Text::new("Install BizHawk"));
-                    if !self.bizhawk_install_path.is_empty() { btn = btn.on_press(Message::Continue) }
+                    if !self.bizhawk_path.is_empty() { btn = btn.on_press(Message::Continue) }
                     btn
                 } else {
                     let mut btn = Button::new(Text::new("Continue"));
-                    if !self.bizhawk_locate_path.is_empty() { btn = btn.on_press(Message::Continue) }
+                    if !self.bizhawk_path.is_empty() { btn = btn.on_press(Message::Continue) }
                     btn
                 };
                 Column::new()
                     .push(Radio::new(true, "Install BizHawk to:", Some(self.install_bizhawk), Message::SetInstallBizHawk))
-                    .push(Row::new()
-                        .push(TextInput::new("BizHawk target folder", &self.bizhawk_install_path, Message::BizHawkInstallPath))
-                        .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseBizHawkInstallPath))
-                    )
                     .push(Radio::new(false, "I already have BizHawk at:", Some(self.install_bizhawk), Message::SetInstallBizHawk))
                     .push(Row::new()
-                        .push(TextInput::new("The folder with EmuHawk.exe in it", &self.bizhawk_locate_path, Message::BizHawkLocatePath))
-                        .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseBizHawkLocatePath))
+                        .push(TextInput::new(if self.install_bizhawk { "BizHawk target folder" } else { "The folder with EmuHawk.exe in it" }, &self.bizhawk_path, Message::BizHawkPath))
+                        .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseBizHawkPath))
                     )
                     .push(continue_btn)
                     .into()
             }
+            Page::InstallBizHawk => Text::new("Installing BizHawk, please wait…").into(),
+            Page::InstallBizHawkTool => Text::new("Installing BizHawk plugin, please wait…").into(),
             Page::AskLaunch => Column::new()
                 .push(Text::new("Multiworld has been installed."))
                 .push(Text::new("To play multiworld, in BizHawk, select Tools → External Tool → OoTR multiworld."))
