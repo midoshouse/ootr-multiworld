@@ -4,17 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+async-proto = "0.15"
 async-recursion = "1"
 chrono = "0.4"
-
-[dependencies.async-proto]
-version = "0.12"
-features = ["blocking"]
-
-[dependencies.derive_more]
-version = "0.99"
-default-features = false
-features = ["from"]
+thiserror = "1"
 
 [dependencies.tokio]
 version = "1"

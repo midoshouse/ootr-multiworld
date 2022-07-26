@@ -4,13 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-async-proto = "0.12"
+async-proto = "0.15"
 chrono = "0.4"
-
-[dependencies.derive_more]
-version = "0.99"
-default-features = false
-features = ["from"]
+thiserror = "1"
 
 [dependencies.multiworld]
 path = "../multiworld"

@@ -13,7 +13,6 @@ use {
     },
     async_proto::Protocol as _,
     chrono::prelude::*,
-    derive_more::From,
     tokio::{
         io,
         net::{
@@ -37,12 +36,12 @@ use {
     },
 };
 
-#[derive(From, Debug)]
+#[derive(Debug, thiserror::Error)]
 enum SessionError {
-    Read(async_proto::ReadError),
-    #[from(ignore)]
+    #[error(transparent)] Read(#[from] async_proto::ReadError),
+    #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error("protocol version mismatch: client is version {0} but we're version {}", multiworld::VERSION)]
     VersionMismatch(u8),
-    Write(async_proto::WriteError),
 }
 
 async fn client_session(rooms: Arc<RwLock<HashMap<String, Arc<RwLock<Room>>>>>, socket_id: multiworld::SocketId, mut reader: OwnedReadHalf, writer: Arc<Mutex<OwnedWriteHalf>>) -> Result<(), SessionError> {

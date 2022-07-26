@@ -8,12 +8,9 @@ name = "multiworld"
 crate-type = ["cdylib"]
 
 [dependencies]
+async-proto = "0.15"
 itertools = "0.10"
 libc = "0.2"
-
-[dependencies.async-proto]
-version = "0.12"
-features = ["blocking"]
 
 [dependencies.multiworld]
 path = "../multiworld"

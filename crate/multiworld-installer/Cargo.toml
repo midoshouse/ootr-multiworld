@@ -5,14 +5,15 @@ edition = "2021"
 
 [dependencies]
 directories = "4"
+iced_native = "0.5"
 itertools = "0.10"
 lazy-regex = "2"
-nfd2 = "0.3"
+rfd = "0.9"
 thiserror = "1"
 
 [dependencies.iced]
-version = "0.3"
-features = ["tokio"]
+version = "0.4"
+features = ["default_system_font", "pure", "tokio"]
 
 [dependencies.reqwest]
 version = "0.11"

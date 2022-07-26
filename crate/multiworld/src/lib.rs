@@ -16,7 +16,6 @@ use {
     async_proto::Protocol,
     async_recursion::async_recursion,
     chrono::prelude::*,
-    derive_more::From,
     tokio::{
         net::tcp::OwnedWriteHalf,
         sync::Mutex,
@@ -243,11 +242,12 @@ pub enum ServerMessage {
     GetItem(u16),
 }
 
-#[derive(Debug, From)]
+#[derive(Debug, thiserror::Error)]
 pub enum ClientError {
-    Read(async_proto::ReadError),
+    #[error(transparent)] Read(#[from] async_proto::ReadError),
+    #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error("protocol version mismatch: server is version {0} but we're version {}", VERSION)]
     VersionMismatch(u8),
-    Write(async_proto::WriteError),
 }
 
 pub fn handshake_sync(tcp_stream: &mut std::net::TcpStream) -> Result<BTreeSet<String>, ClientError> {
