@@ -5,10 +5,31 @@ edition = "2021"
 
 [dependencies]
 directories = "4"
+itertools = "0.10"
 lazy-regex = "2"
-native-windows-gui = "1"
 nfd2 = "0.3"
 thiserror = "1"
+
+[dependencies.iced]
+version = "0.3"
+features = ["tokio"]
+
+[dependencies.reqwest]
+version = "0.11"
+default-features = false
+features = ["json", "rustls-tls", "trust-dns"]
+
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+
+[dependencies.tokio]
+version = "1"
+features = ["rt-multi-thread"]
+
+[dependencies.url]
+version = "2"
+features = ["serde"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
