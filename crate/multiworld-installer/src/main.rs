@@ -105,6 +105,7 @@ struct State {
     browse_bizhawk_locate_path: button::State,
     // second page: installation success, ask whether to launch BizHawk now
     open_bizhawk: bool,
+    should_exit: bool,
 }
 
 impl State {
@@ -171,9 +172,12 @@ impl Application for State {
             browse_bizhawk_install_path: button::State::default(),
             browse_bizhawk_locate_path: button::State::default(),
             open_bizhawk: true,
+            should_exit: false,
             install_bizhawk, bizhawk_install_path, bizhawk_locate_path,
         }, Command::none())
     }
+
+    fn should_exit(&self) -> bool { self.should_exit }
 
     fn title(&self) -> String { format!("OoTR Multiworld Installer") }
 
@@ -229,12 +233,15 @@ impl Application for State {
                         Message::ToolInstalled
                     }.into()
                 }
-                Page::AskLaunch => if self.open_bizhawk {
-                    let bizhawk_dir = self.bizhawk_dir();
-                    if let Err(e) = std::process::Command::new(bizhawk_dir.join("EmuHawk.exe")).arg("--open-ext-tool-dll=OotrMultiworld").current_dir(bizhawk_dir).spawn() {
-                        return async move { Message::Error(Arc::new(e.into())) }.into()
+                Page::AskLaunch => {
+                    if self.open_bizhawk {
+                        let bizhawk_dir = self.bizhawk_dir();
+                        if let Err(e) = std::process::Command::new(bizhawk_dir.join("EmuHawk.exe")).arg("--open-ext-tool-dll=OotrMultiworld").current_dir(bizhawk_dir).spawn() {
+                            return async move { Message::Error(Arc::new(e.into())) }.into()
+                        }
                     }
-                },
+                    self.should_exit = true;
+                }
             }
             Message::Error(e) => self.page = Page::Error(e),
             Message::Nop => {}
