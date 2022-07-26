@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+async_zip = "0.0.7" # 0.0.8 errors when trying to unzip BizHawk
 directories = "4"
 iced_native = "0.5"
 itertools = "0.10"
@@ -26,7 +27,7 @@ features = ["derive"]
 
 [dependencies.tokio]
 version = "1"
-features = ["rt-multi-thread"]
+features = ["fs", "rt-multi-thread"]
 
 [dependencies.url]
 version = "2"

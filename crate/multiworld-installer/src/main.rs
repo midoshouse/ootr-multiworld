@@ -20,7 +20,10 @@ use {
     itertools::Itertools as _,
     lazy_regex::regex_is_match,
     rfd::AsyncFileDialog,
-    tokio::fs,
+    tokio::fs::{
+        self,
+        File,
+    },
     wheel::traits::IoResultExt as _,
     crate::github::Repo,
 };
@@ -32,6 +35,7 @@ enum Error {
     #[error(transparent)] Io(#[from] std::io::Error),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
+    #[error(transparent)] Zip(#[from] async_zip::error::ZipError),
     #[error("got zero elements when exactly one was expected")]
     ExactlyOneEmpty,
     #[error("got at least 2 elements when exactly one was expected")]
@@ -58,6 +62,7 @@ enum Message {
     BrowseBizHawkLocatePath,
     Continue,
     Error(Arc<Error>),
+    InstallTool,
     Nop,
     SetInstallBizHawk(bool),
     SetOpenBizHawk(bool),
@@ -190,26 +195,31 @@ impl Application for State {
                         //TODO also install prereqs
                         //TODO indicate progress
                         let http_client = self.http_client.clone();
+                        let bizhawk_dir = self.bizhawk_dir().to_owned();
                         return cmd(async move {
                             let release = Repo::new("TASEmulators", "BizHawk").latest_release(&http_client).await?.ok_or(Error::NoBizHawkReleases)?;
                             #[cfg(all(windows, target_arch = "x86_64"))] let asset = release.assets.into_iter()
                                 .filter(|asset| regex_is_match!(r"^BizHawk-.+-win-x64\.zip$", &asset.name))
                                 .exactly_one()?;
-                            http_client.get(asset.browser_download_url).send().await?.error_for_status()?;
-                            unimplemented!() //TODO
+                            let mut response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
+                            let mut zip_file = async_zip::read::mem::ZipFileReader::new(&mut response).await?;
+                            let entries = zip_file.entries().iter().enumerate().map(|(idx, entry)| (idx, entry.dir(), bizhawk_dir.join(entry.name()))).collect_vec();
+                            for (idx, is_dir, path) in entries {
+                                if is_dir {
+                                    fs::create_dir_all(path).await?;
+                                } else {
+                                    if let Some(parent) = path.parent() {
+                                        fs::create_dir_all(parent).await?;
+                                    }
+                                    zip_file.entry_reader(idx).await?.copy_to_end_crc(&mut File::create(path).await?, 64 * 1024).await?;
+                                }
+                            }
+                            Ok(Message::InstallTool)
                         })
                     } else {
                         //TODO make sure BizHawk is up to date
+                        return cmd(async { Ok(Message::InstallTool) })
                     }
-                    let bizhawk_dir = self.bizhawk_dir().to_owned();
-                    return cmd(async move {
-                        let external_tools_dir = bizhawk_dir.join("ExternalTools");
-                        fs::create_dir(&external_tools_dir).await.exist_ok()?;
-                        //TODO download latest release instead of embedding in installer
-                        fs::write(external_tools_dir.join("multiworld.dll"), include_bytes!("../../../target/release/multiworld.dll")).await?;
-                        fs::write(external_tools_dir.join("OotrMultiworld.dll"), include_bytes!("../../multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/OotrMultiworld.dll")).await?;
-                        Ok(Message::ToolInstalled)
-                    })
                 }
                 Page::AskLaunch => {
                     if self.open_bizhawk {
@@ -222,6 +232,17 @@ impl Application for State {
                 }
             }
             Message::Error(e) => self.page = Page::Error(e),
+            Message::InstallTool => {
+                let bizhawk_dir = self.bizhawk_dir().to_owned();
+                return cmd(async move {
+                    let external_tools_dir = bizhawk_dir.join("ExternalTools");
+                    fs::create_dir(&external_tools_dir).await.exist_ok()?;
+                    //TODO download latest release instead of embedding in installer
+                    fs::write(external_tools_dir.join("multiworld.dll"), include_bytes!("../../../target/release/multiworld.dll")).await?;
+                    fs::write(external_tools_dir.join("OotrMultiworld.dll"), include_bytes!("../../multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/OotrMultiworld.dll")).await?;
+                    Ok(Message::ToolInstalled)
+                })
+            }
             Message::Nop => {}
             Message::SetInstallBizHawk(install_bizhawk) => self.install_bizhawk = install_bizhawk,
             Message::SetOpenBizHawk(open_bizhawk) => self.open_bizhawk = open_bizhawk,
@@ -235,7 +256,7 @@ impl Application for State {
             Page::Error(ref e) => Column::new()
                 .push(Text::new("An error occurred during the installation:"))
                 .push(Text::new(e.to_string()))
-                .push(Text::new("Please report this error to Fenhl. Debug info: {e:?}"))
+                .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")))
                 .into(),
             Page::LocateBizHawk => {
                 let continue_btn = if self.install_bizhawk {
