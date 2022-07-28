@@ -1,3 +1,6 @@
+#![deny(rust_2018_idioms, unused, unused_crate_dependencies, unused_import_braces, unused_lifetimes, unused_qualifications, warnings)]
+#![forbid(unsafe_code)]
+
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use {
@@ -142,7 +145,7 @@ impl Application for State {
                 .use_rustls_tls()
                 .https_only(true)
                 .build().expect("failed to build HTTP client"),
-            page: Page::LocateBizHawk,
+            page: Page::LocateBizHawk, //TODO choose between BizHawk and Project64
             open_bizhawk: true,
             should_exit: false,
             install_bizhawk, bizhawk_path,

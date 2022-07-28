@@ -1,3 +1,5 @@
+#![deny(rust_2018_idioms, unused, unused_crate_dependencies, unused_import_braces, unused_lifetimes, unused_qualifications, warnings)]
+
 use {
     std::{
         convert::{
@@ -15,13 +17,13 @@ use {
         time::Duration,
     },
     async_proto::Protocol,
-    itertools::Itertools as _,
     libc::c_char,
     multiworld::{
         LobbyClientMessage,
         Player,
         RoomClientMessage,
         ServerMessage,
+        format_room_state,
     },
 };
 
@@ -128,28 +130,6 @@ impl RoomClient {
         self.tcp_stream.set_nonblocking(false)?;
         msg.write_sync(&mut self.tcp_stream)
     }
-}
-
-fn render_filename(name: [u8; 8]) -> String {
-    let filename_encoding = [
-        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'あ', 'い', 'う', 'え', 'お', 'か',
-        'き', 'く', 'け', 'こ', 'さ', 'し', 'す', 'せ', 'そ', 'た', 'ち', 'つ', 'て', 'と', 'な', 'に',
-        'ぬ', 'ね', 'の', 'は', 'ひ', 'ふ', 'へ', 'ほ', 'ま', 'み', 'む', 'め', 'も', 'や', 'ゆ', 'よ',
-        'ら', 'り', 'る', 'れ', 'ろ', 'わ', 'を', 'ん', 'ぁ', 'ぃ', 'ぅ', 'ぇ', 'ぉ', 'っ', 'ゃ', 'ゅ',
-        'ょ', 'が', 'ぎ', 'ぐ', 'げ', 'ご', 'ざ', 'じ', 'ず', 'ぜ', 'ぞ', 'だ', 'ぢ', 'づ', 'で', 'ど',
-        'ば', 'び', 'ぶ', 'べ', 'ぼ', 'ぱ', 'ぴ', 'ぷ', 'ぺ', 'ぽ', 'ア', 'イ', 'ウ', 'エ', 'オ', 'カ',
-        'キ', 'ク', 'ケ', 'コ', 'サ', 'シ', 'ス', 'セ', 'ソ', 'タ', 'チ', 'ツ', 'テ', 'ト', 'ナ', 'ニ',
-        'ヌ', 'ネ', 'ノ', 'ハ', 'ヒ', 'フ', 'ヘ', 'ホ', 'マ', 'ミ', 'ム', 'メ', 'モ', 'ヤ', 'ユ', 'ヨ',
-        'ラ', 'リ', 'ル', 'レ', 'ロ', 'ワ', 'ヲ', 'ン', 'ァ', 'ィ', 'ゥ', 'ェ', 'ォ', 'ッ', 'ャ', 'ュ',
-        'ョ', 'ガ', 'ギ', 'グ', 'ゲ', 'ゴ', 'ザ', 'ジ', 'ズ', 'ゼ', 'ゾ', 'ダ', 'ヂ', 'ヅ', 'デ', 'ド',
-        'バ', 'ビ', 'ブ', 'ベ', 'ボ', 'パ', 'ピ', 'プ', 'ペ', 'ポ', 'ヴ', 'A', 'B', 'C', 'D', 'E',
-        'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U',
-        'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k',
-        'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', ' ',
-        '┬', '?', '!', ':', '-', '(', ')', '゛', '゜', ',', '.', '/', '�', '�', '�', '�',
-        '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�',
-    ];
-    name.into_iter().map(|c| filename_encoding[usize::from(c)]).collect()
 }
 
 #[no_mangle] pub extern "C" fn connect_ipv4() -> HandleOwned<DebugResult<LobbyClient>> {
@@ -382,27 +362,7 @@ fn render_filename(name: [u8; 8]) -> String {
 /// `room_client` must point at a valid `RoomClient`.
 #[no_mangle] pub unsafe extern "C" fn room_client_format_state(room_client: *const RoomClient) -> StringHandle {
     let room_client = &*room_client;
-    StringHandle::from_string(match (room_client.players.len(), room_client.num_unassigned_clients) {
-        (0, 0) => unreachable!(), // the current client should always be in the room
-        (0, unassigned) => format!("{unassigned} client{} with no world", if unassigned == 1 { "" } else { "s" }),
-        (_, unassigned) => {
-            let mut buf = room_client.players.iter()
-                .map(|player| if player.name == Player::DEFAULT_NAME {
-                    if room_client.last_world == Some(player.world) {
-                        format!("{}. [create save file 1 to set name]", player.world)
-                    } else {
-                        format!("{}. [unnamed]", player.world)
-                    }
-                } else {
-                    format!("{}. {}", player.world, render_filename(player.name))
-                })
-                .join("\r\n");
-            if unassigned > 0 {
-                buf.push_str(&format!("\r\n…and {unassigned} client{} with no world", if unassigned == 1 { "" } else { "s" }));
-            }
-            buf
-        }
-    })
+    StringHandle::from_string(format_room_state(&room_client.players, room_client.num_unassigned_clients, room_client.last_world))
 }
 
 /// Attempts to read a message from the server if one is available, without blocking if there is not.

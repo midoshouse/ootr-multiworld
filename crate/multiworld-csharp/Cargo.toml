@@ -9,7 +9,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 async-proto = "0.15"
-itertools = "0.10"
 libc = "0.2"
 
 [dependencies.multiworld]

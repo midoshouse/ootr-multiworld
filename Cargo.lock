@@ -1800,6 +1800,7 @@ dependencies = [
  "async-proto",
  "async-recursion",
  "chrono",
+ "itertools",
  "thiserror",
  "tokio",
 ]
@@ -1813,7 +1814,6 @@ name = "multiworld-csharp"
 version = "0.1.0"
 dependencies = [
  "async-proto",
- "itertools",
  "libc",
  "multiworld",
 ]
@@ -1834,6 +1834,22 @@ dependencies = [
  "thiserror",
  "tokio",
  "url",
+ "wheel",
+]
+
+[[package]]
+name = "multiworld-pj64-gui"
+version = "0.1.0"
+dependencies = [
+ "async-proto",
+ "futures",
+ "iced",
+ "iced_futures",
+ "iced_native",
+ "itertools",
+ "multiworld",
+ "thiserror",
+ "tokio",
  "wheel",
 ]
 
