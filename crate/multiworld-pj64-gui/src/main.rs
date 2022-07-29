@@ -285,7 +285,7 @@ impl Application for State {
                 .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")))
                 .into()
         } else if self.pj64_writer.is_none() {
-            Text::new("Waiting for Project64…\n\n1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw-pj64.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.").into()
+            Text::new("Waiting for Project64…\n\n1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.").into()
         } else {
             match self.server_connection {
                 ServerConnectionState::Error(ref e) => Column::new()

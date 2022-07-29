@@ -6,11 +6,20 @@ edition = "2021"
 [dependencies]
 async_zip = "0.0.7" # 0.0.8 errors when trying to unzip BizHawk
 directories = "4"
+futures = "0.3"
 iced_native = "0.5"
+is_elevated = "0.1"
 itertools = "0.10"
+kuchiki = "0.8"
 lazy-regex = "2"
 rfd = "0.9"
+runas = "0.2"
+tempfile = "3"
 thiserror = "1"
+
+[dependencies.clap]
+version = "3"
+features = ["derive"]
 
 [dependencies.iced]
 version = "0.4"
@@ -19,7 +28,7 @@ features = ["default_system_font", "pure", "tokio"]
 [dependencies.reqwest]
 version = "0.11"
 default-features = false
-features = ["json", "rustls-tls", "trust-dns"]
+features = ["json", "rustls-tls", "stream", "trust-dns"]
 
 [dependencies.serde]
 version = "1"
@@ -27,7 +36,11 @@ features = ["derive"]
 
 [dependencies.tokio]
 version = "1"
-features = ["fs", "rt-multi-thread"]
+features = ["fs", "process", "rt-multi-thread"]
+
+[dependencies.tokio-util]
+version = "0.7"
+features = ["io"]
 
 [dependencies.url]
 version = "2"
