@@ -435,6 +435,13 @@ namespace Net.Fenhl.OotrMultiworld {
 
         public override void Restart() {
             APIs.Memory.SetBigEndian(true);
+            if ((APIs.GameInfo.GetGameInfo()?.Name ?? "Null") == "Null") {
+                this.state.Text = "Please open the ROM…";
+                HideUI();
+                return;
+            } else {
+                ShowUI();
+            }
             this.playerID = null;
             if (this.roomClient != null) {
                 ReadPlayerID();
@@ -664,7 +671,25 @@ namespace Net.Fenhl.OotrMultiworld {
                 this.roomClient.Dispose();
                 this.roomClient = null;
             }
-            //TODO replace the rest of the GUI with a reset button
+            HideUI();
+        }
+
+        private void HideUI() {
+            this.rooms.Visible = false;
+            this.password.Visible = false;
+            this.createJoinButton.Visible = false;
+            this.roomState.Visible = false;
+        }
+
+        private void ShowUI() {
+            if (this.lobbyClient != null) {
+                this.rooms.Visible = true;
+                this.password.Visible = true;
+                this.createJoinButton.Visible = true;
+            }
+            if (this.roomClient != null) {
+                this.roomState.Visible = true;
+            }
         }
     }
 }
