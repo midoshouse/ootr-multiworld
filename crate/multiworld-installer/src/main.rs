@@ -93,6 +93,7 @@ enum Message {
     Exit,
     InstallMultiworld,
     Nop,
+    SetCreateDesktopShortcut(bool),
     SetEmulator(Emulator),
     SetInstallEmulator(bool),
     SetOpenEmulator(bool),
@@ -153,6 +154,8 @@ impl fmt::Display for Emulator {
 struct State {
     http_client: reqwest::Client,
     page: Page,
+    // Page::LocateEmulator
+    create_desktop_shortcut: bool,
     // Page::AskLaunch
     open_emulator: bool,
     should_exit: bool,
@@ -175,6 +178,7 @@ impl Application for State {
                 emulator_path: None,
                 emulator,
             },
+            create_desktop_shortcut: true,
             open_emulator: true,
             should_exit: false,
         }, if emulator.is_some() {
@@ -299,6 +303,7 @@ impl Application for State {
                             //TODO indicate progress
                             let client = self.http_client.clone();
                             let emulator_path_arg = format!("/DIR={emulator_path}");
+                            let create_desktop_shortcut = self.create_desktop_shortcut;
                             return cmd(async move {
                                 let front_page_url = Url::parse("https://www.pj64-emu.com/")?;
                                 let front_page = client.get(front_page_url.clone())
@@ -323,7 +328,13 @@ impl Application for State {
                                     let installer = tempfile::Builder::new().prefix("pj64-installer-").suffix(".exe").tempfile()?;
                                     io::copy_buf(&mut StreamReader::new(client.get(download_url).send().await?.error_for_status()?.bytes_stream().map_err(io_error_from_reqwest)), &mut File::from_std(installer.reopen()?)).await?;
                                     let installer_path = installer.into_temp_path();
-                                    tokio::process::Command::new(&installer_path).arg("/SILENT").arg(emulator_path_arg).arg("/MERGETASKS=!desktopicon").check("Project64 installer").await?; //TODO set desktop icon if requested by user
+                                    let mut installer = tokio::process::Command::new(&installer_path);
+                                    installer.arg("/SILENT");
+                                    installer.arg(emulator_path_arg);
+                                    if !create_desktop_shortcut {
+                                        installer.arg("/MERGETASKS=!desktopicon");
+                                    }
+                                    installer.check("Project64 installer").await?;
                                 }
                                 Ok(Message::InstallMultiworld)
                             })
@@ -382,6 +393,7 @@ impl Application for State {
                 }
             }
             Message::Nop => {}
+            Message::SetCreateDesktopShortcut(create_desktop_shortcut) => self.create_desktop_shortcut = create_desktop_shortcut,
             Message::SetEmulator(new_emulator) => if let Page::SelectEmulator { ref mut emulator, .. } = self.page { *emulator = Some(new_emulator) },
             Message::SetInstallEmulator(new_install_emulator) => if let Page::LocateEmulator { ref mut install_emulator, .. } = self.page { *install_emulator = new_install_emulator },
             Message::SetOpenEmulator(open_emulator) => self.open_emulator = open_emulator,
@@ -426,23 +438,25 @@ impl Application for State {
                     if !emulator_path.is_empty() { btn = btn.on_press(Message::Continue) }
                     btn
                 };
-                Column::new()
-                    .push(Radio::new(true, format!("Install {emulator} to:"), Some(install_emulator), Message::SetInstallEmulator))
-                    .push(Radio::new(false, format!("I already have {emulator} at:"), Some(install_emulator), Message::SetInstallEmulator))
-                    .push(Row::new()
-                        .push(TextInput::new(&if install_emulator {
-                            Cow::Owned(format!("{emulator} target folder"))
-                        } else {
-                            match emulator {
-                                Emulator::BizHawk => Cow::Borrowed("The folder with EmuHawk.exe in it"),
-                                Emulator::Project64 => Cow::Borrowed("The folder with Project64.exe in it"),
-                            }
-                        }, emulator_path, Message::EmulatorPath))
-                        .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseEmulatorPath))
-                    )
-                    //TODO option to set desktop shortcut (Project64 only)
-                    .push(continue_btn)
-                    .into()
+                let mut col = Column::new();
+                col = col.push(Radio::new(true, format!("Install {emulator} to:"), Some(install_emulator), Message::SetInstallEmulator));
+                col = col.push(Radio::new(false, format!("I already have {emulator} at:"), Some(install_emulator), Message::SetInstallEmulator));
+                col = col.push(Row::new()
+                    .push(TextInput::new(&if install_emulator {
+                        Cow::Owned(format!("{emulator} target folder"))
+                    } else {
+                        match emulator {
+                            Emulator::BizHawk => Cow::Borrowed("The folder with EmuHawk.exe in it"),
+                            Emulator::Project64 => Cow::Borrowed("The folder with Project64.exe in it"),
+                        }
+                    }, emulator_path, Message::EmulatorPath))
+                    .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseEmulatorPath))
+                );
+                if let Emulator::Project64 = emulator {
+                    col = col.push(Checkbox::new(self.create_desktop_shortcut, "Create desktop shortcut", Message::SetCreateDesktopShortcut));
+                }
+                col = col.push(continue_btn);
+                col.into()
             }
             Page::InstallEmulator { emulator, .. } => match emulator {
                 Emulator::BizHawk => Text::new("Installing BizHawk, please wait…"),
