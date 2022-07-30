@@ -504,7 +504,7 @@ impl Application for State {
                     }, emulator_path, Message::EmulatorPath))
                     .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseEmulatorPath))
                 );
-                if let Emulator::Project64 = emulator {
+                if install_emulator && matches!(emulator, Emulator::Project64) {
                     col = col.push(Checkbox::new(self.create_desktop_shortcut, "Create desktop shortcut", Message::SetCreateDesktopShortcut));
                 }
                 col = col.push(continue_btn);
