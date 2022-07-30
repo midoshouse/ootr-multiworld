@@ -279,28 +279,42 @@ impl Application for State {
                 .push(Text::new("An error occurred:"))
                 .push(Text::new(e.to_string()))
                 .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")))
+                .spacing(8)
+                .padding(8)
                 .into()
         } else if let Some(ref e) = self.pj64_subscription_error {
             Column::new()
                 .push(Text::new("An error occurred during communication with Project64:"))
                 .push(Text::new(e.to_string()))
                 .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")))
+                .spacing(8)
+                .padding(8)
                 .into()
         } else if self.pj64_writer.is_none() {
-            Text::new("Waiting for Project64…\n\n1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.").into()
+            Column::new()
+                .push(Text::new("Waiting for Project64…\n\n1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window."))
+                .spacing(8)
+                .padding(8)
+                .into()
         } else {
             match self.server_connection {
                 ServerConnectionState::Error(ref e) => Column::new()
                     .push(Text::new("An error occurred during communication with the server:"))
                     .push(Text::new(e.to_string()))
                     .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")))
+                    .spacing(8)
+                    .padding(8)
                     .into(),
-                ServerConnectionState::Init => Text::new("Connecting to server…").into(),
+                ServerConnectionState::Init => Column::new()
+                    .push(Text::new("Connecting to server…"))
+                    .spacing(8)
+                    .padding(8)
+                    .into(),
                 ServerConnectionState::Lobby { ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password } => Column::new()
                     .push(Radio::new(false, "Connect to existing room", Some(create_new_room), Message::SetCreateNewRoom))
                     .push(Radio::new(true, "Create new room", Some(create_new_room), Message::SetCreateNewRoom))
                     .push(if create_new_room {
-                        Element::from(TextInput::new("Room name", new_room_name, Message::SetNewRoomName).on_submit(Message::JoinRoom))
+                        Element::from(TextInput::new("Room name", new_room_name, Message::SetNewRoomName).on_submit(Message::JoinRoom).padding(5))
                     } else {
                         if rooms.is_empty() {
                             Text::new("(no rooms currently open)").into()
@@ -308,14 +322,20 @@ impl Application for State {
                             PickList::new(rooms.iter().cloned().collect_vec(), existing_room_selection.clone(), Message::SetExistingRoomSelection).into()
                         }
                     })
-                    .push(TextInput::new("Password", password, Message::SetPassword).password().on_submit(Message::JoinRoom))
+                    .push(TextInput::new("Password", password, Message::SetPassword).password().on_submit(Message::JoinRoom).padding(5))
                     .push({
                         let mut btn = Button::new(Text::new("Connect"));
                         if if create_new_room { !new_room_name.is_empty() } else { existing_room_selection.is_some() } && !password.is_empty() { btn = btn.on_press(Message::JoinRoom) }
                         btn
                     })
+                    .spacing(8)
+                    .padding(8)
                     .into(),
-                ServerConnectionState::Room { ref players, num_unassigned_clients, .. } => Text::new(format_room_state(players, num_unassigned_clients, self.player_id)).into(),
+                ServerConnectionState::Room { ref players, num_unassigned_clients, .. } => Column::new()
+                    .push(Text::new(format_room_state(players, num_unassigned_clients, self.player_id)))
+                    .spacing(8)
+                    .padding(8)
+                    .into(),
             }
         }
     }

@@ -488,7 +488,8 @@ impl Application for State {
                 Into::<Element<'_, Message>>::into(Column::new()
                     .push(Text::new("An error occurred during the installation:"))
                     .push(Text::new(e.to_string()))
-                    .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")))),
+                    .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")))
+                    .spacing(8)),
                 None,
             ),
             Page::Elevated => (
@@ -501,6 +502,7 @@ impl Application for State {
                     .push(Text::new("Multiworld can be added to an existing installation of the selected emulator, or it can install the emulator for you."))
                     .push(Radio::new(Emulator::BizHawk, "BizHawk", emulator, Message::SetEmulator))
                     .push(Radio::new(Emulator::Project64, "Project64", emulator, Message::SetEmulator))
+                    .spacing(8)
                     .into(),
                 Some({
                     let mut row = Row::new();
@@ -508,7 +510,7 @@ impl Application for State {
                         row = row.push(Image::new(image::Handle::from_memory(include_bytes!("../../../assets/uac.png").to_vec())).height(Length::Units(20)));
                     }
                     row = row.push(Text::new("Continue"));
-                    (Into::<Element<'_, Message>>::into(row), emulator.is_some())
+                    (Into::<Element<'_, Message>>::into(row.spacing(8)), emulator.is_some())
                 })
             ),
             Page::LocateEmulator { emulator, install_emulator, ref emulator_path, .. } => (
@@ -524,13 +526,14 @@ impl Application for State {
                                 Emulator::BizHawk => Cow::Borrowed("The folder with EmuHawk.exe in it"),
                                 Emulator::Project64 => Cow::Borrowed("The folder with Project64.exe in it"),
                             }
-                        }, emulator_path, Message::EmulatorPath))
+                        }, emulator_path, Message::EmulatorPath).padding(5))
                         .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseEmulatorPath))
+                        .spacing(8)
                     );
                     if install_emulator && matches!(emulator, Emulator::Project64) {
                         col = col.push(Checkbox::new(self.create_desktop_shortcut, "Create desktop shortcut", Message::SetCreateDesktopShortcut));
                     }
-                    col.into()
+                    col.spacing(8).into()
                 },
                 Some((
                     if install_emulator { Text::new(format!("Install {emulator}")) } else { Text::new("Continue") }.into(),
@@ -548,9 +551,11 @@ impl Application for State {
                 Column::new()
                     .push(Text::new("Install Multiworld to:"))
                     .push(Row::new()
-                        .push(TextInput::new("Multiworld target folder", multiworld_path, Message::MultiworldPath))
+                        .push(TextInput::new("Multiworld target folder", multiworld_path, Message::MultiworldPath).padding(5))
                         .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseMultiworldPath))
+                        .spacing(8)
                     )
+                    .spacing(8)
                     .into(),
                 Some((Text::new(format!("Install Multiworld")).into(), !multiworld_path.is_empty())),
             ),
@@ -569,7 +574,7 @@ impl Application for State {
                             col = col.push(Checkbox::new(self.open_emulator, "Open Multiworld and Project64 now", Message::SetOpenEmulator));
                         }
                     }
-                    col.into()
+                    col.spacing(8).into()
                 },
                 Some((Text::new("Finish").into(), true)),
             ),
@@ -584,12 +589,11 @@ impl Application for State {
             if enabled { next_btn = next_btn.on_press(Message::Continue) }
             bottom_row = bottom_row.push(next_btn);
         }
-        Row::new()
-            .push(Column::new()
-                .push(top)
-                .push(Space::with_height(Length::Fill))
-                .push(bottom_row)
-            )
+        Column::new()
+            .push(top)
+            .push(Space::with_height(Length::Fill))
+            .push(bottom_row.spacing(8))
+            .spacing(8)
             .padding(8)
             .into()
     }
