@@ -12,7 +12,7 @@ ThrowOnNativeFailure
 cargo build --release --package=multiworld-bizhawk
 ThrowOnNativeFailure
 
-cargo build --release --package=pj64-gui
+cargo build --release --package=multiworld-pj64-gui
 ThrowOnNativeFailure
 
 cargo build --release --package=multiworld-installer

@@ -1,6 +1,8 @@
 #![deny(rust_2018_idioms, unused, unused_crate_dependencies, unused_import_braces, unused_lifetimes, unused_qualifications, warnings)]
 #![forbid(unsafe_code)]
 
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use {
     std::{
         collections::BTreeSet,
@@ -119,7 +121,7 @@ impl Application for State {
         }, Command::none())
     }
 
-        fn title(&self) -> String { format!("OoTR Multiworld") }
+        fn title(&self) -> String { format!("OoTR Multiworld for Project64") }
 
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {

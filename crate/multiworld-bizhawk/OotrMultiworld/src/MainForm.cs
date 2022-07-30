@@ -324,7 +324,7 @@ namespace Net.Fenhl.OotrMultiworld {
         private ApiContainer APIs => _apiContainer ?? throw new NullReferenceException();
 
         public override bool BlocksInputWhenFocused { get; } = false;
-        protected override string WindowTitleStatic => "OoTR multiworld";
+        protected override string WindowTitleStatic => "OoTR Multiworld for BizHawk";
 
         public override bool AskSaveChanges() => true; //TODO warn before leaving an active game?
 
