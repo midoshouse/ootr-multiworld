@@ -86,6 +86,7 @@ impl<I: Iterator> From<itertools::ExactlyOneError<I>> for Error {
 
 #[derive(Debug, Clone)]
 enum Message {
+    Back,
     BrowseEmulatorPath,
     BrowseMultiworldPath,
     Continue,
@@ -208,6 +209,17 @@ impl Application for State {
 
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
+            Message::Back => self.page = match self.page {
+                Page::Error(_) | Page::Elevated | Page::SelectEmulator { .. } => unreachable!(),
+                Page::LocateEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => Page::SelectEmulator { emulator: Some(emulator), install_emulator: Some(install_emulator), emulator_path: Some(emulator_path.clone()), multiworld_path: multiworld_path.clone() },
+                Page::InstallEmulator { .. } => unreachable!(),
+                Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
+                Page::InstallMultiworld { .. } => unreachable!(),
+                Page::AskLaunch { emulator, ref emulator_path, ref multiworld_path } => match emulator {
+                    Emulator::BizHawk => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
+                    Emulator::Project64 => Page::LocateMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone().expect("multiworld app path must be set for Project64") },
+                },
+            },
             Message::BrowseEmulatorPath => if let Page::LocateEmulator { emulator, install_emulator, ref emulator_path, .. } = self.page {
                 let current_path = emulator_path.clone();
                 return cmd(async move {
@@ -457,96 +469,115 @@ impl Application for State {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        match self.page {
-            Page::Error(ref e) => Column::new()
-                .push(Text::new("An error occurred during the installation:"))
-                .push(Text::new(e.to_string()))
-                .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")))
-                .into(),
-            Page::Elevated => Text::new("The installer has been reopened with admin permissions. Please continue there.").into(),
-            Page::SelectEmulator { emulator, .. } => Column::new()
-                .push(Text::new("Which emulator do you want to use?"))
-                .push(Text::new("Multiworld can be added to an existing installation of the selected emulator, or it can install the emulator for you."))
-                .push(Radio::new(Emulator::BizHawk, "BizHawk", emulator, Message::SetEmulator))
-                .push(Radio::new(Emulator::Project64, "Project64", emulator, Message::SetEmulator))
-                .push({
+        let (top, next_btn) = match self.page {
+            Page::Error(ref e) => (
+                Into::<Element<'_, Message>>::into(Column::new()
+                    .push(Text::new("An error occurred during the installation:"))
+                    .push(Text::new(e.to_string()))
+                    .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")))),
+                None,
+            ),
+            Page::Elevated => (
+                Text::new("The installer has been reopened with admin permissions. Please continue there.").into(),
+                None,
+            ),
+            Page::SelectEmulator { emulator, .. } => (
+                Column::new()
+                    .push(Text::new("Which emulator do you want to use?"))
+                    .push(Text::new("Multiworld can be added to an existing installation of the selected emulator, or it can install the emulator for you."))
+                    .push(Radio::new(Emulator::BizHawk, "BizHawk", emulator, Message::SetEmulator))
+                    .push(Radio::new(Emulator::Project64, "Project64", emulator, Message::SetEmulator))
+                    .into(),
+                Some({
                     let mut row = Row::new();
                     if matches!(emulator, Some(Emulator::Project64)) && !is_elevated() {
                         row = row.push(Image::new(image::Handle::from_memory(include_bytes!("../../../assets/uac.png").to_vec())).height(Length::Units(20)));
                     }
                     row = row.push(Text::new("Continue"));
-                    let mut btn = Button::new(row);
-                    if emulator.is_some() { btn = btn.on_press(Message::Continue) }
-                    btn
+                    (Into::<Element<'_, Message>>::into(row), emulator.is_some())
                 })
-                .into(),
-            Page::LocateEmulator { emulator, install_emulator, ref emulator_path, .. } => {
-                let continue_btn = if install_emulator {
-                    let mut btn = Button::new(Text::new(format!("Install {emulator}")));
-                    if !emulator_path.is_empty() { btn = btn.on_press(Message::Continue) }
-                    btn
-                } else {
-                    let mut btn = Button::new(Text::new("Continue"));
-                    if !emulator_path.is_empty() { btn = btn.on_press(Message::Continue) }
-                    btn
-                };
-                let mut col = Column::new();
-                col = col.push(Radio::new(true, format!("Install {emulator} to:"), Some(install_emulator), Message::SetInstallEmulator));
-                col = col.push(Radio::new(false, format!("I already have {emulator} at:"), Some(install_emulator), Message::SetInstallEmulator));
-                col = col.push(Row::new()
-                    .push(TextInput::new(&if install_emulator {
-                        Cow::Owned(format!("{emulator} target folder"))
-                    } else {
-                        match emulator {
-                            Emulator::BizHawk => Cow::Borrowed("The folder with EmuHawk.exe in it"),
-                            Emulator::Project64 => Cow::Borrowed("The folder with Project64.exe in it"),
-                        }
-                    }, emulator_path, Message::EmulatorPath))
-                    .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseEmulatorPath))
-                );
-                if install_emulator && matches!(emulator, Emulator::Project64) {
-                    col = col.push(Checkbox::new(self.create_desktop_shortcut, "Create desktop shortcut", Message::SetCreateDesktopShortcut));
-                }
-                col = col.push(continue_btn);
-                col.into()
-            }
-            Page::InstallEmulator { emulator, .. } => match emulator {
-                Emulator::BizHawk => Text::new("Installing BizHawk, please wait…"),
-                Emulator::Project64 => Text::new("Installing Project64, please wait…"),
-            }.into(),
-            Page::LocateMultiworld { ref multiworld_path, .. } => {
-                let continue_btn = {
-                    let mut btn = Button::new(Text::new(format!("Install Multiworld")));
-                    if !multiworld_path.is_empty() { btn = btn.on_press(Message::Continue) }
-                    btn
-                };
+            ),
+            Page::LocateEmulator { emulator, install_emulator, ref emulator_path, .. } => (
+                {
+                    let mut col = Column::new();
+                    col = col.push(Radio::new(true, format!("Install {emulator} to:"), Some(install_emulator), Message::SetInstallEmulator));
+                    col = col.push(Radio::new(false, format!("I already have {emulator} at:"), Some(install_emulator), Message::SetInstallEmulator));
+                    col = col.push(Row::new()
+                        .push(TextInput::new(&if install_emulator {
+                            Cow::Owned(format!("{emulator} target folder"))
+                        } else {
+                            match emulator {
+                                Emulator::BizHawk => Cow::Borrowed("The folder with EmuHawk.exe in it"),
+                                Emulator::Project64 => Cow::Borrowed("The folder with Project64.exe in it"),
+                            }
+                        }, emulator_path, Message::EmulatorPath))
+                        .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseEmulatorPath))
+                    );
+                    if install_emulator && matches!(emulator, Emulator::Project64) {
+                        col = col.push(Checkbox::new(self.create_desktop_shortcut, "Create desktop shortcut", Message::SetCreateDesktopShortcut));
+                    }
+                    col.into()
+                },
+                Some((
+                    if install_emulator { Text::new(format!("Install {emulator}")) } else { Text::new("Continue") }.into(),
+                    !emulator_path.is_empty(),
+                )),
+            ),
+            Page::InstallEmulator { emulator, .. } => (
+                match emulator {
+                    Emulator::BizHawk => Text::new("Installing BizHawk, please wait…"),
+                    Emulator::Project64 => Text::new("Installing Project64, please wait…"),
+                }.into(),
+                None,
+            ),
+            Page::LocateMultiworld { ref multiworld_path, .. } => (
                 Column::new()
                     .push(Text::new("Install Multiworld to:"))
                     .push(Row::new()
                         .push(TextInput::new("Multiworld target folder", multiworld_path, Message::MultiworldPath))
                         .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseMultiworldPath))
                     )
-                    .push(continue_btn)
-                    .into()
-            }
-            Page::InstallMultiworld { .. } => Text::new("Installing multiworld, please wait…").into(),
-            Page::AskLaunch { emulator, .. } => {
-                let mut col = Column::new();
-                col = col.push(Text::new("Multiworld has been installed."));
-                match emulator {
-                    Emulator::BizHawk => {
-                        col = col.push(Text::new("To play multiworld, in BizHawk, select Tools → External Tool → OoTR multiworld."));
-                        col = col.push(Checkbox::new(self.open_emulator, "Open BizHawk now", Message::SetOpenEmulator));
+                    .into(),
+                Some((Text::new(format!("Install Multiworld")).into(), !multiworld_path.is_empty())),
+            ),
+            Page::InstallMultiworld { .. } => (Text::new("Installing multiworld, please wait…").into(), None),
+            Page::AskLaunch { emulator, .. } => (
+                {
+                    let mut col = Column::new();
+                    col = col.push(Text::new("Multiworld has been installed."));
+                    match emulator {
+                        Emulator::BizHawk => {
+                            col = col.push(Text::new("To play multiworld, in BizHawk, select Tools → External Tool → OoTR multiworld."));
+                            col = col.push(Checkbox::new(self.open_emulator, "Open BizHawk now", Message::SetOpenEmulator));
+                        }
+                        Emulator::Project64 => {
+                            col = col.push(Text::new("To play multiworld, open the “OoTR Multiworld for Project64” app and follow its instructions."));
+                            col = col.push(Checkbox::new(self.open_emulator, "Open Multiworld and Project64 now", Message::SetOpenEmulator));
+                        }
                     }
-                    Emulator::Project64 => {
-                        col = col.push(Text::new("To play multiworld, open the “OoTR Multiworld for Project64” app and follow its instructions."));
-                        col = col.push(Checkbox::new(self.open_emulator, "Open Multiworld and Project64 now", Message::SetOpenEmulator));
-                    }
-                }
-                col = col.push(Button::new(Text::new("Finish")).on_press(Message::Continue));
-                col.into()
+                    col.into()
+                },
+                Some((Text::new("Finish").into(), true)),
+            ),
+        };
+        let mut bottom_row = Row::new();
+        if let Some((btn_content, enabled)) = next_btn {
+            if !matches!(self.page, Page::SelectEmulator { .. }) {
+                bottom_row = bottom_row.push(Button::new(Text::new("Back")).on_press(Message::Back));
             }
+            bottom_row = bottom_row.push(Space::with_width(Length::Fill));
+            let mut next_btn = Button::new(btn_content);
+            if enabled { next_btn = next_btn.on_press(Message::Continue) }
+            bottom_row = bottom_row.push(next_btn);
         }
+        Row::new()
+            .push(Column::new()
+                .push(top)
+                .push(Space::with_height(Length::Fill))
+                .push(bottom_row)
+            )
+            .padding(8)
+            .into()
     }
 }
 
