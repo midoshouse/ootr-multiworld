@@ -269,7 +269,7 @@ impl RoomClient {
 /// # Safety
 ///
 /// `str_res` must point at a valid `DebugResult<String>`. This function takes ownership of the `DebugResult`.
-#[no_mangle] pub unsafe extern "C" fn str_result_unwrap(str_res: HandleOwned<DebugResult<String>>) -> StringHandle {
+#[no_mangle] pub unsafe extern "C" fn string_result_unwrap(str_res: HandleOwned<DebugResult<String>>) -> StringHandle {
     StringHandle::from_string(str_res.into_box().debug_unwrap())
 }
 
