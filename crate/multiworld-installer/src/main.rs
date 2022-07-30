@@ -184,6 +184,7 @@ enum Page {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+#[clap(rename_all = "lower")]
 enum Emulator {
     BizHawk,
     Project64,

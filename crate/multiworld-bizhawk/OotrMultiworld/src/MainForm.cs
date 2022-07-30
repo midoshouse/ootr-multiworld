@@ -439,13 +439,12 @@ namespace Net.Fenhl.OotrMultiworld {
                 this.state.Text = "Please open the ROM…";
                 HideUI();
                 return;
-            } else {
-                ShowUI();
             }
             this.playerID = null;
             if (this.roomClient != null) {
                 ReadPlayerID();
                 SyncPlayerNames();
+                ShowUI();
             } else if (this.lobbyClient == null) {
                 using (var res6 = Native.connect_ipv6()) {
                     if (res6.IsOk()) {
@@ -464,6 +463,7 @@ namespace Net.Fenhl.OotrMultiworld {
                         }
                     }
                 }
+                ShowUI();
             }
         }
 

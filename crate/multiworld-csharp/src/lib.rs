@@ -245,7 +245,12 @@ impl RoomClient {
     let lobby_client = &mut *lobby_client;
     HandleOwned::new(match lobby_client.try_read() {
         Ok(Some(ServerMessage::Error(e))) => Err(DebugError(e)),
-        Ok(Some(ServerMessage::NewRoom(name))) => Ok(name),
+        Ok(Some(ServerMessage::NewRoom(name))) => {
+            if let Err(idx) = lobby_client.rooms.binary_search(&name) {
+                lobby_client.rooms.insert(idx, name.clone());
+            }
+            Ok(name)
+        }
         Ok(Some(msg)) => Err(DebugError(format!("{msg:?}"))),
         Ok(None) => Ok(String::default()),
         Err(e) => Err(DebugError::from(e)),
