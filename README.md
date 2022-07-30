@@ -2,13 +2,13 @@ This is an alternative implementation of [multiworld](https://wiki.ootrandomizer
 
 # Feature comparison
 
-|Feature|[bizhawk-co-op](https://github.com/TestRunnerSRL/bizhawk-co-op)|fenhl/ootr-multiworld|
+|Feature|[bizhawk-co-op](https://github.com/TestRunnerSRL/bizhawk-co-op)|Mido's House Multiworld|
 |---|---|---|
 |[Project64](https://pj64-emu.com/) support||✓|
 |support for older versions of BizHawk|✓||
 |better performance on BizHawk||✓|
 |no port forwarding or Hamachi required||✓|
-|can be used via LAN without an internet connection|✓|planned ([#3](https://github.com/fenhl/ootr-multiworld/issues/3))|
+|can be used via LAN without an internet connection|✓|planned ([#3](https://github.com/midoshouse/ootr-multiworld/issues/3))|
 |easier setup: player name and world number are read from the game||✓|
 |prevents players from accidentally using the same world number||✓|
 |support for some other games|✓||

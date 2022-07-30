@@ -30,7 +30,7 @@ var itemQueue = [];
 var remainingItems = 0;
 var sock = new Socket();
 sock.on('close', function() {
-    throw 'connection to multiworld server lost';
+    throw 'connection to multiworld app lost';
 });
 sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
     const handshake = new ArrayBuffer(1);

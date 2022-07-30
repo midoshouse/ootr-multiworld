@@ -239,7 +239,7 @@ impl Application for State {
 
     fn should_exit(&self) -> bool { self.should_exit }
 
-    fn title(&self) -> String { format!("OoTR Multiworld Installer") }
+    fn title(&self) -> String { format!("Mido's House Multiworld Installer") }
 
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
@@ -277,7 +277,7 @@ impl Application for State {
                     if let Some(current_path) = current_path {
                         dialog = dialog.set_directory(&current_path);
                     }
-                    dialog = dialog.set_file_name("OoTR Multiworld for Project64.exe");
+                    dialog = dialog.set_file_name("Mido's House Multiworld for Project64.exe");
                     dialog = dialog.add_filter("Windows executable", &["exe"]);
                     Ok(if let Some(multiworld_path) = dialog.save_file().await {
                         Message::MultiworldPath(multiworld_path.path().to_str().expect("Windows paths are valid Unicode").to_owned())
@@ -510,7 +510,7 @@ impl Application for State {
                 };
                 match emulator {
                     Emulator::BizHawk => return cmd(future::ok(Message::InstallMultiworld)),
-                    Emulator::Project64 => self.page = Page::LocateMultiworld { emulator, emulator_path, multiworld_path: multiworld_path.or_else(|| UserDirs::new().map(|user_dirs| user_dirs.home_dir().join("bin").join("OoTR Multiworld for Project64.exe").into_os_string().into_string().expect("Windows paths are valid Unicode"))).unwrap_or_default() },
+                    Emulator::Project64 => self.page = Page::LocateMultiworld { emulator, emulator_path, multiworld_path: multiworld_path.or_else(|| UserDirs::new().map(|user_dirs| user_dirs.home_dir().join("bin").join("Mido's House Multiworld for Project64.exe").into_os_string().into_string().expect("Windows paths are valid Unicode"))).unwrap_or_default() },
                 }
             }
             Message::MultiworldInstalled => if let Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path } = self.page {
@@ -610,11 +610,11 @@ impl Application for State {
                     col = col.push(Text::new("Multiworld has been installed."));
                     match emulator {
                         Emulator::BizHawk => {
-                            col = col.push(Text::new("To play multiworld, in BizHawk, select Tools → External Tool → OoTR multiworld."));
+                            col = col.push(Text::new("To play multiworld, in BizHawk, select Tools → External Tool → Mido's House Multiworld for BizHawk."));
                             col = col.push(Checkbox::new(self.open_emulator, "Open BizHawk now", Message::SetOpenEmulator));
                         }
                         Emulator::Project64 => {
-                            col = col.push(Text::new("To play multiworld, open the “OoTR Multiworld for Project64” app and follow its instructions."));
+                            col = col.push(Text::new("To play multiworld, open the “Mido's House Multiworld for Project64” app and follow its instructions."));
                             col = col.push(Checkbox::new(self.open_emulator, "Open Multiworld and Project64 now", Message::SetOpenEmulator));
                         }
                     }

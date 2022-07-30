@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -9,7 +8,7 @@ using System.Windows.Forms;
 using BizHawk.Client.Common;
 using BizHawk.Client.EmuHawk;
 
-namespace Net.Fenhl.OotrMultiworld {
+namespace MidosHouse.OotrMultiworld {
     internal class Native {
         [DllImport("multiworld")] internal static extern LobbyClientResult connect_ipv4();
         [DllImport("multiworld")] internal static extern LobbyClientResult connect_ipv6();
@@ -340,7 +339,7 @@ namespace Net.Fenhl.OotrMultiworld {
         }
     }
 
-    [ExternalTool("OoTR multiworld", Description = "Play interconnected Ocarina of Time Randomizer seeds")]
+    [ExternalTool("Mido's House Multiworld", Description = "Play interconnected Ocarina of Time Randomizer seeds")]
     public sealed class MainForm : ToolFormBase, IExternalToolForm {
         private Label state = new Label();
         private ComboBox rooms = new ComboBox();
@@ -358,7 +357,7 @@ namespace Net.Fenhl.OotrMultiworld {
         private ApiContainer APIs => _apiContainer ?? throw new NullReferenceException();
 
         public override bool BlocksInputWhenFocused { get; } = false;
-        protected override string WindowTitleStatic => "OoTR Multiworld for BizHawk";
+        protected override string WindowTitleStatic => "Mido's House Multiworld for BizHawk";
 
         public override bool AskSaveChanges() => true; //TODO warn before leaving an active game?
 

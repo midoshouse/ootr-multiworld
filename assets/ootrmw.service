@@ -1,5 +1,5 @@
 [Unit]
-Description=Ocarina of Time Randomizer multiworld server
+Description=Mido's House Ocarina of Time Randomizer multiworld server
 After=network-online.target
 Wants=network-online.target
 
@@ -9,7 +9,7 @@ ExecStartPre=/usr/bin/git pull
 ExecStart=/home/fenhl/.cargo/bin/cargo run --release --package=ootrmwd
 User=fenhl
 Group=fenhl
-WorkingDirectory=/opt/git/github.com/fenhl/ootr-multiworld/master
+WorkingDirectory=/opt/git/github.com/midoshouse/ootr-multiworld/master
 
 [Install]
 WantedBy=multi-user.target

@@ -121,7 +121,7 @@ impl Application for State {
         }, Command::none())
     }
 
-        fn title(&self) -> String { format!("OoTR Multiworld for Project64") }
+        fn title(&self) -> String { format!("Mido's House Multiworld for Project64") }
 
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
