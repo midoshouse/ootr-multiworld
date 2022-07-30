@@ -34,7 +34,7 @@ use {
 pub const ADDRESS_V4: Ipv4Addr = Ipv4Addr::new(37, 252, 122, 84);
 pub const ADDRESS_V6: Ipv6Addr = Ipv6Addr::new(0x2a02, 0x2770, 0x8, 0, 0x21a, 0x4aff, 0xfee1, 0xf281);
 pub const PORT: u16 = 24809;
-pub const VERSION: u8 = 0;
+pub const VERSION: u8 = 1;
 
 const TRIFORCE_PIECE: u16 = 0xca;
 
@@ -61,13 +61,14 @@ impl Player {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Item {
     pub source: NonZeroU8,
     pub key: u32,
     pub kind: u16,
 }
 
+#[derive(Debug)]
 pub struct Room {
     pub password: String,
     pub clients: HashMap<SocketId, (Option<Player>, Arc<Mutex<OwnedWriteHalf>>)>,
@@ -224,6 +225,8 @@ pub enum RoomClientMessage {
 pub enum ServerMessage {
     /// An error has occurred. Contains a human-readable error message.
     Error(String),
+    /// A new room has been created.
+    NewRoom(String),
     /// You have created or joined a room.
     EnterRoom {
         players: Vec<Player>,

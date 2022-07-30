@@ -195,6 +195,10 @@ impl Application for State {
                     rooms,
                 };
             }
+            Message::Server(ServerMessage::Error(e)) => if !matches!(self.server_connection, ServerConnectionState::Error(_)) {
+                self.server_connection = ServerConnectionState::Error(Arc::new(Error::Server(e)));
+            },
+            Message::Server(ServerMessage::NewRoom(name)) => if let ServerConnectionState::Lobby { ref mut rooms, .. } = self.server_connection { rooms.insert(name); },
             Message::Server(ServerMessage::EnterRoom { players, num_unassigned_clients }) => {
                 self.server_connection = ServerConnectionState::Room { players: players.clone(), num_unassigned_clients };
                 let server_writer = self.server_writer.clone().expect("join room button only appears when connected to server");
@@ -216,9 +220,6 @@ impl Application for State {
                     Ok(Message::Nop)
                 })
             }
-            Message::Server(ServerMessage::Error(e)) => if !matches!(self.server_connection, ServerConnectionState::Error(_)) {
-                self.server_connection = ServerConnectionState::Error(Arc::new(Error::Server(e)));
-            },
             Message::Server(ServerMessage::PlayerId(world)) => if let ServerConnectionState::Room { ref mut players, ref mut num_unassigned_clients, .. } = self.server_connection {
                 if let Err(idx) = players.binary_search_by_key(&world, |p| p.world) {
                     players.insert(idx, Player::new(world));

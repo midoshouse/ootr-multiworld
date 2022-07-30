@@ -21,6 +21,11 @@ namespace Net.Fenhl.OotrMultiworld {
         [DllImport("multiworld")] internal static extern void string_free(IntPtr s);
         [DllImport("multiworld")] internal static extern ulong lobby_client_num_rooms(LobbyClient lobby_client);
         [DllImport("multiworld")] internal static extern StringHandle lobby_client_room_name(LobbyClient lobby_client, ulong i);
+        [DllImport("multiworld")] internal static extern StringResult lobby_client_try_recv_new_room(LobbyClient lobbyClient);
+        [DllImport("multiworld")] internal static extern void string_result_free(IntPtr str_res);
+        [DllImport("multiworld")] internal static extern bool string_result_is_ok(StringResult str_res);
+        [DllImport("multiworld")] internal static extern StringHandle string_result_unwrap(IntPtr str_res);
+        [DllImport("multiworld")] internal static extern StringHandle string_result_debug_err(IntPtr str_res);
         [DllImport("multiworld")] internal static extern RoomClientResult lobby_client_room_connect(IntPtr lobby_client, OwnedStringHandle room_name, OwnedStringHandle password);
         [DllImport("multiworld")] internal static extern void room_client_result_free(IntPtr room_client_res);
         [DllImport("multiworld")] internal static extern bool room_client_result_is_ok(RoomClientResult room_client_res);
@@ -89,8 +94,8 @@ namespace Net.Fenhl.OotrMultiworld {
         }
 
         internal ulong NumRooms() => Native.lobby_client_num_rooms(this);
-
         internal StringHandle RoomName(ulong i) => Native.lobby_client_room_name(this, i);
+        internal StringResult TryRecvNewRoom() => Native.lobby_client_try_recv_new_room(this);
 
         internal RoomClientResult CreateJoinRoom(string roomName, string password) {
             using (var nameHandle = new OwnedStringHandle(roomName)) {
@@ -260,6 +265,35 @@ namespace Net.Fenhl.OotrMultiworld {
         internal void Apply(RoomClient roomClient) {
             Native.room_client_apply_message(roomClient, this.handle);
             this.handle = IntPtr.Zero; // room_client_apply_message takes ownership of the message
+        }
+    }
+
+    internal class StringResult : SafeHandle {
+        internal StringResult() : base(IntPtr.Zero, true) {}
+
+        public override bool IsInvalid {
+            get { return this.handle == IntPtr.Zero; }
+        }
+
+        protected override bool ReleaseHandle() {
+            if (!this.IsInvalid) {
+                Native.string_result_free(this.handle);
+            }
+            return true;
+        }
+
+        internal bool IsOk() => Native.string_result_is_ok(this);
+
+        internal StringHandle Unwrap() {
+            var s = Native.string_result_unwrap(this.handle);
+            this.handle = IntPtr.Zero; // string_result_unwrap takes ownership
+            return s;
+        }
+
+        internal StringHandle DebugErr() {
+            var err = Native.string_result_debug_err(this.handle);
+            this.handle = IntPtr.Zero; // string_result_debug_err takes ownership
+            return err;
         }
     }
 
@@ -447,7 +481,22 @@ namespace Net.Fenhl.OotrMultiworld {
             if ((APIs.GameInfo.GetGameInfo()?.Name ?? "Null") == "Null") {
                 return;
             }
-            if (this.roomClient != null) {
+            if (this.lobbyClient != null) {
+                using (var res = this.lobbyClient.TryRecvNewRoom()) {
+                    if (res.IsOk()) {
+                        using (var newRoom = res.Unwrap()) {
+                            var name = newRoom.AsString();
+                            if (name.Length > 0) {
+                                this.rooms.Items.Add(newRoom.AsString());
+                            }
+                        }
+                    } else {
+                        using (var err = res.DebugErr()) {
+                            Error(err.AsString());
+                        }
+                    }
+                }
+            } else if (this.roomClient != null) {
                 if (this.playerID == null) {
                     ReadPlayerID();
                 } else {

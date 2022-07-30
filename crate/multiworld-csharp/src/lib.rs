@@ -45,12 +45,13 @@ impl From<FfiBool> for bool {
 #[repr(transparent)]
 pub struct HandleOwned<T: ?Sized>(*mut T);
 
-impl<T: ?Sized> HandleOwned<T> {
-    fn new(value: T) -> HandleOwned<T>
-    where T: Sized {
-        HandleOwned(Box::into_raw(Box::new(value)))
+impl<T> HandleOwned<T> {
+    fn new(value: T) -> Self {
+        Self(Box::into_raw(Box::new(value)))
     }
+}
 
+impl<T: ?Sized> HandleOwned<T> {
     /// # Safety
     ///
     /// `self` must point at a valid `T`. This function takes ownership of the `T`.
@@ -63,8 +64,8 @@ impl<T: ?Sized> HandleOwned<T> {
 type StringHandle = HandleOwned<c_char>;
 
 impl StringHandle {
-    fn from_string(s: impl ToString) -> StringHandle {
-        HandleOwned(CString::new(s.to_string()).unwrap().into_raw())
+    fn from_string(s: impl ToString) -> Self {
+        Self(CString::new(s.to_string()).unwrap().into_raw())
     }
 }
 
@@ -106,7 +107,20 @@ impl<T> DebugResultExt for DebugResult<T> {
 #[derive(Debug)]
 pub struct LobbyClient {
     tcp_stream: TcpStream,
+    buf: Vec<u8>,
     rooms: Vec<String>,
+}
+
+impl LobbyClient {
+    fn try_read<T: Protocol>(&mut self) -> Result<Option<T>, async_proto::ReadError> {
+        self.tcp_stream.set_nonblocking(true)?;
+        T::try_read(&mut self.tcp_stream, &mut self.buf)
+    }
+
+    fn write(&mut self, msg: &impl Protocol) -> Result<(), async_proto::WriteError> {
+        self.tcp_stream.set_nonblocking(false)?;
+        msg.write_sync(&mut self.tcp_stream)
+    }
 }
 
 #[derive(Debug)]
@@ -140,8 +154,9 @@ impl RoomClient {
             tcp_stream.set_write_timeout(Some(Duration::from_secs(30)))?;
             let rooms = multiworld::handshake_sync(&mut tcp_stream)?;
             Ok(LobbyClient {
-                tcp_stream,
+                buf: Vec::default(),
                 rooms: rooms.into_iter().collect(),
+                tcp_stream,
             })
         }))
 }
@@ -154,8 +169,9 @@ impl RoomClient {
             tcp_stream.set_write_timeout(Some(Duration::from_secs(30)))?;
             let rooms = multiworld::handshake_sync(&mut tcp_stream)?;
             Ok(LobbyClient {
-                tcp_stream,
+                buf: Vec::default(),
                 rooms: rooms.into_iter().collect(),
+                tcp_stream,
             })
         }))
 }
@@ -220,6 +236,50 @@ impl RoomClient {
     StringHandle::from_string(&(&*lobby_client).rooms[usize::try_from(i).expect("index out of range")])
 }
 
+/// Attempts to read a message from the server if one is available, without blocking if there is not. Returns the name of the newly opened room, or an empty string if none was opened.
+///
+/// # Safety
+///
+/// `lobby_client` must point at a valid `LobbyClient`.
+#[no_mangle] pub unsafe extern "C" fn lobby_client_try_recv_new_room(lobby_client: *mut LobbyClient) -> HandleOwned<DebugResult<String>> {
+    let lobby_client = &mut *lobby_client;
+    HandleOwned::new(match lobby_client.try_read() {
+        Ok(Some(ServerMessage::Error(e))) => Err(DebugError(e)),
+        Ok(Some(ServerMessage::NewRoom(name))) => Ok(name),
+        Ok(Some(msg)) => Err(DebugError(format!("{msg:?}"))),
+        Ok(None) => Ok(String::default()),
+        Err(e) => Err(DebugError::from(e)),
+    })
+}
+
+/// # Safety
+///
+/// `str_res` must point at a valid `DebugResult<String>`. This function takes ownership of the `DebugResult`.
+#[no_mangle] pub unsafe extern "C" fn string_result_free(str_res: HandleOwned<DebugResult<String>>) {
+    let _ = str_res.into_box();
+}
+
+/// # Safety
+///
+/// `str_res` must point at a valid `DebugResult<String>`.
+#[no_mangle] pub unsafe extern "C" fn string_result_is_ok(str_res: *const DebugResult<String>) -> FfiBool {
+    (&*str_res).is_ok().into()
+}
+
+/// # Safety
+///
+/// `str_res` must point at a valid `DebugResult<String>`. This function takes ownership of the `DebugResult`.
+#[no_mangle] pub unsafe extern "C" fn str_result_unwrap(str_res: HandleOwned<DebugResult<String>>) -> StringHandle {
+    StringHandle::from_string(str_res.into_box().debug_unwrap())
+}
+
+/// # Safety
+///
+/// `str_res` must point at a valid `DebugResult<String>`. This function takes ownership of the `DebugResult`.
+#[no_mangle] pub unsafe extern "C" fn string_result_debug_err(str_res: HandleOwned<DebugResult<String>>) -> StringHandle {
+    StringHandle::from_string(str_res.into_box().unwrap_err())
+}
+
 /// # Safety
 ///
 /// `lobby_client` must point at a valid `LobbyClient`. This function takes ownership of the `LobbyClient`. `room_name` and `password` must be null-terminated UTF-8 strings.
@@ -228,15 +288,23 @@ impl RoomClient {
     let name = CStr::from_ptr(room_name).to_str().expect("room name was not valid UTF-8").to_owned();
     let password = CStr::from_ptr(password).to_str().expect("room name was not valid UTF-8");
     HandleOwned::new(if lobby_client.rooms.contains(&name) {
-        LobbyClientMessage::JoinRoom { name, password: password.to_owned() }.write_sync(&mut lobby_client.tcp_stream)
+        lobby_client.write(&LobbyClientMessage::JoinRoom { name, password: password.to_owned() })
     } else {
-        LobbyClientMessage::CreateRoom { name, password: password.to_owned() }.write_sync(&mut lobby_client.tcp_stream)
+        lobby_client.write(&LobbyClientMessage::CreateRoom { name, password: password.to_owned() })
     }.map_err(DebugError::from)
-    .and_then(|()| ServerMessage::read_sync(&mut lobby_client.tcp_stream).map_err(DebugError::from))
-    .and_then(|msg| match msg {
-        ServerMessage::Error(e) => Err(DebugError(e)),
-        ServerMessage::EnterRoom { players, num_unassigned_clients } => Ok((players, num_unassigned_clients)),
-        _ => Err(DebugError(format!("{:?}", msg))),
+    .and_then(|()| if lobby_client.buf.is_empty() {
+        Ok(())
+    } else {
+        Err(DebugError(format!("residual data in lobby client buffer upon room join"))) //TODO add blocking read with buffer prefix to async-proto?
+    })
+    .and_then(|()| loop {
+        break match ServerMessage::read_sync(&mut lobby_client.tcp_stream) {
+            Ok(ServerMessage::Error(e)) => Err(DebugError(e)),
+            Ok(ServerMessage::NewRoom(_)) => continue,
+            Ok(ServerMessage::EnterRoom { players, num_unassigned_clients }) => Ok((players, num_unassigned_clients)),
+            Ok(msg) => Err(DebugError(format!("{msg:?}"))),
+            Err(e) => Err(DebugError::from(e)),
+        }
     })
     .map(|(players, num_unassigned_clients)| RoomClient {
         players, num_unassigned_clients,
@@ -431,7 +499,8 @@ impl RoomClient {
 #[no_mangle] pub unsafe extern "C" fn message_effect_type(msg: *const ServerMessage) -> u8 {
     let msg = &*msg;
     match msg {
-        ServerMessage::Error(_) => unreachable!(),
+        ServerMessage::Error(_) |
+        ServerMessage::NewRoom(_) => unreachable!(),
         ServerMessage::EnterRoom { .. } |
         ServerMessage::PlayerId(_) |
         ServerMessage::ResetPlayerId(_) |
@@ -459,6 +528,7 @@ impl RoomClient {
         ServerMessage::PlayerDisconnected(world) |
         ServerMessage::PlayerName(world, _) => world.get(),
         ServerMessage::Error(_) |
+        ServerMessage::NewRoom(_) |
         ServerMessage::EnterRoom { .. } |
         ServerMessage::ClientConnected |
         ServerMessage::UnregisteredClientDisconnected |
@@ -489,7 +559,7 @@ impl RoomClient {
 #[no_mangle] pub unsafe extern "C" fn room_client_apply_message(room_client: *mut RoomClient, msg: HandleOwned<ServerMessage>) {
     let room_client = &mut *room_client;
     match *msg.into_box() {
-        ServerMessage::Error(_) => unreachable!(),
+        ServerMessage::Error(_) | ServerMessage::NewRoom(_) => unreachable!(),
         ServerMessage::EnterRoom { players, num_unassigned_clients } => {
             room_client.players = players;
             room_client.num_unassigned_clients = num_unassigned_clients;
