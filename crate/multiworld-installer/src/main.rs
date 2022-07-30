@@ -316,11 +316,25 @@ impl Application for State {
                     self.page = Page::InstallEmulator { emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
                     match emulator {
                         Emulator::BizHawk => {
-                            //TODO also install BizHawk prereqs
                             //TODO indicate progress
                             let http_client = self.http_client.clone();
                             let bizhawk_dir = PathBuf::from(emulator_path);
                             return cmd(async move {
+                                // install BizHawk-Prereqs
+                                let release = Repo::new("TASEmulators", "BizHawk-Prereqs").latest_release(&http_client).await?.ok_or(Error::NoBizHawkReleases)?;
+                                let asset = release.assets.into_iter()
+                                    .filter(|asset| regex_is_match!(r"^bizhawk_prereqs_v.+\.zip$", &asset.name))
+                                    .exactly_one()?;
+                                let mut response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
+                                let mut zip_file = async_zip::read::mem::ZipFileReader::new(&mut response).await?;
+                                let _ = zip_file.entries().iter().exactly_one()?;
+                                {
+                                    let prereqs = tempfile::Builder::new().prefix("bizhawk_prereqs_").suffix(".exe").tempfile()?;
+                                    zip_file.entry_reader(0).await?.copy_to_end_crc(&mut File::from_std(prereqs.reopen()?), 64 * 1024).await?;
+                                    let prereqs_path = prereqs.into_temp_path();
+                                    runas::Command::new(&prereqs_path).status()?.check("BizHawk-Prereqs")?;
+                                }
+                                // install BizHawk itself
                                 let release = Repo::new("TASEmulators", "BizHawk").latest_release(&http_client).await?.ok_or(Error::NoBizHawkReleases)?;
                                 #[cfg(all(windows, target_arch = "x86_64"))] let asset = release.assets.into_iter()
                                     .filter(|asset| regex_is_match!(r"^BizHawk-.+-win-x64\.zip$", &asset.name))
