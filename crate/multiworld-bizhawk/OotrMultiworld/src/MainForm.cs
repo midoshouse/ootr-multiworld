@@ -380,17 +380,7 @@ namespace Net.Fenhl.OotrMultiworld {
             this.rooms.AutoCompleteMode = AutoCompleteMode.Append;
             this.rooms.AutoCompleteSource = AutoCompleteSource.ListItems;
             this.rooms.TextChanged += (s, e) => {
-                if (this.rooms.Enabled && this.rooms.Text.Length > 0) {
-                    this.createJoinButton.Enabled = this.password.Text.Length > 0;
-                    if (this.rooms.Items.Contains(this.rooms.Text)) {
-                        this.createJoinButton.Text = "Join";
-                    } else {
-                        this.createJoinButton.Text = "Create";
-                    }
-                } else {
-                    this.createJoinButton.Enabled = false;
-                    this.createJoinButton.Text = "Create/Join";
-                }
+                this.LobbyStateChanged();
             };
             this.Controls.Add(this.rooms);
 
@@ -495,6 +485,7 @@ namespace Net.Fenhl.OotrMultiworld {
                             var name = newRoom.AsString();
                             if (name.Length > 0) {
                                 this.rooms.Items.Add(newRoom.AsString());
+                                this.LobbyStateChanged();
                             }
                         }
                     } else {
@@ -658,6 +649,20 @@ namespace Net.Fenhl.OotrMultiworld {
                         }
                     }
                 }
+            }
+        }
+
+        private void LobbyStateChanged() {
+            if (this.rooms.Enabled && this.rooms.Text.Length > 0) {
+                this.createJoinButton.Enabled = this.password.Text.Length > 0;
+                if (this.rooms.Items.Contains(this.rooms.Text)) {
+                    this.createJoinButton.Text = "Join";
+                } else {
+                    this.createJoinButton.Text = "Create";
+                }
+            } else {
+                this.createJoinButton.Enabled = false;
+                this.createJoinButton.Text = "Create/Join";
             }
         }
 
