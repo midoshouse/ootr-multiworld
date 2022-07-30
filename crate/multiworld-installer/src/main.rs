@@ -23,6 +23,7 @@ use {
     },
     iced::{
         Command,
+        Length,
         Settings,
         pure::{
             Application,
@@ -405,7 +406,12 @@ impl Application for State {
                 .push(Radio::new(Emulator::BizHawk, "BizHawk", emulator, Message::SetEmulator))
                 .push(Radio::new(Emulator::Project64, "Project64", emulator, Message::SetEmulator))
                 .push({
-                    let mut btn = Button::new(Text::new("Continue")); //TODO if Project64 is selected and we're not already elevated, show a UAC icon on the button (before the text)
+                    let mut row = Row::new();
+                    if matches!(emulator, Some(Emulator::Project64)) && !is_elevated() {
+                        row = row.push(Image::new(image::Handle::from_memory(include_bytes!("../../../assets/uac.png").to_vec())).height(Length::Units(20)));
+                    }
+                    row = row.push(Text::new("Continue"));
+                    let mut btn = Button::new(row);
                     if emulator.is_some() { btn = btn.on_press(Message::Continue) }
                     btn
                 })

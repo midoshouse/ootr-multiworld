@@ -23,7 +23,7 @@ features = ["derive"]
 
 [dependencies.iced]
 version = "0.4"
-features = ["default_system_font", "pure", "tokio"]
+features = ["default_system_font", "image", "pure", "tokio"]
 
 [dependencies.reqwest]
 version = "0.11"
