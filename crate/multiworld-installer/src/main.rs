@@ -5,6 +5,7 @@
 use {
     std::{
         borrow::Cow,
+        collections::BTreeMap,
         env,
         fmt,
         path::{
@@ -37,6 +38,10 @@ use {
     kuchiki::traits::TendrilSink as _,
     lazy_regex::regex_is_match,
     rfd::AsyncFileDialog,
+    serde::{
+        Deserialize,
+        Serialize,
+    },
     tokio::{
         fs::{
             self,
@@ -58,6 +63,8 @@ mod github;
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
+    #[error(transparent)] IniDe(#[from] serde_ini::de::Error),
+    #[error(transparent)] IniSer(#[from] serde_ini::ser::Error),
     #[error(transparent)] Io(#[from] std::io::Error),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
@@ -111,6 +118,32 @@ fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) ->
             Err(e) => Message::Error(Arc::new(e.into())),
         }
     })))
+}
+
+#[derive(Default, Deserialize, Serialize)]
+struct Pj64Config {
+    #[serde(rename = "Settings")]
+    settings: Pj64ConfigSettings,
+    #[serde(rename = "Debugger")]
+    debugger: Pj64ConfigDebugger,
+    #[serde(flatten)]
+    rest: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+#[derive(Default, Deserialize, Serialize)]
+struct Pj64ConfigSettings {
+    #[serde(rename = "Basic Mode")]
+    basic_mode: u8,
+    #[serde(flatten)]
+    rest: BTreeMap<String, String>,
+}
+
+#[derive(Default, Deserialize, Serialize)]
+struct Pj64ConfigDebugger {
+    #[serde(rename = "Debugger")]
+    debugger: u8,
+    #[serde(flatten)]
+    rest: BTreeMap<String, String>,
 }
 
 enum Page {
@@ -452,7 +485,17 @@ impl Application for State {
                             fs::create_dir(&scripts_path).await.exist_ok()?;
                             //TODO download latest release instead of embedding in installer
                             fs::write(scripts_path.join("ootrmw.js"), include_bytes!("../../../assets/ootrmw-pj64.js")).await?;
-                            //TODO adjust Config/Project64.cfg (Settings.Basic Mode = 0, Debugger.Debugger = 1)
+                            let config_path = emulator_dir.join("Config");
+                            fs::create_dir(&config_path).await.exist_ok()?;
+                            let config_path = config_path.join("Project64.cfg");
+                            let mut config = match fs::read_to_string(&config_path).await {
+                                Ok(config) => serde_ini::from_str(&config)?,
+                                Err(e) if e.kind() == io::ErrorKind::NotFound => Pj64Config::default(),
+                                Err(e) => return Err(e.into()),
+                            };
+                            config.settings.basic_mode = 0;
+                            config.debugger.debugger = 1;
+                            fs::write(config_path, serde_ini::to_vec(&config)?).await?;
                             Ok(Message::MultiworldInstalled)
                         })
                     }

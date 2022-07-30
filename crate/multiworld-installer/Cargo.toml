@@ -14,6 +14,7 @@ kuchiki = "0.8"
 lazy-regex = "2"
 rfd = "0.9"
 runas = "0.2"
+serde_ini = "0.2"
 tempfile = "3"
 thiserror = "1"
 
