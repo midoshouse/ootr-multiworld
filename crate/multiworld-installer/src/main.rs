@@ -122,9 +122,9 @@ fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) ->
 
 #[derive(Default, Deserialize, Serialize)]
 struct Pj64Config {
-    #[serde(rename = "Settings")]
+    #[serde(rename = "Settings", default)]
     settings: Pj64ConfigSettings,
-    #[serde(rename = "Debugger")]
+    #[serde(rename = "Debugger", default)]
     debugger: Pj64ConfigDebugger,
     #[serde(flatten)]
     rest: BTreeMap<String, BTreeMap<String, String>>,
