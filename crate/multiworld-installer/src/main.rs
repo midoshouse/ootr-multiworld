@@ -354,6 +354,7 @@ impl Application for State {
                             let http_client = self.http_client.clone();
                             let bizhawk_dir = PathBuf::from(emulator_path);
                             return cmd(async move {
+                                fs::create_dir_all(&bizhawk_dir).await?;
                                 // install BizHawk-Prereqs
                                 let release = Repo::new("TASEmulators", "BizHawk-Prereqs").latest_release(&http_client).await?.ok_or(Error::NoBizHawkReleases)?;
                                 let asset = release.assets.into_iter()
@@ -480,6 +481,7 @@ impl Application for State {
                     Emulator::Project64 => {
                         let multiworld_path = multiworld_path.expect("multiworld app path must be set for Project64");
                         return cmd(async move {
+                            fs::create_dir_all(&multiworld_path).await?;
                             //TODO download latest release instead of embedding in installer
                             fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-pj64-gui.exe")).await?;
                             let scripts_path = emulator_dir.join("Scripts");
