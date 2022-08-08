@@ -1,4 +1,5 @@
 #![deny(rust_2018_idioms, unused, unused_crate_dependencies, unused_import_braces, unused_lifetimes, unused_qualifications, warnings)]
+#![forbid(unsafe_code)]
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -56,10 +57,8 @@ use {
         IoResultExt as _,
         SyncCommandOutputExt as _,
     },
-    crate::github::Repo,
+    multiworld::github::Repo,
 };
-
-mod github;
 
 #[derive(Debug, thiserror::Error)]
 enum Error {

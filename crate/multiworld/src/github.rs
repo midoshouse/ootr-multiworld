@@ -3,24 +3,32 @@ use {
         Client,
         StatusCode,
     },
+    semver::Version,
     serde::Deserialize,
     url::Url,
 };
 
 #[derive(Debug, Clone, Deserialize)]
-pub(crate) struct Release {
-    pub(crate) assets: Vec<ReleaseAsset>,
+pub struct Release {
+    pub assets: Vec<ReleaseAsset>,
+    tag_name: String,
+}
+
+impl Release {
+    pub fn version(&self) -> Result<Version, semver::Error> {
+        self.tag_name[1..].parse()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub(crate) struct ReleaseAsset {
-    pub(crate) name: String,
-    pub(crate) browser_download_url: Url,
+pub struct ReleaseAsset {
+    pub name: String,
+    pub browser_download_url: Url,
 }
 
 /// A GitHub repository. Provides API methods.
 #[derive(Clone)]
-pub(crate) struct Repo {
+pub struct Repo {
     /// The GitHub user or organization who owns this repo.
     user: String,
     /// The name of the repo.
@@ -28,14 +36,14 @@ pub(crate) struct Repo {
 }
 
 impl Repo {
-    pub(crate) fn new(user: impl ToString, name: impl ToString) -> Self {
+    pub fn new(user: impl ToString, name: impl ToString) -> Self {
         Self {
             user: user.to_string(),
             name: name.to_string(),
         }
     }
 
-    pub(crate) async fn latest_release(&self, client: &Client) -> reqwest::Result<Option<Release>> {
+    pub async fn latest_release(&self, client: &Client) -> reqwest::Result<Option<Release>> {
         let response = client.get(&format!("https://api.github.com/repos/{}/{}/releases/latest", self.user, self.name))
             .send().await?;
         if response.status() == StatusCode::NOT_FOUND { return Ok(None) } // no releases yet

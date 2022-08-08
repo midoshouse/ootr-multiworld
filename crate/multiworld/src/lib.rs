@@ -20,6 +20,7 @@ use {
     async_recursion::async_recursion,
     chrono::prelude::*,
     itertools::Itertools as _,
+    semver::Version,
     tokio::{
         net::{
             TcpStream,
@@ -31,10 +32,13 @@ use {
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
 #[cfg(windows)] use std::os::windows::io::AsRawSocket;
 
+pub mod github;
+
 pub const ADDRESS_V4: Ipv4Addr = Ipv4Addr::new(37, 252, 122, 84);
 pub const ADDRESS_V6: Ipv6Addr = Ipv6Addr::new(0x2a02, 0x2770, 0x8, 0, 0x21a, 0x4aff, 0xfee1, 0xf281);
 pub const PORT: u16 = 24809;
-pub const VERSION: u8 = 1;
+
+pub fn version() -> u8 { Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version").major.try_into().expect("version number does not fit into u8") }
 
 const TRIFORCE_PIECE: u16 = 0xca;
 
@@ -256,21 +260,21 @@ pub enum ServerMessage {
 pub enum ClientError {
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
-    #[error("protocol version mismatch: server is version {0} but we're version {}", VERSION)]
+    #[error("protocol version mismatch: server is version {0} but we're version {}", version())]
     VersionMismatch(u8),
 }
 
 pub async fn handshake(tcp_stream: &mut TcpStream) -> Result<BTreeSet<String>, ClientError> {
-    VERSION.write(tcp_stream).await?;
+    version().write(tcp_stream).await?;
     let server_version = u8::read(tcp_stream).await?;
-    if server_version != VERSION { return Err(ClientError::VersionMismatch(server_version)) }
+    if server_version != version() { return Err(ClientError::VersionMismatch(server_version)) }
     Ok(BTreeSet::read(tcp_stream).await?)
 }
 
 pub fn handshake_sync(tcp_stream: &mut std::net::TcpStream) -> Result<BTreeSet<String>, ClientError> {
-    VERSION.write_sync(tcp_stream)?;
+    version().write_sync(tcp_stream)?;
     let server_version = u8::read_sync(tcp_stream)?;
-    if server_version != VERSION { return Err(ClientError::VersionMismatch(server_version)) }
+    if server_version != version() { return Err(ClientError::VersionMismatch(server_version)) }
     Ok(BTreeSet::read_sync(tcp_stream)?)
 }
 

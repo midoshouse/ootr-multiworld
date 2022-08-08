@@ -6,6 +6,9 @@ function ThrowOnNativeFailure {
 
 #TODO make sure BizHawk is up to date
 
+cargo build --release --package=multiworld-updater
+ThrowOnNativeFailure
+
 cargo build --release --package=multiworld-csharp
 ThrowOnNativeFailure
 

@@ -63,7 +63,7 @@ impl<H: Hasher, I> Recipe<H, I> for Pj64Listener {
 
     fn stream(self: Box<Self>, _: BoxStream<'_, I>) -> BoxStream<'_, Message> {
         stream::once(TcpListener::bind((Ipv4Addr::LOCALHOST, 24818)))
-            .and_then(|listener| async move { listener.accept().await })
+            .and_then(|listener| async move { listener.accept().await }) //TODO keep accepting new connections after previous ones close
             .err_into()
             .and_then(|(mut tcp_stream, _)| async move {
                 MW_PJ64_PROTO_VERSION.write(&mut tcp_stream).await?;

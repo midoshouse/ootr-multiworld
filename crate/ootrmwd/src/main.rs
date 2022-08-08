@@ -52,7 +52,7 @@ use {
 enum SessionError {
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
-    #[error("protocol version mismatch: client is version {0} but we're version {}", multiworld::VERSION)]
+    #[error("protocol version mismatch: client is version {0} but we're version {}", multiworld::version())]
     VersionMismatch(u8),
 }
 
@@ -65,9 +65,9 @@ async fn client_session(rooms_handle: ctrlflow::Handle<Rooms>, socket_id: multiw
         }};
     }
 
-    multiworld::VERSION.write(&mut *writer.lock().await).await?;
+    multiworld::version().write(&mut *writer.lock().await).await?;
     let client_version = u8::read(&mut reader).await?;
-    if client_version != multiworld::VERSION { return Err::<(), _>(SessionError::VersionMismatch(client_version)) }
+    if client_version != multiworld::version() { return Err::<(), _>(SessionError::VersionMismatch(client_version)) }
     let (mut room_tx, mut rooms, mut room_stream) = {
         // finish handshake by sending room list (treated as a single packet)
         let mut writer = writer.lock().await;

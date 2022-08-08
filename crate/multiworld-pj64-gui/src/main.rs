@@ -6,11 +6,13 @@
 use {
     std::{
         collections::BTreeSet,
+        env,
         future::Future,
         num::NonZeroU8,
         sync::Arc,
     },
     async_proto::Protocol as _,
+    directories::ProjectDirs,
     iced::{
         Command,
         Settings,
@@ -23,7 +25,10 @@ use {
         window,
     },
     itertools::Itertools as _,
+    semver::Version,
     tokio::{
+        fs,
+        io,
         net::tcp::OwnedWriteHalf,
         sync::Mutex,
     },
@@ -33,6 +38,7 @@ use {
         RoomClientMessage,
         ServerMessage,
         format_room_state,
+        github::Repo,
     },
 };
 
@@ -43,9 +49,13 @@ const MW_PJ64_PROTO_VERSION: u8 = 0; //TODO sync with JS code
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
     #[error(transparent)] Client(#[from] multiworld::ClientError),
-    #[error(transparent)] Io(#[from] tokio::io::Error),
+    #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
+    #[error(transparent)] Reqwest(#[from] reqwest::Error),
+    #[error(transparent)] Semver(#[from] semver::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error("user folder not found")]
+    MissingHomeDir,
     #[error("server error: {0}")]
     Server(String),
     #[error("protocol version mismatch: Project64 script is version {0} but we're version {}", MW_PJ64_PROTO_VERSION)]
@@ -55,6 +65,7 @@ pub(crate) enum Error {
 #[derive(Debug, Clone)]
 enum Message {
     CommandError(Arc<Error>),
+    Exit,
     JoinRoom,
     Nop,
     Pj64Connected(Arc<Mutex<OwnedWriteHalf>>),
@@ -102,6 +113,7 @@ struct State {
     server_writer: Option<Arc<Mutex<OwnedWriteHalf>>>,
     player_id: Option<NonZeroU8>,
     player_name: Option<[u8; 8]>,
+    should_exit: bool,
 }
 
 impl Application for State {
@@ -118,14 +130,40 @@ impl Application for State {
             server_writer: None,
             player_id: None,
             player_name: None,
-        }, Command::none())
+            should_exit: false,
+        }, cmd(async move {
+            let http_client = reqwest::Client::builder()
+                .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
+                .use_rustls_tls()
+                .https_only(true)
+                .http2_prior_knowledge()
+                .build()?;
+            let repo = Repo::new("midoshouse", "ootr-multiworld");
+            if let Some(release) = repo.latest_release(&http_client).await? {
+                let new_ver = release.version()?;
+                if new_ver > Version::parse(env!("CARGO_PKG_VERSION"))? {
+                    let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::MissingHomeDir)?;
+                    let cache_dir = project_dirs.cache_dir();
+                    fs::create_dir_all(cache_dir).await?;
+                    let updater_path = cache_dir.join("updater.exe");
+                    #[cfg(target_arch = "x86_64")] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
+                    fs::write(&updater_path, updater_data).await?;
+                    let _ = std::process::Command::new(updater_path).arg("pj64").arg(env::current_exe()?).spawn()?;
+                    return Ok(Message::Exit)
+                }
+            }
+            Ok(Message::Nop)
+        }))
     }
 
-        fn title(&self) -> String { format!("Mido's House Multiworld for Project64") }
+    fn should_exit(&self) -> bool { self.should_exit }
+
+    fn title(&self) -> String { format!("Mido's House Multiworld for Project64") }
 
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
             Message::CommandError(e) => { self.command_error.get_or_insert(e); }
+            Message::Exit => self.should_exit = true,
             Message::JoinRoom => if let ServerConnectionState::Lobby { create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } = self.server_connection {
                 if !password.is_empty() {
                     let existing_room_selection = existing_room_selection.clone();
@@ -148,7 +186,15 @@ impl Application for State {
             }
             Message::Nop => {}
             Message::Pj64Connected(writer) => self.pj64_writer = Some(writer),
-            Message::Pj64SubscriptionError(e) => { self.pj64_subscription_error.get_or_insert(e); }
+            Message::Pj64SubscriptionError(e) => {
+                if let Error::Read(async_proto::ReadError::Io(ref e)) = *e {
+                    if e.kind() == io::ErrorKind::ConnectionReset {
+                        self.pj64_writer = None;
+                        return Command::none()
+                    }
+                }
+                self.pj64_subscription_error.get_or_insert(e);
+            }
             Message::Plugin(subscriptions::ClientMessage::PlayerId(new_player_id)) => {
                 let new_player_name = self.player_id.replace(new_player_id).is_none().then_some(self.player_name).flatten();
                 if let Some(ref writer) = self.server_writer {
