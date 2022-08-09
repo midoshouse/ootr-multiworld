@@ -63,20 +63,21 @@ impl<H: Hasher, I> Recipe<H, I> for Pj64Listener {
 
     fn stream(self: Box<Self>, _: BoxStream<'_, I>) -> BoxStream<'_, Message> {
         stream::once(TcpListener::bind((Ipv4Addr::LOCALHOST, 24818)))
-            .and_then(|listener| async move { listener.accept().await }) //TODO keep accepting new connections after previous ones close
-            .err_into()
-            .and_then(|(mut tcp_stream, _)| async move {
+            .and_then(|listener| future::ok(stream::try_unfold(listener, |listener| async move {
+                let (mut tcp_stream, _) = listener.accept().await?;
                 MW_PJ64_PROTO_VERSION.write(&mut tcp_stream).await?;
                 let client_version = u8::read(&mut tcp_stream).await?;
                 if client_version != MW_PJ64_PROTO_VERSION { return Err(Error::VersionMismatch(client_version)) }
                 let (reader, writer) = tcp_stream.into_split();
-                Ok(
+                Ok(Some((
                     stream::once(future::ok(Message::Pj64Connected(Arc::new(Mutex::new(writer)))))
                     .chain(stream::try_unfold(reader, |mut reader| async move {
                         Ok(Some((Message::Plugin(ClientMessage::read(&mut reader).await?), reader)))
-                    }))
-                )
-            })
+                    })),
+                    listener,
+                )))
+            })))
+            .try_flatten()
             .try_flatten()
             .map(|res| match res {
                 Ok(msg) => msg,
