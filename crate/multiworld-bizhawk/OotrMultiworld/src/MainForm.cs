@@ -10,6 +10,12 @@ using BizHawk.Client.EmuHawk;
 
 namespace MidosHouse.OotrMultiworld {
     internal class Native {
+        [DllImport("multiworld")] internal static extern BoolResult update_available();
+        [DllImport("multiworld")] internal static extern void bool_result_free(IntPtr bool_res);
+        [DllImport("multiworld")] internal static extern bool bool_result_is_ok(BoolResult bool_res);
+        [DllImport("multiworld")] internal static extern bool bool_result_unwrap(IntPtr bool_res);
+        [DllImport("multiworld")] internal static extern StringHandle bool_result_debug_err(IntPtr bool_res);
+        [DllImport("multiworld")] internal static extern UnitResult run_updater();
         [DllImport("multiworld")] internal static extern LobbyClientResult connect_ipv4();
         [DllImport("multiworld")] internal static extern LobbyClientResult connect_ipv6();
         [DllImport("multiworld")] internal static extern void lobby_client_result_free(IntPtr lobby_client_res);
@@ -53,6 +59,35 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern ushort room_client_item_queue_len(RoomClient room_client);
         [DllImport("multiworld")] internal static extern ushort room_client_item_kind_at_index(RoomClient room_client, ushort index);
         [DllImport("multiworld")] internal static extern IntPtr room_client_get_player_name(RoomClient room_client, byte world);
+    }
+
+    internal class BoolResult : SafeHandle {
+        internal BoolResult() : base(IntPtr.Zero, true) {}
+
+        public override bool IsInvalid {
+            get { return this.handle == IntPtr.Zero; }
+        }
+
+        protected override bool ReleaseHandle() {
+            if (!this.IsInvalid) {
+                Native.bool_result_free(this.handle);
+            }
+            return true;
+        }
+
+        internal bool IsOk() => Native.bool_result_is_ok(this);
+
+        internal bool Unwrap() {
+            var inner = Native.bool_result_unwrap(this.handle);
+            this.handle = IntPtr.Zero; // bool_result_unwrap takes ownership
+            return inner;
+        }
+
+        internal StringHandle DebugErr() {
+            var err = Native.bool_result_debug_err(this.handle);
+            this.handle = IntPtr.Zero; // bool_result_debug_err takes ownership
+            return err;
+        }
     }
 
     internal class StringHandle : SafeHandle {
@@ -435,6 +470,23 @@ namespace MidosHouse.OotrMultiworld {
                 SyncPlayerNames();
                 ShowUI();
             } else if (this.lobbyClient == null) {
+                this.state.Text = "Checking for updates…";
+                using (var update_available_res = Native.update_available()) {
+                    if (update_available_res.IsOk()) {
+                        if (update_available_res.Unwrap()) {
+                            this.state.Text = "An update is available";
+                            using (var run_updater_res = Native.run_updater()) {
+                                if (!run_updater_res.IsOk()) {
+                                    this.state.Text = run_updater_res.DebugErr().AsString();
+                                }
+                            }
+                        }
+                    } else {
+                        this.state.Text = update_available_res.DebugErr().AsString();
+                        return;
+                    }
+                }
+                this.state.Text = "Loading room list…";
                 using (var res6 = Native.connect_ipv6()) {
                     if (res6.IsOk()) {
                         OnConnect(res6.Unwrap());
@@ -459,7 +511,7 @@ namespace MidosHouse.OotrMultiworld {
         private void OnConnect(LobbyClient lobbyClient) {
             this.lobbyClient = lobbyClient;
             var numRooms = this.lobbyClient.NumRooms();
-            this.state.Text = $"Join or create a room:";
+            this.state.Text = "Join or create a room:";
             SuspendLayout();
             this.rooms.SelectedItem = null;
             this.rooms.Items.Clear();

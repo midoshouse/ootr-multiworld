@@ -4,15 +4,24 @@ version = "1.0.0"
 edition = "2021"
 
 [dependencies]
+async_zip = "0.0.7" # 0.0.8 errors when trying to unzip BizHawk
+bytes = "1"
 futures = "0.3"
 iced_native = "0.5"
 itertools = "0.10"
 open = "3"
+semver = "1"
 thiserror = "1"
+winapi = "0.3"
 
 [dependencies.clap]
 version = "3"
 features = ["derive"]
+
+[dependencies.heim]
+git = "https://github.com/heim-rs/heim" # https://github.com/heim-rs/heim/issues/322
+default-features = false
+features = ["process"]
 
 [dependencies.iced]
 version = "0.4"
@@ -29,6 +38,10 @@ features = ["rustls-tls", "stream", "trust-dns"]
 [dependencies.tokio]
 version = "1"
 features = ["fs", "time"]
+
+[dependencies.tokio-util]
+version = "0.7"
+features = ["io"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"

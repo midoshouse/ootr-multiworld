@@ -6,24 +6,33 @@ use {
             TryFrom as _,
             TryInto as _,
         },
+        env,
         ffi::{
             CStr,
             CString,
         },
         fmt,
+        fs,
         net::TcpStream,
         num::NonZeroU8,
+        process::{
+            self,
+            Command,
+        },
         slice,
         time::Duration,
     },
     async_proto::Protocol,
+    directories::ProjectDirs,
     libc::c_char,
+    semver::Version,
     multiworld::{
         LobbyClientMessage,
         Player,
         RoomClientMessage,
         ServerMessage,
         format_room_state,
+        github::Repo,
     },
 };
 
@@ -144,6 +153,69 @@ impl RoomClient {
         self.tcp_stream.set_nonblocking(false)?;
         msg.write_sync(&mut self.tcp_stream)
     }
+}
+
+#[no_mangle] pub extern "C" fn update_available() -> HandleOwned<DebugResult<bool>> {
+    let repo = Repo::new("midoshouse", "ootr-multiworld");
+    HandleOwned::new(
+        reqwest::blocking::Client::builder()
+            .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
+            .http2_prior_knowledge()
+            .use_rustls_tls()
+            .https_only(true)
+            .build().map_err(DebugError::from)
+            .and_then(|client| repo.latest_release_sync(&client).map_err(DebugError::from))
+            .and_then(|release| release.ok_or_else(|| DebugError(format!("no releases"))))
+            .and_then(|release| Ok(release.version()? > Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse current version")))
+    )
+}
+
+/// # Safety
+///
+/// `bool_res` must point at a valid `DebugResult<bool>`. This function takes ownership of the `DebugResult`.
+#[no_mangle] pub unsafe extern "C" fn bool_result_free(bool_res: HandleOwned<DebugResult<bool>>) {
+    let _ = bool_res.into_box();
+}
+
+/// # Safety
+///
+/// `bool_res` must point at a valid `DebugResult<bool>`.
+#[no_mangle] pub unsafe extern "C" fn bool_result_is_ok(bool_res: *const DebugResult<bool>) -> FfiBool {
+    (&*bool_res).is_ok().into()
+}
+
+/// # Safety
+///
+/// `bool_res` must point at a valid `DebugResult<bool>`. This function takes ownership of the `DebugResult`.
+#[no_mangle] pub unsafe extern "C" fn bool_result_unwrap(bool_res: HandleOwned<DebugResult<bool>>) -> FfiBool {
+    bool_res.into_box().debug_unwrap().into()
+}
+
+/// # Safety
+///
+/// `bool_res` must point at a valid `DebugResult<bool>`. This function takes ownership of the `DebugResult`.
+#[no_mangle] pub unsafe extern "C" fn bool_result_debug_err(bool_res: HandleOwned<DebugResult<bool>>) -> StringHandle {
+    StringHandle::from_string(bool_res.into_box().unwrap_err())
+}
+
+#[no_mangle] pub extern "C" fn run_updater() -> HandleOwned<DebugResult<()>> {
+    #[cfg(target_os = "windows")] fn inner() -> DebugResult<()> {
+        let [major, minor, patch, _] = winver::get_file_version_info("EmuHawk.exe")?;
+        let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or("user folder not found")?;
+        let cache_dir = project_dirs.cache_dir();
+        fs::create_dir_all(cache_dir)?;
+        let updater_path = cache_dir.join("updater.exe");
+        #[cfg(target_arch = "x86_64")] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
+        fs::write(&updater_path, updater_data)?;
+        Command::new(updater_path)
+            .arg(env::current_exe()?.canonicalize()?.parent().ok_or(DebugError(format!("current executable at filesystem root")))?)
+            .arg(process::id().to_string())
+            .arg(format!("{major}.{minor}.{patch}"))
+            .spawn()?;
+        Ok(())
+    }
+
+    HandleOwned::new(inner())
 }
 
 #[no_mangle] pub extern "C" fn connect_ipv4() -> HandleOwned<DebugResult<LobbyClient>> {
