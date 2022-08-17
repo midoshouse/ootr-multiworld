@@ -61,7 +61,7 @@ pub async fn version() -> Version {
     //assert_eq!(version, multiworld_csharp::version()); //TODO
     check_cli_version("multiworld-admin-cli", &version).await;
     check_cli_version("multiworld-installer", &version).await;
-    check_cli_version("multiworld-pj6-gui", &version).await;
+    check_cli_version("multiworld-pj64-gui", &version).await;
     check_cli_version("multiworld-updater", &version).await;
     check_cli_version("ootrmwd", &version).await;
     version
