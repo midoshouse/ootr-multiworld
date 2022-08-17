@@ -205,8 +205,7 @@ sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
                             mem.u16[coopContextAddr + 0x8] = item;
                             mem.u16[coopContextAddr + 0x6] = item == 0xca ? (playerID == 1 ? 2 : 1) : playerID;
                         } else if (internalCount > externalCount) {
-                            sock.close();
-                            throw 'gap in received items: internal count is ' + internalCount + ' but external queue is ' + itemQueue;
+                            console.log('warning: gap in received items: internal count is ' + internalCount + ' but external queue is ' + itemQueue);
                         }
                     }
                 }

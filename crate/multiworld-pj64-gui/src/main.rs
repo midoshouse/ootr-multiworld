@@ -102,6 +102,7 @@ enum ServerConnectionState {
     Room {
         players: Vec<Player>,
         num_unassigned_clients: u8,
+        item_queue: Vec<u16>,
     },
 }
 
@@ -185,7 +186,25 @@ impl Application for State {
                 }
             }
             Message::Nop => {}
-            Message::Pj64Connected(writer) => self.pj64_writer = Some(writer),
+            Message::Pj64Connected(writer) => {
+                self.pj64_writer = Some(Arc::clone(&writer));
+                if let ServerConnectionState::Room { ref players, ref item_queue, .. } = self.server_connection {
+                    let players = players.clone();
+                    let item_queue = item_queue.clone();
+                    return cmd(async move {
+                        let mut writer = writer.lock().await;
+                        for player in players {
+                            if player.name != Player::DEFAULT_NAME {
+                                subscriptions::ServerMessage::PlayerName(player.world, player.name).write(&mut *writer).await?;
+                            }
+                        }
+                        if !item_queue.is_empty() {
+                            subscriptions::ServerMessage::ItemQueue(item_queue).write(&mut *writer).await?;
+                        }
+                        Ok(Message::Nop)
+                    })
+                }
+            }
             Message::Pj64SubscriptionError(e) => {
                 if let Error::Read(async_proto::ReadError::Io(ref e)) = *e {
                     if e.kind() == io::ErrorKind::ConnectionReset {
@@ -246,9 +265,9 @@ impl Application for State {
             },
             Message::Server(ServerMessage::NewRoom(name)) => if let ServerConnectionState::Lobby { ref mut rooms, .. } = self.server_connection { rooms.insert(name); },
             Message::Server(ServerMessage::EnterRoom { players, num_unassigned_clients }) => {
-                self.server_connection = ServerConnectionState::Room { players: players.clone(), num_unassigned_clients };
+                self.server_connection = ServerConnectionState::Room { players: players.clone(), item_queue: Vec::default(), num_unassigned_clients };
                 let server_writer = self.server_writer.clone().expect("join room button only appears when connected to server");
-                let pj64_writer = self.pj64_writer.clone().expect("join room button only appears when connected to server");
+                let pj64_writer = self.pj64_writer.clone().expect("join room button only appears when connected to PJ64");
                 let player_id = self.player_id;
                 let player_name = self.player_name;
                 return cmd(async move {
@@ -289,25 +308,30 @@ impl Application for State {
                 if let Ok(idx) = players.binary_search_by_key(&world, |p| p.world) {
                     players[idx].name = name;
                 }
-                let writer = self.pj64_writer.clone().expect("join room button only appears when connected to server");
-                return cmd(async move {
-                    subscriptions::ServerMessage::PlayerName(world, name).write(&mut *writer.lock().await).await?;
-                    Ok(Message::Nop)
-                })
+                if let Some(writer) = self.pj64_writer.clone() {
+                    return cmd(async move {
+                        subscriptions::ServerMessage::PlayerName(world, name).write(&mut *writer.lock().await).await?;
+                        Ok(Message::Nop)
+                    })
+                }
             },
-            Message::Server(ServerMessage::ItemQueue(queue)) => {
-                let writer = self.pj64_writer.clone().expect("PJ64 not connected");
-                return cmd(async move {
-                    subscriptions::ServerMessage::ItemQueue(queue).write(&mut *writer.lock().await).await?;
-                    Ok(Message::Nop)
-                })
+            Message::Server(ServerMessage::ItemQueue(queue)) => if let ServerConnectionState::Room { ref mut item_queue, .. } = self.server_connection {
+                *item_queue = queue.clone();
+                if let Some(writer) = self.pj64_writer.clone() {
+                    return cmd(async move {
+                        subscriptions::ServerMessage::ItemQueue(queue).write(&mut *writer.lock().await).await?;
+                        Ok(Message::Nop)
+                    })
+                }
             }
-            Message::Server(ServerMessage::GetItem(item)) => {
-                let writer = self.pj64_writer.clone().expect("PJ64 not connected");
-                return cmd(async move {
-                    subscriptions::ServerMessage::GetItem(item).write(&mut *writer.lock().await).await?;
-                    Ok(Message::Nop)
-                })
+            Message::Server(ServerMessage::GetItem(item)) => if let ServerConnectionState::Room { ref mut item_queue, .. } = self.server_connection {
+                item_queue.push(item);
+                if let Some(writer) = self.pj64_writer.clone() {
+                    return cmd(async move {
+                        subscriptions::ServerMessage::GetItem(item).write(&mut *writer.lock().await).await?;
+                        Ok(Message::Nop)
+                    })
+                }
             }
             Message::Server(ServerMessage::AdminLoginSuccess { .. }) => unreachable!(),
             Message::ServerSubscriptionError(e) => if !matches!(self.server_connection, ServerConnectionState::Error(_)) {
