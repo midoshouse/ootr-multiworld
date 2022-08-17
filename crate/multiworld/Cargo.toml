@@ -9,6 +9,7 @@ async-recursion = "1"
 chrono = "0.4"
 itertools = "0.10"
 semver = "1"
+serde_json = "1"
 thiserror = "1"
 
 [dependencies.reqwest]

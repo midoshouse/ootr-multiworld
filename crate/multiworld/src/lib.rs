@@ -39,7 +39,8 @@ pub const ADDRESS_V4: Ipv4Addr = Ipv4Addr::new(37, 252, 122, 84);
 pub const ADDRESS_V6: Ipv6Addr = Ipv6Addr::new(0x2a02, 0x2770, 0x8, 0, 0x21a, 0x4aff, 0xfee1, 0xf281);
 pub const PORT: u16 = 24809;
 
-pub fn version() -> u8 { Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version").major.try_into().expect("version number does not fit into u8") }
+pub fn version() -> Version { Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version") }
+pub fn proto_version() -> u8 { version().major.try_into().expect("version number does not fit into u8") }
 
 const TRIFORCE_PIECE: u16 = 0xca;
 
@@ -272,21 +273,21 @@ pub enum ServerMessage {
 pub enum ClientError {
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
-    #[error("protocol version mismatch: server is version {0} but we're version {}", version())]
+    #[error("protocol version mismatch: server is version {0} but we're version {}", proto_version())]
     VersionMismatch(u8),
 }
 
 pub async fn handshake(tcp_stream: &mut TcpStream) -> Result<BTreeSet<String>, ClientError> {
-    version().write(tcp_stream).await?;
+    proto_version().write(tcp_stream).await?;
     let server_version = u8::read(tcp_stream).await?;
-    if server_version != version() { return Err(ClientError::VersionMismatch(server_version)) }
+    if server_version != proto_version() { return Err(ClientError::VersionMismatch(server_version)) }
     Ok(BTreeSet::read(tcp_stream).await?)
 }
 
 pub fn handshake_sync(tcp_stream: &mut std::net::TcpStream) -> Result<BTreeSet<String>, ClientError> {
-    version().write_sync(tcp_stream)?;
+    proto_version().write_sync(tcp_stream)?;
     let server_version = u8::read_sync(tcp_stream)?;
-    if server_version != version() { return Err(ClientError::VersionMismatch(server_version)) }
+    if server_version != proto_version() { return Err(ClientError::VersionMismatch(server_version)) }
     Ok(BTreeSet::read_sync(tcp_stream)?)
 }
 

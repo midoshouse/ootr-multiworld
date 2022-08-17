@@ -1,0 +1,53 @@
+[package]
+name = "multiworld-utils"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "multiworld-release"
+path = "src/release.rs"
+
+[dependencies]
+async-trait = "0.1"
+graphql_client = "0.11"
+itertools = "0.10"
+semver = "1"
+tempfile = "3"
+thiserror = "1"
+zip = "0.6"
+
+[dependencies.clap]
+version = "3"
+features = ["derive"]
+
+[dependencies.dir-lock]
+git = "https://github.com/fenhl/rust-dir-lock"
+branch = "main"
+
+[dependencies.gres]
+git = "https://github.com/fenhl/gres"
+branch = "main"
+features = ["cli"]
+
+[dependencies.multiworld]
+path = "../multiworld"
+
+[dependencies.multiworld-bizhawk]
+path = "../multiworld-bizhawk"
+
+[dependencies.reqwest]
+version = "0.11"
+default-features = false
+features = ["rustls-tls", "trust-dns"]
+
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+
+[dependencies.tokio]
+version = "1"
+features = ["process", "sync"]
+
+[dependencies.wheel]
+git = "https://github.com/fenhl/wheel"
+branch = "main"

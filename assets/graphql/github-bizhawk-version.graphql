@@ -1,0 +1,7 @@
+query BizHawkVersionQuery {
+  repository(owner: "TASEmulators", name: "BizHawk") {
+    latestRelease {
+      name
+    }
+  }
+}
