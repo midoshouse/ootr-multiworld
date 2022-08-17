@@ -577,7 +577,8 @@ impl RoomClient {
     let msg = &*msg;
     match msg {
         ServerMessage::Error(_) |
-        ServerMessage::NewRoom(_) => unreachable!(),
+        ServerMessage::NewRoom(_) |
+        ServerMessage::AdminLoginSuccess { .. } => unreachable!(),
         ServerMessage::EnterRoom { .. } |
         ServerMessage::PlayerId(_) |
         ServerMessage::ResetPlayerId(_) |
@@ -610,7 +611,8 @@ impl RoomClient {
         ServerMessage::ClientConnected |
         ServerMessage::UnregisteredClientDisconnected |
         ServerMessage::ItemQueue(_) |
-        ServerMessage::GetItem(_) => panic!("this message variant has no world ID"),
+        ServerMessage::GetItem(_) |
+        ServerMessage::AdminLoginSuccess { .. } => panic!("this message variant has no world ID"),
     }
 }
 
@@ -636,7 +638,7 @@ impl RoomClient {
 #[no_mangle] pub unsafe extern "C" fn room_client_apply_message(room_client: *mut RoomClient, msg: HandleOwned<ServerMessage>) {
     let room_client = &mut *room_client;
     match *msg.into_box() {
-        ServerMessage::Error(_) | ServerMessage::NewRoom(_) => unreachable!(),
+        ServerMessage::Error(_) | ServerMessage::NewRoom(_) | ServerMessage::AdminLoginSuccess { .. } => unreachable!(),
         ServerMessage::EnterRoom { players, num_unassigned_clients } => {
             room_client.players = players;
             room_client.num_unassigned_clients = num_unassigned_clients;

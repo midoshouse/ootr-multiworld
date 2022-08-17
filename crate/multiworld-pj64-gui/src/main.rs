@@ -309,6 +309,7 @@ impl Application for State {
                     Ok(Message::Nop)
                 })
             }
+            Message::Server(ServerMessage::AdminLoginSuccess { .. }) => unreachable!(),
             Message::ServerSubscriptionError(e) => if !matches!(self.server_connection, ServerConnectionState::Error(_)) {
                 self.server_connection = ServerConnectionState::Error(e);
             },

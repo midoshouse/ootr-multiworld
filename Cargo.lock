@@ -2448,6 +2448,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "multiworld-admin-cli"
+version = "1.0.0"
+dependencies = [
+ "async-proto",
+ "clap",
+ "itertools",
+ "multiworld",
+ "thiserror",
+ "tokio",
+ "wheel",
+]
+
+[[package]]
 name = "multiworld-bizhawk"
 version = "1.0.0"
 

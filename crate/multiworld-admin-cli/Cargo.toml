@@ -1,0 +1,24 @@
+[package]
+name = "multiworld-admin-cli"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+async-proto = "0.15"
+itertools = "0.10"
+thiserror = "1"
+
+[dependencies.clap]
+version = "3"
+features = ["derive"]
+
+[dependencies.multiworld]
+path = "../multiworld"
+
+[dependencies.tokio]
+version = "1"
+features = ["net"]
+
+[dependencies.wheel]
+git = "https://github.com/fenhl/wheel"
+branch = "main"

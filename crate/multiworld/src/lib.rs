@@ -4,6 +4,7 @@
 use {
     std::{
         collections::{
+            BTreeMap,
             BTreeSet,
             HashMap,
             HashSet,
@@ -208,7 +209,14 @@ pub enum LobbyClientMessage {
         name: String,
         password: String,
     },
+    Login {
+        id: u64,
+        api_key: [u8; 32],
+    },
 }
+
+#[derive(Protocol)]
+pub enum AdminClientMessage {}
 
 #[derive(Protocol)]
 pub enum RoomClientMessage {
@@ -231,7 +239,7 @@ pub enum ServerMessage {
     Error(String),
     /// A new room has been created.
     NewRoom(String),
-    /// You have created or joined a room.
+    /// You have created or joined a room and are now sending [`RoomClientMessage`]s.
     EnterRoom {
         players: Vec<Player>,
         num_unassigned_clients: u8,
@@ -254,6 +262,10 @@ pub enum ServerMessage {
     ItemQueue(Vec<u16>),
     /// You have received a new item, add it to the end of your item queue.
     GetItem(u16),
+    /// You have logged in as an admin and are now sending [`AdminClientMessage`]s.
+    AdminLoginSuccess {
+        active_connections: BTreeMap<String, u8>,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]

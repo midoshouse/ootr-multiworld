@@ -3,7 +3,10 @@
 
 use {
     std::{
-        collections::HashMap,
+        collections::{
+            BTreeMap,
+            HashMap,
+        },
         convert::{
             Infallible as Never,
             TryFrom as _,
@@ -40,6 +43,7 @@ use {
     },
     tokio_stream::wrappers::ReceiverStream,
     multiworld::{
+        AdminClientMessage,
         LobbyClientMessage,
         Player,
         Room,
@@ -120,9 +124,9 @@ async fn client_session(rooms_handle: ctrlflow::Handle<Rooms>, socket_id: multiw
                     LobbyClientMessage::CreateRoom { name, password } => {
                         //TODO disallow creating new rooms if preparing for reboot? (or at least warn)
                         if name.is_empty() { error!("room name must not be empty") }
-                        if name.chars().count() >= 64 { error!("room name too long (maximum 64 characters)") }
+                        if name.chars().count() > 64 { error!("room name too long (maximum 64 characters)") }
                         if name.contains('\0') { error!("room name must not contain null characters") }
-                        if password.chars().count() >= 64 { error!("room password too long (maximum 64 characters)") }
+                        if password.chars().count() > 64 { error!("room password too long (maximum 64 characters)") }
                         if password.contains('\0') { error!("room password must not contain null characters") }
                         if rooms.contains_key(&name) { error!("a room with this name already exists") }
                         let mut clients = HashMap::default();
@@ -140,6 +144,19 @@ async fn client_session(rooms_handle: ctrlflow::Handle<Rooms>, socket_id: multiw
                         }.write(&mut *writer.lock().await).await?;
                         break room
                     }
+                    LobbyClientMessage::Login { id, api_key } => if id == 14571800683221815449 && api_key == *include_bytes!("../../../assets/admin-api-key.bin") { //TODO allow any Mido's House user to log in but give them different permissions
+                        drop(read);
+                        let mut active_connections = BTreeMap::default();
+                        for (room_name, room) in &rooms {
+                            active_connections.insert(room_name.clone(), room.read().await.clients.len().try_into().expect("more than u8::MAX players in room"));
+                        }
+                        ServerMessage::AdminLoginSuccess { active_connections }.write(&mut *writer.lock().await).await?;
+                        loop {
+                            match AdminClientMessage::read(&mut reader).await? {}
+                        }
+                    } else {
+                        error!("wrong user ID or API key")
+                    },
                 },
             }
         }
