@@ -626,7 +626,9 @@ impl Application for State {
         };
         let mut bottom_row = Row::new();
         if let Some((btn_content, enabled)) = next_btn {
-            if !matches!(self.page, Page::SelectEmulator { .. }) {
+            if matches!(self.page, Page::SelectEmulator { .. }) {
+                bottom_row = bottom_row.push(Text::new(concat!("v", env!("CARGO_PKG_VERSION"))));
+            } else {
                 bottom_row = bottom_row.push(Button::new(Text::new("Back")).on_press(Message::Back));
             }
             bottom_row = bottom_row.push(Space::with_width(Length::Fill));
