@@ -43,19 +43,19 @@ use {
         Deserialize,
         Serialize,
     },
-    tokio::{
+    tokio::io,
+    tokio_util::io::StreamReader,
+    url::Url,
+    wheel::{
         fs::{
             self,
             File,
         },
-        io,
-    },
-    tokio_util::io::StreamReader,
-    url::Url,
-    wheel::traits::{
-        AsyncCommandOutputExt as _,
-        IoResultExt as _,
-        SyncCommandOutputExt as _,
+        traits::{
+            AsyncCommandOutputExt as _,
+            IoResultExt as _,
+            SyncCommandOutputExt as _,
+        },
     },
     multiworld::github::Repo,
 };
@@ -64,7 +64,7 @@ use {
 enum Error {
     #[error(transparent)] IniDe(#[from] serde_ini::de::Error),
     #[error(transparent)] IniSer(#[from] serde_ini::ser::Error),
-    #[error(transparent)] Io(#[from] std::io::Error),
+    #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
     #[error(transparent)] Url(#[from] url::ParseError),
@@ -78,6 +78,8 @@ enum Error {
     NoBizHawkReleases,
     #[error("failed to parse Project64 website")]
     ParsePj64Html,
+    #[error("can't install to the filesystem root")]
+    Root,
 }
 
 impl<I: Iterator> From<itertools::ExactlyOneError<I>> for Error {
@@ -114,7 +116,7 @@ fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) ->
     Command::single(iced_native::command::Action::Future(Box::pin(async move {
         match future.await {
             Ok(msg) => msg,
-            Err(e) => Message::Error(Arc::new(e.into())),
+            Err(e) => Message::Error(Arc::new(e)),
         }
     })))
 }
@@ -293,7 +295,7 @@ impl Application for State {
                         // Project64 installation and plugin installation both require admin permissions (UAC)
                         self.page = Page::Elevated;
                         return cmd(async move {
-                            tokio::task::spawn_blocking(|| Ok::<_, Error>(runas::Command::new(env::current_exe()?).arg("--emulator=project64").gui(true).status()?.check("runas")?)).await??;
+                            tokio::task::spawn_blocking(|| Ok::<_, Error>(runas::Command::new(env::current_exe()?).arg("--emulator=project64").gui(true).status().at_command("runas")?.check("runas")?)).await??;
                             Ok(Message::Exit)
                         })
                     }
@@ -364,9 +366,9 @@ impl Application for State {
                                 let _ = zip_file.entries().iter().exactly_one()?;
                                 {
                                     let prereqs = tempfile::Builder::new().prefix("bizhawk_prereqs_").suffix(".exe").tempfile()?;
-                                    zip_file.entry_reader(0).await?.copy_to_end_crc(&mut File::from_std(prereqs.reopen()?), 64 * 1024).await?;
+                                    zip_file.entry_reader(0).await?.copy_to_end_crc(&mut tokio::fs::File::from_std(prereqs.reopen()?), 64 * 1024).await?;
                                     let prereqs_path = prereqs.into_temp_path();
-                                    runas::Command::new(&prereqs_path).status()?.check("BizHawk-Prereqs")?;
+                                    runas::Command::new(&prereqs_path).status().at_command("runas")?.check("BizHawk-Prereqs")?;
                                 }
                                 // install BizHawk itself
                                 let release = Repo::new("TASEmulators", "BizHawk").latest_release(&http_client).await?.ok_or(Error::NoBizHawkReleases)?;
@@ -416,7 +418,7 @@ impl Application for State {
                                     .get("href").ok_or(Error::ParsePj64Html)?)?;
                                 {
                                     let installer = tempfile::Builder::new().prefix("pj64-installer-").suffix(".exe").tempfile()?;
-                                    io::copy_buf(&mut StreamReader::new(client.get(download_url).send().await?.error_for_status()?.bytes_stream().map_err(io_error_from_reqwest)), &mut File::from_std(installer.reopen()?)).await?;
+                                    io::copy_buf(&mut StreamReader::new(client.get(download_url).send().await?.error_for_status()?.bytes_stream().map_err(io_error_from_reqwest)), &mut tokio::fs::File::from_std(installer.reopen()?)).await?;
                                     let installer_path = installer.into_temp_path();
                                     let mut installer = tokio::process::Command::new(&installer_path);
                                     installer.arg("/SILENT");
@@ -441,14 +443,14 @@ impl Application for State {
                     if self.open_emulator {
                         match emulator {
                             Emulator::BizHawk => if let Err(e) = std::process::Command::new(Path::new(emulator_path).join("EmuHawk.exe")).arg("--open-ext-tool-dll=OotrMultiworld").current_dir(emulator_path).spawn() {
-                                return cmd(future::err(e.into()))
+                                return cmd(future::ready(Err(e).at(Path::new(emulator_path).join("EmuHawk.exe")).map_err(Error::from)))
                             },
                             Emulator::Project64 => {
                                 if let Err(e) = std::process::Command::new(Path::new(emulator_path).join("Project64.exe")).current_dir(emulator_path).spawn() {
-                                    return cmd(future::err(e.into()))
+                                    return cmd(future::ready(Err(e).at(Path::new(emulator_path).join("Project64.exe")).map_err(Error::from)))
                                 }
                                 if let Err(e) = std::process::Command::new(multiworld_path.as_ref().expect("multiworld app path must be set for Project64")).spawn() {
-                                    return cmd(future::err(e.into()))
+                                    return cmd(future::ready(Err(e).at(multiworld_path.as_ref().expect("multiworld app path must be set for Project64")).map_err(Error::from)))
                                 }
                             }
                         }
@@ -478,9 +480,9 @@ impl Application for State {
                         Ok(Message::MultiworldInstalled)
                     }),
                     Emulator::Project64 => {
-                        let multiworld_path = multiworld_path.expect("multiworld app path must be set for Project64");
+                        let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Project64"));
                         return cmd(async move {
-                            fs::create_dir_all(&multiworld_path).await?;
+                            fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
                             //TODO download latest release instead of embedding in installer
                             fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-pj64-gui.exe")).await?;
                             let scripts_path = emulator_dir.join("Scripts");
@@ -490,10 +492,10 @@ impl Application for State {
                             let config_path = emulator_dir.join("Config");
                             fs::create_dir(&config_path).await.exist_ok()?;
                             let config_path = config_path.join("Project64.cfg");
-                            let mut config = match fs::read_to_string(&config_path).await {
+                            let mut config = match tokio::fs::read_to_string(&config_path).await {
                                 Ok(config) => serde_ini::from_str(&config)?,
                                 Err(e) if e.kind() == io::ErrorKind::NotFound => Pj64Config::default(),
-                                Err(e) => return Err(e.into()),
+                                Err(e) => return Err(e).at(&config_path).map_err(Error::from),
                             };
                             config.settings.basic_mode = 0;
                             config.debugger.debugger = 1;
