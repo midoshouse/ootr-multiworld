@@ -44,7 +44,7 @@ use {
 
 mod subscriptions;
 
-const MW_PJ64_PROTO_VERSION: u8 = 0; //TODO sync with JS code
+const MW_PJ64_PROTO_VERSION: u8 = 1; //TODO sync with JS code
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {

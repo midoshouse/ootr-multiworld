@@ -1,5 +1,5 @@
 const TCP_PORT = 24818;
-const MW_PJ64_PROTO_VERSION = 0;
+const MW_PJ64_PROTO_VERSION = 1;
 //TODO generate above constants from Rust code
 const DEFAULT_PLAYER_NAME = [0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf];
 const SRAM_START = 0xA8000000;
