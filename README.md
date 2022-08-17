@@ -14,6 +14,7 @@ This is an alternative implementation of [multiworld](https://wiki.ootrandomizer
 |easier setup: player name and world number are read from the game||✓|
 |prevents players from accidentally using the same world number||✓|
 |support for some other games|✓||
+|automatically updates itself||✓|
 
 # Credits
 
