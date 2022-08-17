@@ -1,4 +1,6 @@
-This is an alternative implementation of [multiworld](https://wiki.ootrandomizer.com/index.php?title=Multiworld) for [the Ocarina of Time randomizer](https://ootrandomizer.com/), intended to improve upon [the existing implementation](https://github.com/TestRunnerSRL/bizhawk-co-op) by breaking compatibility with it. It is currently experimental but ready to be tested.
+This is an alternative implementation of [multiworld](https://wiki.ootrandomizer.com/index.php?title=Multiworld) for [the Ocarina of Time randomizer](https://ootrandomizer.com/) that improves upon [the existing implementation](https://github.com/TestRunnerSRL/bizhawk-co-op) by breaking compatibility with it.
+
+# [Download](https://github.com/midoshouse/ootr-multiworld/releases/latest/download/multiworld-installer.exe)
 
 # Feature comparison
 
