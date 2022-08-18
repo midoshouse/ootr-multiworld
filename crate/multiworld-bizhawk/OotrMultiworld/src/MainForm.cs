@@ -610,7 +610,7 @@ namespace MidosHouse.OotrMultiworld {
                                 APIs.Memory.WriteU16(this.coopContextAddr.Value + 0x8, item, "System Bus");
                                 APIs.Memory.WriteU16(this.coopContextAddr.Value + 0x6, item == 0xca ? (this.playerID == 1 ? 2u : 1) : this.playerID.Value, "System Bus");
                             } else if (internalCount > externalCount) {
-                                Error("gap in received items");
+                                // warning: gap in received items
                             }
                         }
                     }
