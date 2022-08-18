@@ -174,9 +174,9 @@ impl Application for App {
             Message::Error(e) => self.state = State::Error(e),
             Message::Exited => {
                 self.state = State::GetMultiworldRelease;
-                let asset_name = match self.args {
-                    Args::BizHawk { .. } => "multiworld-bizhawk.zip",
-                    Args::Pj64 { .. } => "multiworld-pj64.exe",
+                let (asset_name, script_name) = match self.args {
+                    Args::BizHawk { .. } => ("multiworld-bizhawk.zip", None),
+                    Args::Pj64 { .. } => ("multiworld-pj64.exe", Some("ootrmw-pj64.js")),
                 };
                 return cmd(async move {
                     let http_client = reqwest::Client::builder()
@@ -186,6 +186,12 @@ impl Application for App {
                         .http2_prior_knowledge()
                         .build()?;
                     let release = Repo::new("midoshouse", "ootr-multiworld").latest_release(&http_client).await?.ok_or(Error::NoReleases)?;
+                    if let Some(script_name) = script_name {
+                        let (script,) = release.assets.iter()
+                            .filter(|asset| asset.name == script_name)
+                            .collect_tuple().ok_or(Error::MissingAsset)?;
+                        let _ = script; //TODO check if script contents differ from current. If so, ask for elevation and replace script
+                    }
                     let (asset,) = release.assets.into_iter()
                         .filter(|asset| asset.name == asset_name)
                         .collect_tuple().ok_or(Error::MissingAsset)?;

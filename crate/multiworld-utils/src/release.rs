@@ -352,6 +352,8 @@ enum BuildPj64 {
     Read(reqwest::Client, Repo, broadcast::Receiver<Release>),
     WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
     Upload(reqwest::Client, Repo, Release, Vec<u8>),
+    ReadJs(reqwest::Client, Repo, Release),
+    UploadJs(reqwest::Client, Repo, Release, Vec<u8>),
 }
 
 impl BuildPj64 {
@@ -368,6 +370,8 @@ impl fmt::Display for BuildPj64 {
             Self::Read(..) => write!(f, "reading multiworld-pj64.exe"),
             Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
             Self::Upload(..) => write!(f, "uploading multiworld-pj64.exe"),
+            Self::ReadJs(..) => write!(f, "reading ootrmw-pj64.js"),
+            Self::UploadJs(..) => write!(f, "uploading ootrmw-pj64.js"),
         }
     }
 }
@@ -380,7 +384,9 @@ impl Progress for BuildPj64 {
             Self::Read(..) => 2,
             Self::WaitRelease(..) => 3,
             Self::Upload(..) => 4,
-        }, 5)
+            Self::ReadJs(..) => 5,
+            Self::UploadJs(..) => 6,
+        }, 7)
     }
 }
 
@@ -407,6 +413,14 @@ impl Task<Result<(), Error>> for BuildPj64 {
             }).await,
             Self::Upload(client, repo, release, data) => gres::transpose(async move {
                 repo.release_attach(&client, &release, "multiworld-pj64.exe", "application/vnd.microsoft.portable-executable", data).await?;
+                Ok(Err(Self::ReadJs(client, repo, release)))
+            }).await,
+            Self::ReadJs(client, repo, release) => gres::transpose(async move {
+                let data = fs::read("assets/ootrmw-pj64.js").await?;
+                Ok(Err(Self::UploadJs(client, repo, release, data)))
+            }).await,
+            Self::UploadJs(client, repo, release, data) => gres::transpose(async move {
+                repo.release_attach(&client, &release, "ootrmw-pj64.js", "text/javascript", data).await?;
                 Ok(Ok(()))
             }).await,
         }
