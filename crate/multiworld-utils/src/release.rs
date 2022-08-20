@@ -17,6 +17,10 @@ use {
     },
     async_trait::async_trait,
     dir_lock::DirLock,
+    futures::future::{
+        self,
+        FutureExt as _,
+    },
     gres::{
         Percent,
         Progress,
@@ -548,6 +552,9 @@ struct Args {
     /// Create the GitHub release as a draft
     #[clap(long)]
     no_publish: bool,
+    /// Don't update the server
+    #[clap(short = 'S', long)]
+    no_server: bool,
     /// Don't pass `--wait` to the release notes editor
     #[clap(short = 'W', long)]
     no_wait: bool,
@@ -620,7 +627,7 @@ async fn main(args: Args) -> Result<(), Error> {
         { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawk::new(client, repo, updater_rx_bizhawk, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "BizHawk build done").await? }).await? } },
         { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildPj64::new(client, repo, updater_rx_pj64, release_rx_pj64, pj64_tx), "Project64 build done").await? }).await? } },
         { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstaller::new(client, repo, bizhawk_rx, pj64_rx, release_rx_installer), "installer build done").await? }).await? } },
-        { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildServer::default(), "server build done").await? }).await? } },
+        if args.no_server { future::ok(()).boxed() } else { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildServer::default(), "server build done").await? }).await? }.boxed() },
     ];
     let release = create_release.await??;
     if !args.no_publish {

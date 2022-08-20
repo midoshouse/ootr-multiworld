@@ -9,6 +9,7 @@ path = "src/release.rs"
 
 [dependencies]
 async-trait = "0.1"
+futures = "0.3"
 graphql_client = "0.11"
 itertools = "0.10"
 semver = "1"
