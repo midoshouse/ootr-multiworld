@@ -133,7 +133,7 @@ struct Pj64Config {
 
 #[derive(Default, Deserialize, Serialize)]
 struct Pj64ConfigSettings {
-    #[serde(rename = "Basic Mode")]
+    #[serde(rename = "Basic Mode", default)]
     basic_mode: u8,
     #[serde(flatten)]
     rest: BTreeMap<String, String>,
@@ -141,7 +141,7 @@ struct Pj64ConfigSettings {
 
 #[derive(Default, Deserialize, Serialize)]
 struct Pj64ConfigDebugger {
-    #[serde(rename = "Debugger")]
+    #[serde(rename = "Debugger", default)]
     debugger: u8,
     #[serde(flatten)]
     rest: BTreeMap<String, String>,
