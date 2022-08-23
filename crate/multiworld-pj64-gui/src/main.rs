@@ -78,6 +78,7 @@ enum Message {
     SetExistingRoomSelection(String),
     SetNewRoomName(String),
     SetPassword(String),
+    UpToDate,
 }
 
 fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) -> Command<Message> {
@@ -114,6 +115,7 @@ struct State {
     server_writer: Option<Arc<Mutex<OwnedWriteHalf>>>,
     player_id: Option<NonZeroU8>,
     player_name: Option<[u8; 8]>,
+    updates_checked: bool,
     should_exit: bool,
 }
 
@@ -131,6 +133,7 @@ impl Application for State {
             server_writer: None,
             player_id: None,
             player_name: None,
+            updates_checked: false,
             should_exit: false,
         }, cmd(async move {
             let http_client = reqwest::Client::builder()
@@ -153,7 +156,7 @@ impl Application for State {
                     return Ok(Message::Exit)
                 }
             }
-            Ok(Message::Nop)
+            Ok(Message::UpToDate)
         }))
     }
 
@@ -341,6 +344,7 @@ impl Application for State {
             Message::SetExistingRoomSelection(name) => if let ServerConnectionState::Lobby { ref mut existing_room_selection, .. } = self.server_connection { *existing_room_selection = Some(name) },
             Message::SetNewRoomName(name) => if let ServerConnectionState::Lobby { ref mut new_room_name, .. } = self.server_connection { *new_room_name = name },
             Message::SetPassword(new_password) => if let ServerConnectionState::Lobby { ref mut password, .. } = self.server_connection { *password = new_password },
+            Message::UpToDate => self.updates_checked = true,
         }
         Command::none()
     }
@@ -359,6 +363,12 @@ impl Application for State {
                 .push(Text::new("An error occurred during communication with Project64:"))
                 .push(Text::new(e.to_string()))
                 .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")))
+                .spacing(8)
+                .padding(8)
+                .into()
+        } else if !self.updates_checked {
+            Column::new()
+                .push(Text::new("Checking for updates…"))
                 .spacing(8)
                 .padding(8)
                 .into()
@@ -413,10 +423,14 @@ impl Application for State {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        Subscription::batch([
-            Subscription::from_recipe(subscriptions::Pj64Listener),
-            Subscription::from_recipe(subscriptions::Client),
-        ])
+        if self.updates_checked {
+            Subscription::batch([
+                Subscription::from_recipe(subscriptions::Pj64Listener),
+                Subscription::from_recipe(subscriptions::Client),
+            ])
+        } else {
+            Subscription::none()
+        }
     }
 }
 
