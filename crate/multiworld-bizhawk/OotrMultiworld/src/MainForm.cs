@@ -375,6 +375,7 @@ namespace MidosHouse.OotrMultiworld {
     }
 
     [ExternalTool("Mido's House Multiworld", Description = "Play interconnected Ocarina of Time Randomizer seeds")]
+    [ExternalToolEmbeddedIcon("MidosHouse.OotrMultiworld.Resources.icon.ico")]
     public sealed class MainForm : ToolFormBase, IExternalToolForm {
         private Label state = new Label();
         private ComboBox rooms = new ComboBox();
@@ -399,6 +400,7 @@ namespace MidosHouse.OotrMultiworld {
         public MainForm() {
             SuspendLayout();
             this.ClientSize = new Size(509, 256);
+            this.Icon = new Icon(typeof(MainForm).Assembly.GetManifestResourceStream("MidosHouse.OotrMultiworld.Resources.icon.ico"));
 
             this.state.TabIndex = 0;
             this.state.AutoSize = true;

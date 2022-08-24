@@ -15,6 +15,9 @@
         <Reference Include="BizHawk.WinForms.Controls" HintPath="$(ProjectDir)../BizHawk/dll/BizHawk.WinForms.Controls.dll" />
     </ItemGroup>
     <ItemGroup>
+        <EmbeddedResource Include="Resources/icon.ico" />
+    </ItemGroup>
+    <ItemGroup>
         <None Update="multiworld.dll">
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </None>

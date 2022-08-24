@@ -3,6 +3,9 @@ name = "multiworld-installer"
 version = "1.0.3"
 edition = "2021"
 
+[build-dependencies]
+winres = "0.1"
+
 [dependencies]
 async_zip = "0.0.7" # 0.0.8 errors when trying to unzip BizHawk
 directories = "4"
@@ -25,6 +28,11 @@ features = ["derive"]
 [dependencies.iced]
 version = "0.4"
 features = ["default_system_font", "image", "pure", "tokio"]
+
+[dependencies.image]
+version = "0.24"
+default-features = false
+features = ["ico"]
 
 [dependencies.multiworld]
 path = "../multiworld"

@@ -1052,6 +1052,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "deflate"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c86f7e25f518f4b81808a2cf1c50996a61f5c2eb394b2393bd87f2a4780a432f"
+dependencies = [
+ "adler32",
+]
+
+[[package]]
 name = "derivative"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2214,7 +2223,7 @@ dependencies = [
  "guillotiere",
  "iced_graphics",
  "iced_native",
- "image",
+ "image 0.23.14",
  "kamadak-exif",
  "log",
  "raw-window-handle 0.4.3",
@@ -2268,9 +2277,23 @@ dependencies = [
  "gif",
  "jpeg-decoder",
  "num-iter",
- "num-rational",
+ "num-rational 0.3.2",
  "num-traits",
- "png",
+ "png 0.16.8",
+]
+
+[[package]]
+name = "image"
+version = "0.24.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e30ca2ecf7666107ff827a8e481de6a132a9b687ed3bb20bb1c144a36c00964"
+dependencies = [
+ "bytemuck",
+ "byteorder",
+ "color_quant",
+ "num-rational 0.4.1",
+ "num-traits",
+ "png 0.17.5",
 ]
 
 [[package]]
@@ -2709,6 +2732,7 @@ dependencies = [
  "futures",
  "iced",
  "iced_native",
+ "image 0.24.3",
  "is_elevated",
  "itertools",
  "kuchiki",
@@ -2725,6 +2749,7 @@ dependencies = [
  "tokio-util",
  "url",
  "wheel",
+ "winres",
 ]
 
 [[package]]
@@ -2737,6 +2762,7 @@ dependencies = [
  "iced",
  "iced_futures",
  "iced_native",
+ "image 0.24.3",
  "itertools",
  "multiworld",
  "reqwest",
@@ -2744,6 +2770,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "wheel",
+ "winres",
 ]
 
 [[package]]
@@ -2757,6 +2784,7 @@ dependencies = [
  "heim",
  "iced",
  "iced_native",
+ "image 0.24.3",
  "itertools",
  "multiworld",
  "open",
@@ -2767,6 +2795,7 @@ dependencies = [
  "tokio-util",
  "wheel",
  "winapi",
+ "winres",
 ]
 
 [[package]]
@@ -2962,6 +2991,17 @@ name = "num-rational"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12ac428b1cb17fce6f731001d307d351ec70a6d202fc2e60f7d4c5e42d8f4f07"
+dependencies = [
+ "autocfg",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
+name = "num-rational"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0638a1c9d0a3c0914158145bc76cff373a75a627e6ecbfb71cbe6f453a5a19b0"
 dependencies = [
  "autocfg",
  "num-integer",
@@ -3380,8 +3420,20 @@ checksum = "3c3287920cb847dee3de33d301c463fba14dda99db24214ddf93f83d3021f4c6"
 dependencies = [
  "bitflags",
  "crc32fast",
- "deflate",
+ "deflate 0.8.6",
  "miniz_oxide 0.3.7",
+]
+
+[[package]]
+name = "png"
+version = "0.17.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc38c0ad57efb786dd57b9864e5b18bae478c00c824dc55a38bbc9da95dde3ba"
+dependencies = [
+ "bitflags",
+ "crc32fast",
+ "deflate 1.0.0",
+ "miniz_oxide 0.5.3",
 ]
 
 [[package]]
@@ -4597,7 +4649,7 @@ version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1ee6bfd0a27bf614353809a035cf6880b74239ec6c5e39a7b2860ca16809137"
 dependencies = [
- "num-rational",
+ "num-rational 0.3.2",
  "num-traits",
  "typenum",
 ]
@@ -5267,6 +5319,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "80d0f4e272c85def139476380b12f9ac60926689dd2e01d4923222f40580869d"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "winres"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b68db261ef59e9e52806f688020631e987592bd83619edccda9c47d42cde4f6c"
+dependencies = [
+ "toml",
 ]
 
 [[package]]
