@@ -16,17 +16,13 @@ use {
         },
         num::NonZeroU8,
         sync::Arc,
-        time::{
-            Duration,
-            Instant,
-        },
+        time::Instant,
     },
     async_proto::Protocol,
     async_recursion::async_recursion,
     chrono::prelude::*,
     itertools::Itertools as _,
     semver::Version,
-    sqlx::PgPool,
     tokio::{
         net::{
             TcpStream,
@@ -37,6 +33,10 @@ use {
 };
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
 #[cfg(windows)] use std::os::windows::io::AsRawSocket;
+#[cfg(feature = "sqlx")] use {
+    std::time::Duration,
+    sqlx::PgPool,
+};
 
 pub mod github;
 
@@ -87,6 +87,7 @@ pub struct Room {
     pub base_queue: Vec<Item>,
     pub player_queues: HashMap<NonZeroU8, Vec<Item>>,
     pub last_saved: Instant,
+    #[cfg(feature = "sqlx")]
     pub db_pool: PgPool,
 }
 
@@ -201,8 +202,10 @@ impl Room {
                     }
                 }
             }
-            if let Err(e) = self.save().await {
-                eprintln!("failed to save room state: {e} ({e:?})");
+            #[cfg(feature = "sqlx")] {
+                if let Err(e) = self.save().await {
+                    eprintln!("failed to save room state: {e} ({e:?})");
+                }
             }
             true
         } else {
@@ -210,6 +213,7 @@ impl Room {
         }
     }
 
+    #[cfg(feature = "sqlx")]
     async fn save(&mut self) -> sqlx::Result<()> {
         if self.last_saved.elapsed() >= Duration::from_secs(60) {
             self.force_save().await?;
@@ -217,6 +221,7 @@ impl Room {
         Ok(())
     }
 
+    #[cfg(feature = "sqlx")]
     pub async fn force_save(&mut self) -> sqlx::Result<()> {
         let mut base_queue = Vec::default();
         self.base_queue.write_sync(&mut base_queue).expect("failed to write base queue to buffer");
