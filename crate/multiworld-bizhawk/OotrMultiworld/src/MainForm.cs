@@ -442,7 +442,13 @@ namespace MidosHouse.OotrMultiworld {
                             JoinRoom(res.Unwrap());
                         } else {
                             using (var err = res.DebugErr()) {
-                                Error(err.AsString());
+                                var debug = err.AsString();
+                                if (debug == "wrong password") {
+                                    this.DialogController.ShowMessageBox(this, "wrong password", null, EMsgBoxIcon.Error);
+                                    this.password.Text = "";
+                                } else {
+                                    Error(debug);
+                                }
                             }
                         }
                     }

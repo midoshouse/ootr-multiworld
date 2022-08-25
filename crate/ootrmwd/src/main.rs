@@ -62,12 +62,9 @@ enum SessionError {
 
 async fn client_session(rooms_handle: ctrlflow::Handle<Rooms>, socket_id: multiworld::SocketId, mut reader: OwnedReadHalf, writer: Arc<Mutex<OwnedWriteHalf>>) -> Result<(), SessionError> {
     macro_rules! error {
-        ($msg:literal $($args:tt)*) => {
-            error!(ServerMessage::OtherError(format!($msg $($args)*)))
-        };
-        ($e:expr) => {{
-            let e: ServerMessage = $e;
-            e.write(&mut *writer.lock().await).await?;
+        ($($msg:tt)*) => {{
+            let msg = format!($($msg)*);
+            ServerMessage::OtherError(msg).write(&mut *writer.lock().await).await?;
             return Ok(())
         }};
     }
@@ -104,7 +101,7 @@ async fn client_session(rooms_handle: ctrlflow::Handle<Rooms>, socket_id: multiw
                 },
                 msg = &mut read => match msg? {
                     LobbyClientMessage::JoinRoom { name, password } => if let Some(room) = rooms.get(&name) {
-                        if room.read().await.password != password { error!(ServerMessage::WrongPassword) }
+                        if room.read().await.password != password { ServerMessage::WrongPassword.write(&mut *writer.lock().await).await? }
                         if room.read().await.clients.len() >= u8::MAX.into() { error!("room {name:?} is full") }
                         {
                             let mut room = room.write().await;
