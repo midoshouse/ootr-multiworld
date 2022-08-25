@@ -1,3 +1,4 @@
+/.cargo/config.toml
 /assets/admin-api-key.bin
 /assets/release-token
 /crate/multiworld-bizhawk/OotrMultiworld/BizHawk

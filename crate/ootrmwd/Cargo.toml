@@ -16,6 +16,12 @@ branch = "main"
 
 [dependencies.multiworld]
 path = "../multiworld"
+features = ["sqlx"]
+
+[dependencies.sqlx]
+version = "0.6"
+default-features = false
+features = ["postgres", "runtime-tokio-rustls"]
 
 [dependencies.tokio]
 version = "1"

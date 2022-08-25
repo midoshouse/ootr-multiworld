@@ -16,12 +16,17 @@ use {
         },
         num::NonZeroU8,
         sync::Arc,
+        time::{
+            Duration,
+            Instant,
+        },
     },
     async_proto::Protocol,
     async_recursion::async_recursion,
     chrono::prelude::*,
     itertools::Itertools as _,
     semver::Version,
+    sqlx::PgPool,
     tokio::{
         net::{
             TcpStream,
@@ -67,7 +72,7 @@ impl Player {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Protocol)]
 pub struct Item {
     pub source: NonZeroU8,
     pub key: u32,
@@ -76,10 +81,13 @@ pub struct Item {
 
 #[derive(Debug)]
 pub struct Room {
+    pub name: String,
     pub password: String,
     pub clients: HashMap<SocketId, (Option<Player>, Arc<Mutex<OwnedWriteHalf>>)>,
     pub base_queue: Vec<Item>,
     pub player_queues: HashMap<NonZeroU8, Vec<Item>>,
+    pub last_saved: Instant,
+    pub db_pool: PgPool,
 }
 
 impl Room {
@@ -193,10 +201,30 @@ impl Room {
                     }
                 }
             }
+            if let Err(e) = self.save().await {
+                eprintln!("failed to save room state: {e} ({e:?})");
+            }
             true
         } else {
             false
         }
+    }
+
+    async fn save(&mut self) -> sqlx::Result<()> {
+        if self.last_saved.elapsed() >= Duration::from_secs(60) {
+            self.force_save().await?;
+        }
+        Ok(())
+    }
+
+    async fn force_save(&mut self) -> sqlx::Result<()> {
+        let mut base_queue = Vec::default();
+        self.base_queue.write_sync(&mut base_queue).expect("failed to write base queue to buffer");
+        let mut player_queues = Vec::default();
+        self.player_queues.write_sync(&mut player_queues).expect("failed to write player queues to buffer");
+        sqlx::query!("INSERT INTO rooms (name, password, base_queue, player_queues) VALUES ($1, $2, $3, $4) ON CONFLICT (name) DO UPDATE SET password = EXCLUDED.password, base_queue = EXCLUDED.base_queue, player_queues = EXCLUDED.player_queues", &self.name, &self.password, base_queue, player_queues).execute(&self.db_pool).await?;
+        self.last_saved = Instant::now();
+        Ok(())
     }
 }
 

@@ -14,6 +14,7 @@ use {
         net::Ipv6Addr,
         pin::Pin,
         sync::Arc,
+        time::Instant,
     },
     async_proto::Protocol as _,
     chrono::prelude::*,
@@ -22,7 +23,12 @@ use {
         stream::{
             Stream,
             StreamExt as _,
+            TryStreamExt as _,
         },
+    },
+    sqlx::postgres::{
+        PgConnectOptions,
+        PgPool,
     },
     tokio::{
         io,
@@ -60,7 +66,7 @@ enum SessionError {
     VersionMismatch(u8),
 }
 
-async fn client_session(rooms_handle: ctrlflow::Handle<Rooms>, socket_id: multiworld::SocketId, mut reader: OwnedReadHalf, writer: Arc<Mutex<OwnedWriteHalf>>) -> Result<(), SessionError> {
+async fn client_session(db_pool: PgPool, rooms_handle: ctrlflow::Handle<Rooms>, socket_id: multiworld::SocketId, mut reader: OwnedReadHalf, writer: Arc<Mutex<OwnedWriteHalf>>) -> Result<(), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             let msg = format!($($msg)*);
@@ -132,9 +138,12 @@ async fn client_session(rooms_handle: ctrlflow::Handle<Rooms>, socket_id: multiw
                         let mut clients = HashMap::default();
                         clients.insert(socket_id, (None, Arc::clone(&writer)));
                         let room = Arc::new(RwLock::new(Room {
-                            password, clients,
+                            name: name.clone(),
                             base_queue: Vec::default(),
                             player_queues: HashMap::default(),
+                            last_saved: Instant::now(),
+                            db_pool: db_pool.clone(),
+                            password, clients,
                         }));
                         room_tx.send(NewRoom { name, room: Arc::clone(&room) }).await.expect("room list should be maintained indefinitely");
                         //TODO automatically delete rooms after 7 days of inactivity (reduce to 24 hours after backup system is implemented, to reduce room list clutter)
@@ -204,18 +213,43 @@ impl ctrlflow::Key for Rooms {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    #[error(transparent)] Io(#[from] io::Error),
+    #[error(transparent)] Read(#[from] async_proto::ReadError),
+    #[error(transparent)] Sql(#[from] sqlx::Error),
+}
+
 #[wheel::main]
-async fn main() -> io::Result<Never> {
-    let rooms = ctrlflow::run(Rooms).await;
+async fn main() -> Result<Never, Error> {
     let listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, multiworld::PORT)).await?;
+    let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database("ootr_multiworld").application_name("ootrmwd")).await?;
+    let rooms = ctrlflow::run(Rooms).await;
+    {
+        let room_tx = &rooms.state().await.0;
+        let mut query = sqlx::query!("SELECT name, password, base_queue, player_queues FROM rooms").fetch(&db_pool);
+        while let Some(row) = query.try_next().await? {
+            let room = Arc::new(RwLock::new(Room {
+                name: row.name.clone(),
+                password: row.password,
+                clients: HashMap::default(),
+                base_queue: Vec::read_sync(&mut &*row.base_queue)?,
+                player_queues: HashMap::read_sync(&mut &*row.player_queues)?,
+                last_saved: Instant::now(),
+                db_pool: db_pool.clone(),
+            }));
+            room_tx.send(NewRoom { name: row.name, room: Arc::clone(&room) }).await.expect("room list should be maintained indefinitely");
+        }
+    }
     loop {
         let (socket, _) = listener.accept().await?;
         let socket_id = multiworld::socket_id(&socket);
         let (reader, writer) = socket.into_split();
         let writer = Arc::new(Mutex::new(writer));
+        let db_pool = db_pool.clone();
         let rooms = rooms.clone();
         tokio::spawn(async move {
-            if let Err(e) = client_session(rooms.clone(), socket_id, reader, writer).await {
+            if let Err(e) = client_session(db_pool, rooms.clone(), socket_id, reader, writer).await {
                 eprintln!("{} error in client session: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
             }
             for room in rooms.state().await.1.values() {
