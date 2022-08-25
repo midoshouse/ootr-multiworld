@@ -217,7 +217,7 @@ impl Room {
         Ok(())
     }
 
-    async fn force_save(&mut self) -> sqlx::Result<()> {
+    pub async fn force_save(&mut self) -> sqlx::Result<()> {
         let mut base_queue = Vec::default();
         self.base_queue.write_sync(&mut base_queue).expect("failed to write base queue to buffer");
         let mut player_queues = Vec::default();
@@ -245,7 +245,10 @@ pub enum LobbyClientMessage {
 }
 
 #[derive(Protocol)]
-pub enum AdminClientMessage {}
+pub enum AdminClientMessage {
+    /// Stops the server.
+    Stop,
+}
 
 #[derive(Protocol)]
 pub enum RoomClientMessage {

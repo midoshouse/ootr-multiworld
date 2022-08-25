@@ -7,6 +7,7 @@ Wants=network-online.target
 Restart=always
 ExecStartPre=/usr/bin/git pull
 ExecStart=/home/fenhl/.cargo/bin/cargo run --release --package=ootrmwd
+ExecStop=/opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd stop
 User=fenhl
 Group=fenhl
 WorkingDirectory=/opt/git/github.com/midoshouse/ootr-multiworld/master

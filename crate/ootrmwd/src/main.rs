@@ -7,12 +7,10 @@ use {
             BTreeMap,
             HashMap,
         },
-        convert::{
-            Infallible as Never,
-            TryFrom as _,
-        },
+        convert::TryFrom as _,
         net::Ipv6Addr,
         pin::Pin,
+        process,
         sync::Arc,
         time::Instant,
     },
@@ -34,6 +32,7 @@ use {
         io,
         net::{
             TcpListener,
+            TcpStream,
             tcp::{
                 OwnedReadHalf,
                 OwnedWriteHalf,
@@ -61,6 +60,7 @@ use {
 #[derive(Debug, thiserror::Error)]
 enum SessionError {
     #[error(transparent)] Read(#[from] async_proto::ReadError),
+    #[error(transparent)] Sql(#[from] sqlx::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("protocol version mismatch: client is version {0} but we're version {}", multiworld::proto_version())]
     VersionMismatch(u8),
@@ -161,7 +161,15 @@ async fn client_session(db_pool: PgPool, rooms_handle: ctrlflow::Handle<Rooms>, 
                         }
                         ServerMessage::AdminLoginSuccess { active_connections }.write(&mut *writer.lock().await).await?;
                         loop {
-                            match AdminClientMessage::read(&mut reader).await? {}
+                            match AdminClientMessage::read(&mut reader).await? {
+                                AdminClientMessage::Stop => {
+                                    //TODO close TCP connections and listener
+                                    for room in rooms.into_values() {
+                                        room.write().await.force_save().await?;
+                                    }
+                                    process::exit(0)
+                                }
+                            }
                         }
                     } else {
                         error!("wrong user ID or API key")
@@ -213,50 +221,94 @@ impl ctrlflow::Key for Rooms {
     }
 }
 
+#[derive(clap::Parser)]
+#[clap(version)]
+struct Args {
+    #[clap(subcommand)]
+    subcommand: Option<Subcommand>,
+}
+
+#[derive(clap::Subcommand)]
+enum Subcommand {
+    Stop,
+}
+
 #[derive(Debug, thiserror::Error)]
 enum Error {
+    #[error(transparent)] Client(#[from] multiworld::ClientError),
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Sql(#[from] sqlx::Error),
+    #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error("server error: {0}")]
+    Server(String),
 }
 
 #[wheel::main]
-async fn main() -> Result<Never, Error> {
-    let listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, multiworld::PORT)).await?;
-    let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database("ootr_multiworld").application_name("ootrmwd")).await?;
-    let rooms = ctrlflow::run(Rooms).await;
-    {
-        let room_tx = &rooms.state().await.0;
-        let mut query = sqlx::query!("SELECT name, password, base_queue, player_queues FROM rooms").fetch(&db_pool);
-        while let Some(row) = query.try_next().await? {
-            let room = Arc::new(RwLock::new(Room {
-                name: row.name.clone(),
-                password: row.password,
-                clients: HashMap::default(),
-                base_queue: Vec::read_sync(&mut &*row.base_queue)?,
-                player_queues: HashMap::read_sync(&mut &*row.player_queues)?,
-                last_saved: Instant::now(),
-                db_pool: db_pool.clone(),
-            }));
-            room_tx.send(NewRoom { name: row.name, room: Arc::clone(&room) }).await.expect("room list should be maintained indefinitely");
-        }
-    }
-    loop {
-        let (socket, _) = listener.accept().await?;
-        let socket_id = multiworld::socket_id(&socket);
-        let (reader, writer) = socket.into_split();
-        let writer = Arc::new(Mutex::new(writer));
-        let db_pool = db_pool.clone();
-        let rooms = rooms.clone();
-        tokio::spawn(async move {
-            if let Err(e) = client_session(db_pool, rooms.clone(), socket_id, reader, writer).await {
-                eprintln!("{} error in client session: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
-            }
-            for room in rooms.state().await.1.values() {
-                if room.read().await.has_client(socket_id) {
-                    room.write().await.remove_client(socket_id).await;
+async fn main(Args { subcommand }: Args) -> Result<(), Error> {
+    match subcommand {
+        Some(Subcommand::Stop) => {
+            let mut tcp_stream = TcpStream::connect((Ipv6Addr::LOCALHOST, multiworld::PORT)).await?;
+            let _ = multiworld::handshake(&mut tcp_stream).await?;
+            LobbyClientMessage::Login { id: 14571800683221815449, api_key: *include_bytes!("../../../assets/admin-api-key.bin") }.write(&mut tcp_stream).await?;
+            loop {
+                match ServerMessage::read(&mut tcp_stream).await? {
+                    ServerMessage::OtherError(msg) => return Err(Error::Server(msg)),
+                    ServerMessage::NewRoom(_) => {}
+                    ServerMessage::AdminLoginSuccess { .. } => break,
+                    ServerMessage::EnterRoom { .. } |
+                    ServerMessage::PlayerId(_) |
+                    ServerMessage::ResetPlayerId(_) |
+                    ServerMessage::ClientConnected |
+                    ServerMessage::PlayerDisconnected(_) |
+                    ServerMessage::UnregisteredClientDisconnected |
+                    ServerMessage::PlayerName(_, _) |
+                    ServerMessage::ItemQueue(_) |
+                    ServerMessage::GetItem(_) |
+                    ServerMessage::WrongPassword => unreachable!(),
                 }
             }
-        });
+            AdminClientMessage::Stop.write(&mut tcp_stream).await?;
+        }
+        None => {
+            let listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, multiworld::PORT)).await?;
+            let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database("ootr_multiworld").application_name("ootrmwd")).await?;
+            let rooms = ctrlflow::run(Rooms).await;
+            {
+                let room_tx = &rooms.state().await.0;
+                let mut query = sqlx::query!("SELECT name, password, base_queue, player_queues FROM rooms").fetch(&db_pool);
+                while let Some(row) = query.try_next().await? {
+                    let room = Arc::new(RwLock::new(Room {
+                        name: row.name.clone(),
+                        password: row.password,
+                        clients: HashMap::default(),
+                        base_queue: Vec::read_sync(&mut &*row.base_queue)?,
+                        player_queues: HashMap::read_sync(&mut &*row.player_queues)?,
+                        last_saved: Instant::now(),
+                        db_pool: db_pool.clone(),
+                    }));
+                    room_tx.send(NewRoom { name: row.name, room: Arc::clone(&room) }).await.expect("room list should be maintained indefinitely");
+                }
+            }
+            loop {
+                let (socket, _) = listener.accept().await?;
+                let socket_id = multiworld::socket_id(&socket);
+                let (reader, writer) = socket.into_split();
+                let writer = Arc::new(Mutex::new(writer));
+                let db_pool = db_pool.clone();
+                let rooms = rooms.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = client_session(db_pool, rooms.clone(), socket_id, reader, writer).await {
+                        eprintln!("{} error in client session: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
+                    }
+                    for room in rooms.state().await.1.values() {
+                        if room.read().await.has_client(socket_id) {
+                            room.write().await.remove_client(socket_id).await;
+                        }
+                    }
+                });
+            }
+        }
     }
+    Ok(())
 }
