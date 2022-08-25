@@ -68,6 +68,7 @@ pub(crate) enum Error {
 #[derive(Debug, Clone)]
 enum Message {
     CommandError(Arc<Error>),
+    DismissWrongPassword,
     Exit,
     JoinRoom,
     Nop,
@@ -102,6 +103,7 @@ enum ServerConnectionState {
         existing_room_selection: Option<String>,
         new_room_name: String,
         password: String,
+        wrong_password: bool,
     },
     Room {
         players: Vec<Player>,
@@ -170,6 +172,9 @@ impl Application for State {
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
             Message::CommandError(e) => { self.command_error.get_or_insert(e); }
+            Message::DismissWrongPassword => if let ServerConnectionState::Lobby { ref mut wrong_password, .. } = self.server_connection {
+                *wrong_password = false;
+            },
             Message::Exit => self.should_exit = true,
             Message::JoinRoom => if let ServerConnectionState::Lobby { create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } = self.server_connection {
                 if !password.is_empty() {
@@ -263,10 +268,11 @@ impl Application for State {
                     existing_room_selection: None,
                     new_room_name: String::default(),
                     password: String::default(),
+                    wrong_password: false,
                     rooms,
                 };
             }
-            Message::Server(ServerMessage::Error(e)) => if !matches!(self.server_connection, ServerConnectionState::Error(_)) {
+            Message::Server(ServerMessage::OtherError(e)) => if !matches!(self.server_connection, ServerConnectionState::Error(_)) {
                 self.server_connection = ServerConnectionState::Error(Arc::new(Error::Server(e)));
             },
             Message::Server(ServerMessage::NewRoom(name)) => if let ServerConnectionState::Lobby { ref mut rooms, .. } = self.server_connection { rooms.insert(name); },
@@ -340,6 +346,10 @@ impl Application for State {
                 }
             }
             Message::Server(ServerMessage::AdminLoginSuccess { .. }) => unreachable!(),
+            Message::Server(ServerMessage::WrongPassword) => if let ServerConnectionState::Lobby { ref mut password, ref mut wrong_password, .. } = self.server_connection {
+                *wrong_password = true;
+                password.clear();
+            },
             Message::ServerSubscriptionError(e) => if !matches!(self.server_connection, ServerConnectionState::Error(_)) {
                 self.server_connection = ServerConnectionState::Error(e);
             },
@@ -395,7 +405,13 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                ServerConnectionState::Lobby { ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password } => Column::new()
+                ServerConnectionState::Lobby { wrong_password: true, .. } => Column::new()
+                    .push(Text::new("wrong password"))
+                    .push(Button::new(Text::new("OK")).on_press(Message::DismissWrongPassword))
+                    .spacing(8)
+                    .padding(8)
+                    .into(),
+                ServerConnectionState::Lobby { wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password } => Column::new()
                     .push(Radio::new(false, "Connect to existing room", Some(create_new_room), Message::SetCreateNewRoom))
                     .push(Radio::new(true, "Create new room", Some(create_new_room), Message::SetCreateNewRoom))
                     .push(if create_new_room {

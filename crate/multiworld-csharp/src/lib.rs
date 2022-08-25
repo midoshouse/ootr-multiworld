@@ -316,7 +316,8 @@ impl RoomClient {
 #[no_mangle] pub unsafe extern "C" fn lobby_client_try_recv_new_room(lobby_client: *mut LobbyClient) -> HandleOwned<DebugResult<String>> {
     let lobby_client = &mut *lobby_client;
     HandleOwned::new(match lobby_client.try_read() {
-        Ok(Some(ServerMessage::Error(e))) => Err(DebugError(e)),
+        Ok(Some(ServerMessage::OtherError(e))) => Err(DebugError(e)),
+        Ok(Some(ServerMessage::WrongPassword)) => Err(DebugError(format!("wrong password"))),
         Ok(Some(ServerMessage::NewRoom(name))) => {
             if let Err(idx) = lobby_client.rooms.binary_search(&name) {
                 lobby_client.rooms.insert(idx, name.clone());
@@ -376,7 +377,8 @@ impl RoomClient {
     })
     .and_then(|()| loop {
         break match ServerMessage::read_sync(&mut lobby_client.tcp_stream) {
-            Ok(ServerMessage::Error(e)) => Err(DebugError(e)),
+            Ok(ServerMessage::OtherError(e)) => Err(DebugError(e)),
+            Ok(ServerMessage::WrongPassword) => Err(DebugError(format!("wrong password"))),
             Ok(ServerMessage::NewRoom(_)) => continue,
             Ok(ServerMessage::EnterRoom { players, num_unassigned_clients }) => Ok((players, num_unassigned_clients)),
             Ok(msg) => Err(DebugError(format!("{msg:?}"))),
@@ -518,7 +520,8 @@ impl RoomClient {
 #[no_mangle] pub unsafe extern "C" fn room_client_try_recv_message(room_client: *mut RoomClient) -> HandleOwned<DebugResult<Option<ServerMessage>>> {
     let room_client = &mut *room_client;
     HandleOwned::new(match room_client.try_read() {
-        Ok(Some(ServerMessage::Error(e))) => Err(DebugError(e)),
+        Ok(Some(ServerMessage::OtherError(e))) => Err(DebugError(e)),
+        Ok(Some(ServerMessage::WrongPassword)) => Err(DebugError(format!("wrong password"))),
         Ok(opt_msg) => Ok(opt_msg),
         Err(e) => Err(DebugError::from(e)),
     })
@@ -556,7 +559,7 @@ impl RoomClient {
 ///
 /// `opt_msg_res` must point at a valid `DebugResult<Option<ServerMessage>>`.
 #[no_mangle] pub unsafe extern "C" fn opt_message_result_is_err(opt_msg_res: *const DebugResult<Option<ServerMessage>>) -> FfiBool {
-    matches!(&*opt_msg_res, Ok(Some(ServerMessage::Error(_))) | Err(_)).into()
+    matches!(&*opt_msg_res, Ok(Some(ServerMessage::OtherError(_) | ServerMessage::WrongPassword)) | Err(_)).into()
 }
 
 /// # Safety
@@ -564,7 +567,8 @@ impl RoomClient {
 /// `opt_msg_res` must point at a valid `DebugResult<Option<ServerMessage>>>`. This function takes ownership of the `DebugResult`.
 #[no_mangle] pub unsafe extern "C" fn opt_message_result_debug_err(opt_msg_res: HandleOwned<DebugResult<Option<ServerMessage>>>) -> StringHandle {
     StringHandle::from_string(match *opt_msg_res.into_box() {
-        Ok(Some(ServerMessage::Error(e))) => e,
+        Ok(Some(ServerMessage::OtherError(e))) => e,
+        Ok(Some(ServerMessage::WrongPassword)) => format!("wrong password"),
         Ok(value) => panic!("tried to debug_err an Ok({value:?})"),
         Err(e) => e.0,
     })
@@ -576,9 +580,10 @@ impl RoomClient {
 #[no_mangle] pub unsafe extern "C" fn message_effect_type(msg: *const ServerMessage) -> u8 {
     let msg = &*msg;
     match msg {
-        ServerMessage::Error(_) |
+        ServerMessage::OtherError(_) |
         ServerMessage::NewRoom(_) |
-        ServerMessage::AdminLoginSuccess { .. } => unreachable!(),
+        ServerMessage::AdminLoginSuccess { .. } |
+        ServerMessage::WrongPassword => unreachable!(),
         ServerMessage::EnterRoom { .. } |
         ServerMessage::PlayerId(_) |
         ServerMessage::ResetPlayerId(_) |
@@ -605,14 +610,15 @@ impl RoomClient {
         ServerMessage::ResetPlayerId(world) |
         ServerMessage::PlayerDisconnected(world) |
         ServerMessage::PlayerName(world, _) => world.get(),
-        ServerMessage::Error(_) |
+        ServerMessage::OtherError(_) |
         ServerMessage::NewRoom(_) |
         ServerMessage::EnterRoom { .. } |
         ServerMessage::ClientConnected |
         ServerMessage::UnregisteredClientDisconnected |
         ServerMessage::ItemQueue(_) |
         ServerMessage::GetItem(_) |
-        ServerMessage::AdminLoginSuccess { .. } => panic!("this message variant has no world ID"),
+        ServerMessage::AdminLoginSuccess { .. } |
+        ServerMessage::WrongPassword => panic!("this message variant has no world ID"),
     }
 }
 
@@ -638,7 +644,7 @@ impl RoomClient {
 #[no_mangle] pub unsafe extern "C" fn room_client_apply_message(room_client: *mut RoomClient, msg: HandleOwned<ServerMessage>) {
     let room_client = &mut *room_client;
     match *msg.into_box() {
-        ServerMessage::Error(_) | ServerMessage::NewRoom(_) | ServerMessage::AdminLoginSuccess { .. } => unreachable!(),
+        ServerMessage::OtherError(_) | ServerMessage::WrongPassword | ServerMessage::NewRoom(_) | ServerMessage::AdminLoginSuccess { .. } => unreachable!(),
         ServerMessage::EnterRoom { players, num_unassigned_clients } => {
             room_client.players = players;
             room_client.num_unassigned_clients = num_unassigned_clients;

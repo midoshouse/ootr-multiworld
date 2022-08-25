@@ -61,7 +61,7 @@ async fn main(Args { id, api_key }: Args) -> Result<Never, Error> {
     LobbyClientMessage::Login { id, api_key }.write(&mut tcp_stream).await?;
     loop {
         match ServerMessage::read(&mut tcp_stream).await? {
-            ServerMessage::Error(msg) => return Err(Error::Server(msg)),
+            ServerMessage::OtherError(msg) => return Err(Error::Server(msg)),
             ServerMessage::NewRoom(room_name) => println!("new room: {room_name:?}"),
             ServerMessage::AdminLoginSuccess { active_connections } => {
                 println!("admin login success, active connections:");
@@ -78,7 +78,8 @@ async fn main(Args { id, api_key }: Args) -> Result<Never, Error> {
             ServerMessage::UnregisteredClientDisconnected |
             ServerMessage::PlayerName(_, _) |
             ServerMessage::ItemQueue(_) |
-            ServerMessage::GetItem(_) => unreachable!(),
+            ServerMessage::GetItem(_) |
+            ServerMessage::WrongPassword => unreachable!(),
         }
     }
 }

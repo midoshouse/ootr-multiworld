@@ -237,7 +237,7 @@ pub enum RoomClientMessage {
 #[derive(Debug, Clone, Protocol)]
 pub enum ServerMessage {
     /// An error has occurred. Contains a human-readable error message.
-    Error(String),
+    OtherError(String),
     /// A new room has been created.
     NewRoom(String),
     /// You have created or joined a room and are now sending [`RoomClientMessage`]s.
@@ -267,6 +267,8 @@ pub enum ServerMessage {
     AdminLoginSuccess {
         active_connections: BTreeMap<String, u8>,
     },
+    /// The client sent the wrong password for the given room.
+    WrongPassword,
 }
 
 #[derive(Debug, thiserror::Error)]
