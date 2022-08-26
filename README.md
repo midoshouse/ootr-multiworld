@@ -50,4 +50,5 @@ If you need help, please ask in #setup-support on the OoTR Discord.
 
 # Credits
 
+* Icon based on chest image created for [Mido's House](https://midos.house/) by [Maplestar](https://github.com/Maplesstar).
 * Some code based on [Bizhawk Shuffler 2](https://github.com/authorblues/bizhawk-shuffler-2)
