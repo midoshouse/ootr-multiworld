@@ -71,6 +71,7 @@ enum Message {
     DismissWrongPassword,
     Exit,
     JoinRoom,
+    Kick(NonZeroU8),
     Nop,
     Pj64Connected(Arc<Mutex<OwnedWriteHalf>>),
     Pj64SubscriptionError(Arc<Error>),
@@ -196,6 +197,12 @@ impl Application for State {
                     })
                 }
             }
+            Message::Kick(player_id) => if let Some(writer) = self.server_writer.clone() {
+                return cmd(async move {
+                    RoomClientMessage::KickPlayer(player_id).write(&mut *writer.lock().await).await?;
+                    Ok(Message::Nop)
+                })
+            },
             Message::Nop => {}
             Message::Pj64Connected(writer) => {
                 self.pj64_writer = Some(Arc::clone(&writer));
@@ -432,11 +439,24 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                ServerConnectionState::Room { ref players, num_unassigned_clients, .. } => Column::new()
-                    .push(Text::new(format_room_state(players, num_unassigned_clients, self.player_id)))
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                ServerConnectionState::Room { ref players, num_unassigned_clients, .. } => {
+                    let mut col = Column::new();
+                    let (players, other) = format_room_state(players, num_unassigned_clients, self.player_id);
+                    for (player_idx, player) in players.into_iter().enumerate() {
+                        let player_id = NonZeroU8::new(u8::try_from(player_idx + 1).expect("too many players")).expect("iterator index + 1 was 0");
+                        let mut row = Row::new();
+                        row = row.push(Text::new(player));
+                        if self.player_id.map_or(true, |my_id| my_id != player_id) {
+                            row = row.push(Button::new(Text::new("Kick")).on_press(Message::Kick(player_id)));
+                        }
+                        col = col.push(row);
+                    }
+                    col
+                        .push(Text::new(other))
+                        .spacing(8)
+                        .padding(8)
+                        .into()
+                }
             }
         }
     }

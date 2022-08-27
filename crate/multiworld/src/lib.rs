@@ -21,7 +21,6 @@ use {
     async_proto::Protocol,
     async_recursion::async_recursion,
     chrono::prelude::*,
-    itertools::Itertools as _,
     semver::Version,
     tokio::{
         net::{
@@ -268,6 +267,7 @@ pub enum RoomClientMessage {
         kind: u16,
         target_world: NonZeroU8,
     },
+    KickPlayer(NonZeroU8),
 }
 
 #[derive(Debug, Clone, Protocol)]
@@ -351,12 +351,12 @@ fn render_filename(name: [u8; 8]) -> String {
     name.into_iter().map(|c| filename_encoding[usize::from(c)]).collect()
 }
 
-pub fn format_room_state(players: &[Player], num_unassigned_clients: u8, my_world: Option<NonZeroU8>) -> String {
+pub fn format_room_state(players: &[Player], num_unassigned_clients: u8, my_world: Option<NonZeroU8>) -> (Vec<String>, String) {
     match (players.len(), num_unassigned_clients) {
-        (0, 0) => unreachable!(), // the current client should always be in the room
-        (0, unassigned) => format!("{unassigned} client{} with no world", if unassigned == 1 { "" } else { "s" }),
+        (0, 0) => (Vec::default(), format!("this room is empty")), // for admin view
+        (0, unassigned) => (Vec::default(), format!("{unassigned} client{} with no world", if unassigned == 1 { "" } else { "s" })),
         (_, unassigned) => {
-            let mut buf = players.iter()
+            (players.iter()
                 .map(|player| if player.name == Player::DEFAULT_NAME {
                     if my_world == Some(player.world) {
                         format!("{}. [create save file 1 to set name]", player.world)
@@ -366,11 +366,12 @@ pub fn format_room_state(players: &[Player], num_unassigned_clients: u8, my_worl
                 } else {
                     format!("{}. {}", player.world, render_filename(player.name))
                 })
-                .join("\r\n");
+                .collect(),
             if unassigned > 0 {
-                buf.push_str(&format!("\r\n…and {unassigned} client{} with no world", if unassigned == 1 { "" } else { "s" }));
-            }
-            buf
+                format!("…and {unassigned} client{} with no world", if unassigned == 1 { "" } else { "s" })
+            } else {
+                String::default()
+            })
         }
     }
 }

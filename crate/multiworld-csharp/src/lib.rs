@@ -24,6 +24,7 @@ use {
     },
     async_proto::Protocol,
     directories::ProjectDirs,
+    itertools::Itertools as _,
     libc::c_char,
     semver::Version,
     multiworld::{
@@ -509,7 +510,8 @@ impl RoomClient {
 /// `room_client` must point at a valid `RoomClient`.
 #[no_mangle] pub unsafe extern "C" fn room_client_format_state(room_client: *const RoomClient) -> StringHandle {
     let room_client = &*room_client;
-    StringHandle::from_string(format_room_state(&room_client.players, room_client.num_unassigned_clients, room_client.last_world))
+    let (players, other) = format_room_state(&room_client.players, room_client.num_unassigned_clients, room_client.last_world);
+    StringHandle::from_string(format!("{}\r\n{other}", players.into_iter().format("\r\n")))
 }
 
 /// Attempts to read a message from the server if one is available, without blocking if there is not.

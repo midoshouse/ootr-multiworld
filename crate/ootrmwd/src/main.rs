@@ -190,6 +190,17 @@ async fn client_session(db_pool: PgPool, rooms_handle: ctrlflow::Handle<Rooms>, 
             RoomClientMessage::SendItem { key, kind, target_world } => if !room.write().await.queue_item(socket_id, key, kind, target_world).await {
                 error!("please claim a world before sending items")
             },
+            RoomClientMessage::KickPlayer(id) => {
+                let mut room = room.write().await;
+                for (&socket_id, &(player, _)) in &room.clients {
+                    if let Some(Player { world, .. }) = player {
+                        if world == id {
+                            room.remove_client(socket_id).await;
+                            break
+                        }
+                    }
+                }
+            }
         }
     }
 }
