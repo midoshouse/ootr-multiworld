@@ -90,23 +90,26 @@ async fn client_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::So
                 },
                 msg = &mut read => match msg? {
                     LobbyClientMessage::JoinRoom { name, password } => if let Some(room) = rooms.0.lock().await.0.get(&name) {
-                        if room.read().await.password != password { ServerMessage::WrongPassword.write(&mut *writer.lock().await).await? }
-                        if room.read().await.clients.len() >= u8::MAX.into() { error!("room {name:?} is full") }
-                        {
-                            let mut room = room.write().await;
-                            room.add_client(socket_id, Arc::clone(&writer)).await;
-                            let mut players = Vec::<Player>::default();
-                            let mut num_unassigned_clients = 0;
-                            for &(player, _) in room.clients.values() {
-                                if let Some(player) = player {
-                                    players.insert(players.binary_search_by_key(&player.world, |p| p.world).expect_err("duplicate world number"), player);
-                                } else {
-                                    num_unassigned_clients += 1;
+                        if room.read().await.password == password {
+                            if room.read().await.clients.len() >= u8::MAX.into() { error!("room {name:?} is full") }
+                            {
+                                let mut room = room.write().await;
+                                room.add_client(socket_id, Arc::clone(&writer)).await;
+                                let mut players = Vec::<Player>::default();
+                                let mut num_unassigned_clients = 0;
+                                for &(player, _) in room.clients.values() {
+                                    if let Some(player) = player {
+                                        players.insert(players.binary_search_by_key(&player.world, |p| p.world).expect_err("duplicate world number"), player);
+                                    } else {
+                                        num_unassigned_clients += 1;
+                                    }
                                 }
+                                ServerMessage::EnterRoom { players, num_unassigned_clients }.write(&mut *writer.lock().await).await?;
                             }
-                            ServerMessage::EnterRoom { players, num_unassigned_clients }.write(&mut *writer.lock().await).await?;
+                            break Arc::clone(room)
+                        } else {
+                            ServerMessage::WrongPassword.write(&mut *writer.lock().await).await?;
                         }
-                        break Arc::clone(room)
                     } else {
                         error!("there is no room named {name:?}")
                     },
