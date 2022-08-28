@@ -668,8 +668,9 @@ namespace MidosHouse.OotrMultiworld {
                     kickButton.Visible = this.otherState.Visible;
                     kickButton.Text = "Kick";
                     kickButton.Enabled = true;
+                    var closurePlayerIdx = player_idx;
                     kickButton.Click += (s, e) => {
-                        using (var res = client.KickPlayer(player_idx)) {
+                        using (var res = client.KickPlayer(closurePlayerIdx)) {
                             if (!res.IsOk()) {
                                 using (var err = res.DebugErr()) {
                                     Error(err.AsString());

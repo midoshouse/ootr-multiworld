@@ -611,7 +611,7 @@ impl RoomClient {
         ServerMessage::NewRoom(_) |
         ServerMessage::AdminLoginSuccess { .. } |
         ServerMessage::WrongPassword |
-        ServerMessage::Goodbye => unreachable!(),
+        ServerMessage::Goodbye => unreachable!("tried to check effect type of {msg:?}"),
         ServerMessage::EnterRoom { .. } |
         ServerMessage::PlayerId(_) |
         ServerMessage::ResetPlayerId(_) |
