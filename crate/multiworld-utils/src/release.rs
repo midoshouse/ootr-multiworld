@@ -550,7 +550,7 @@ impl Task<Result<(), Error>> for BuildServer {
 #[clap(version)]
 struct Args {
     /// Create the GitHub release as a draft
-    #[clap(long)]
+    #[clap(short = 'P', long)]
     no_publish: bool,
     /// Don't update the server
     #[clap(short = 'S', long)]
@@ -561,6 +561,9 @@ struct Args {
     /// the editor for the release notes
     #[clap(short = 'e', long, parse(from_os_str))]
     release_notes_editor: Option<OsString>,
+    /// Only update the server
+    #[clap(short, long, exclusive = true)]
+    server_only: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -595,45 +598,49 @@ enum Error {
 #[wheel::main(debug)]
 async fn main(args: Args) -> Result<(), Error> {
     let cli = Arc::new(Cli::new()?);
-    let create_release_cli = Arc::clone(&cli);
-    let release_notes_cli = Arc::clone(&cli);
-    let (client, repo, bizhawk_version) = cli.run(Setup::default(), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
-    let (release_tx, release_rx_installer) = broadcast::channel(1);
-    let release_rx_bizhawk = release_tx.subscribe();
-    let release_rx_pj64 = release_tx.subscribe();
-    let create_release_args = args.clone();
-    let create_release_client = client.clone();
-    let create_release_repo = repo.clone();
-    let create_release = tokio::spawn(async move {
-        create_release_cli.run(CreateRelease::new(create_release_repo, create_release_client, release_tx, release_notes_cli, create_release_args), "release created").await?
-    });
-    let (updater_tx, updater_rx_bizhawk) = broadcast::channel(1);
-    let updater_rx_pj64 = updater_tx.subscribe();
-    let (bizhawk_tx, bizhawk_rx) = broadcast::channel(1);
-    let (pj64_tx, pj64_rx) = broadcast::channel(1);
+    if args.server_only {
+        cli.run(BuildServer::default(), "server build done").await??;
+    } else {
+        let create_release_cli = Arc::clone(&cli);
+        let release_notes_cli = Arc::clone(&cli);
+        let (client, repo, bizhawk_version) = cli.run(Setup::default(), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
+        let (release_tx, release_rx_installer) = broadcast::channel(1);
+        let release_rx_bizhawk = release_tx.subscribe();
+        let release_rx_pj64 = release_tx.subscribe();
+        let create_release_args = args.clone();
+        let create_release_client = client.clone();
+        let create_release_repo = repo.clone();
+        let create_release = tokio::spawn(async move {
+            create_release_cli.run(CreateRelease::new(create_release_repo, create_release_client, release_tx, release_notes_cli, create_release_args), "release created").await?
+        });
+        let (updater_tx, updater_rx_bizhawk) = broadcast::channel(1);
+        let updater_rx_pj64 = updater_tx.subscribe();
+        let (bizhawk_tx, bizhawk_rx) = broadcast::channel(1);
+        let (pj64_tx, pj64_rx) = broadcast::channel(1);
 
-    macro_rules! with_metavariable {
-        ($metavariable:tt, $($token:tt)*) => { $($token)* };
-    }
+        macro_rules! with_metavariable {
+            ($metavariable:tt, $($token:tt)*) => { $($token)* };
+        }
 
-    macro_rules! build_tasks {
-        ($($task:expr,)*) => {
-            let ($(with_metavariable!($task, ())),*) = tokio::try_join!($($task),*)?;
-        };
-    }
+        macro_rules! build_tasks {
+            ($($task:expr,)*) => {
+                let ($(with_metavariable!($task, ())),*) = tokio::try_join!($($task),*)?;
+            };
+        }
 
-    build_tasks![
-        { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildUpdater::new(updater_tx), "updater build done").await? }).await? } },
-        { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawk::new(client, repo, updater_rx_bizhawk, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "BizHawk build done").await? }).await? } },
-        { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildPj64::new(client, repo, updater_rx_pj64, release_rx_pj64, pj64_tx), "Project64 build done").await? }).await? } },
-        { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstaller::new(client, repo, bizhawk_rx, pj64_rx, release_rx_installer), "installer build done").await? }).await? } },
-        if args.no_server { future::ok(()).boxed() } else { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildServer::default(), "server build done").await? }).await? }.boxed() },
-    ];
-    let release = create_release.await??;
-    if !args.no_publish {
-        let line = cli.new_line("[....] publishing release").await?;
-        repo.publish_release(&client, release).await?;
-        line.replace("[done] release published").await?;
+        build_tasks![
+            { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildUpdater::new(updater_tx), "updater build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawk::new(client, repo, updater_rx_bizhawk, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "BizHawk build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildPj64::new(client, repo, updater_rx_pj64, release_rx_pj64, pj64_tx), "Project64 build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstaller::new(client, repo, bizhawk_rx, pj64_rx, release_rx_installer), "installer build done").await? }).await? } },
+            if args.no_server { future::ok(()).boxed() } else { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildServer::default(), "server build done").await? }).await? }.boxed() },
+        ];
+        let release = create_release.await??;
+        if !args.no_publish {
+            let line = cli.new_line("[....] publishing release").await?;
+            repo.publish_release(&client, release).await?;
+            line.replace("[done] release published").await?;
+        }
     }
     Ok(())
 }
