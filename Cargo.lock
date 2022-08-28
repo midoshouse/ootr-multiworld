@@ -2764,7 +2764,6 @@ version = "2.1.0"
 dependencies = [
  "async-proto",
  "directories",
- "itertools",
  "libc",
  "multiworld",
  "reqwest",

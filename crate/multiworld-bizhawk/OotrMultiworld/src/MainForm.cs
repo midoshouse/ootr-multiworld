@@ -43,7 +43,10 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern StringHandle unit_result_debug_err(IntPtr unit_res);
         [DllImport("multiworld")] internal static extern UnitResult room_client_reset_player_id(RoomClient room_client);
         [DllImport("multiworld")] internal static extern UnitResult room_client_set_player_name(RoomClient room_client, IntPtr name);
-        [DllImport("multiworld")] internal static extern StringHandle room_client_format_state(RoomClient room_client);
+        [DllImport("multiworld")] internal static extern byte room_client_num_players(RoomClient room_client);
+        [DllImport("multiworld")] internal static extern StringHandle room_client_player_state(RoomClient room_client, byte player_idx);
+        [DllImport("multiworld")] internal static extern StringHandle room_client_other_state(RoomClient room_client);
+        [DllImport("multiworld")] internal static extern UnitResult room_client_kick_player(RoomClient room_client, byte player_idx);
         [DllImport("multiworld")] internal static extern OptMessageResult room_client_try_recv_message(RoomClient room_client);
         [DllImport("multiworld")] internal static extern void opt_message_result_free(IntPtr opt_msg_res);
         [DllImport("multiworld")] internal static extern bool opt_message_result_is_ok_some(OptMessageResult opt_msg_res);
@@ -237,11 +240,14 @@ namespace MidosHouse.OotrMultiworld {
             return name.ToList();
         }
 
-        internal StringHandle State() => Native.room_client_format_state(this);
+        internal byte NumPlayers() => Native.room_client_num_players(this);
+        internal StringHandle PlayerState(byte player_idx) => Native.room_client_player_state(this, player_idx);
+        internal StringHandle OtherState() => Native.room_client_other_state(this);
         internal OptMessageResult TryRecv() => Native.room_client_try_recv_message(this);
         internal UnitResult SendItem(uint key, ushort kind, byte targetWorld) => Native.room_client_send_item(this, key, kind, targetWorld);
         internal ushort ItemQueueLen() => Native.room_client_item_queue_len(this);
         internal ushort Item(ushort index) => Native.room_client_item_kind_at_index(this, index);
+        internal UnitResult KickPlayer(byte player_idx) => Native.room_client_kick_player(this, player_idx);
     }
 
     internal class RoomClientResult : SafeHandle {
@@ -381,7 +387,9 @@ namespace MidosHouse.OotrMultiworld {
         private ComboBox rooms = new ComboBox();
         private TextBox password = new TextBox();
         private Button createJoinButton = new Button();
-        private Label roomState = new Label();
+        private List<Label> playerStates = new List<Label>();
+        private List<Button> kickButtons = new List<Button>();
+        private Label otherState = new Label();
 
         private LobbyClient? lobbyClient;
         private RoomClient? roomClient;
@@ -456,11 +464,11 @@ namespace MidosHouse.OotrMultiworld {
             };
             this.Controls.Add(this.createJoinButton);
 
-            this.roomState.TabIndex = 4;
-            this.roomState.Location = new Point(12, 42);
-            this.roomState.AutoSize = true;
-            this.roomState.Visible = false;
-            this.Controls.Add(this.roomState);
+            this.otherState.TabIndex = 4;
+            this.otherState.Location = new Point(12, 42);
+            this.otherState.AutoSize = true;
+            this.otherState.Visible = false;
+            this.Controls.Add(this.otherState);
 
             ResumeLayout(true);
         }
@@ -565,7 +573,7 @@ namespace MidosHouse.OotrMultiworld {
                             switch (msg.EffectType()) {
                                 case 0: { // changes room state
                                     msg.Apply(this.roomClient);
-                                    this.roomState.Text = this.roomClient.State().AsString();
+                                    this.UpdateRoomState(this.roomClient);
                                     break;
                                 }
                                 case 1: { // sets a player name and changes room state
@@ -573,7 +581,7 @@ namespace MidosHouse.OotrMultiworld {
                                         APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + msg.World() * 0x8, msg.Filename(), "System Bus");
                                     }
                                     msg.Apply(this.roomClient);
-                                    this.roomState.Text = this.roomClient.State().AsString();
+                                    this.UpdateRoomState(this.roomClient);
                                     break;
                                 }
                                 default: {
@@ -634,11 +642,56 @@ namespace MidosHouse.OotrMultiworld {
             this.rooms.Visible = false;
             this.password.Visible = false;
             this.createJoinButton.Visible = false;
-            this.roomState.Text = client.State().AsString();
-            this.roomState.Visible = true;
+            this.ShowUI();
             ResumeLayout(true);
             ReadPlayerID();
             SyncPlayerNames();
+        }
+
+        private void UpdateRoomState(RoomClient client) {
+            var num_players = client.NumPlayers();
+            for (byte player_idx = 0; player_idx < num_players; player_idx++) {
+                if (player_idx >= this.playerStates.Count) {
+                    var playerState = new Label();
+                    playerState.TabIndex = 2 * player_idx + 4;
+                    playerState.Location = new Point(52, 42);
+                    playerState.AutoSize = true;
+                    playerState.Visible = false;
+                    this.Controls.Add(playerState);
+                    this.playerStates.Add(playerState);
+
+                    var kickButton = new Button();
+                    kickButton.TabIndex = 2 * player_idx + 5;
+                    kickButton.Location = new Point(12, 40 * player_idx + 42);
+                    kickButton.AutoSize = true;
+                    kickButton.Visible = false;
+                    kickButton.Text = "Kick";
+                    kickButton.Enabled = true;
+                    kickButton.Click += (s, e) => {
+                        using (var res = client.KickPlayer(player_idx)) {
+                            if (!res.IsOk()) {
+                                using (var err = res.DebugErr()) {
+                                    Error(err.AsString());
+                                }
+                            }
+                        }
+                    };
+                    this.Controls.Add(kickButton);
+                    this.kickButtons.Add(kickButton);
+                }
+                this.playerStates[player_idx].Text = client.PlayerState(player_idx).AsString();
+            }
+            this.otherState.TabIndex = 2 * num_players + 4;
+            this.otherState.Location = new Point(12, 40 * num_players + 42);
+            this.otherState.Text = client.OtherState().AsString();
+            if (num_players < this.playerStates.Count) {
+                for (var player_idx = num_players; player_idx < this.playerStates.Count; player_idx++) {
+                    this.Controls.Remove(this.playerStates[player_idx]);
+                    this.Controls.Remove(this.kickButtons[player_idx]);
+                }
+                this.playerStates.RemoveRange(num_players, this.playerStates.Count - num_players);
+                this.kickButtons.RemoveRange(num_players, this.kickButtons.Count - num_players);
+            }
         }
 
         private void ReadPlayerID() {
@@ -742,7 +795,11 @@ namespace MidosHouse.OotrMultiworld {
             this.rooms.Visible = false;
             this.password.Visible = false;
             this.createJoinButton.Visible = false;
-            this.roomState.Visible = false;
+            for (var player_idx = 0; player_idx < this.playerStates.Count; player_idx++) {
+                this.playerStates[player_idx].Visible = false;
+                this.kickButtons[player_idx].Visible = false;
+            }
+            this.otherState.Visible = false;
         }
 
         private void ShowUI() {
@@ -752,7 +809,11 @@ namespace MidosHouse.OotrMultiworld {
                 this.createJoinButton.Visible = true;
             }
             if (this.roomClient != null) {
-                this.roomState.Visible = true;
+                for (var player_idx = 0; player_idx < this.playerStates.Count; player_idx++) {
+                    this.playerStates[player_idx].Visible = true;
+                    this.kickButtons[player_idx].Visible = true;
+                }
+                this.otherState.Visible = true;
             }
         }
     }

@@ -24,7 +24,6 @@ use {
     },
     async_proto::Protocol,
     directories::ProjectDirs,
-    itertools::Itertools as _,
     libc::c_char,
     semver::Version,
     multiworld::{
@@ -508,10 +507,36 @@ impl RoomClient {
 /// # Safety
 ///
 /// `room_client` must point at a valid `RoomClient`.
-#[no_mangle] pub unsafe extern "C" fn room_client_format_state(room_client: *const RoomClient) -> StringHandle {
+#[no_mangle] pub unsafe extern "C" fn room_client_num_players(room_client: *const RoomClient) -> u8 {
     let room_client = &*room_client;
-    let (players, other) = format_room_state(&room_client.players, room_client.num_unassigned_clients, room_client.last_world);
-    StringHandle::from_string(format!("{}\r\n{other}", players.into_iter().format("\r\n")))
+    room_client.players.len().try_into().expect("too many players")
+}
+
+/// # Safety
+///
+/// `room_client` must point at a valid `RoomClient`.
+#[no_mangle] pub unsafe extern "C" fn room_client_player_state(room_client: *const RoomClient, player_idx: u8) -> StringHandle {
+    let room_client = &*room_client;
+    let (mut players, _) = format_room_state(&room_client.players, room_client.num_unassigned_clients, room_client.last_world);
+    StringHandle::from_string(players.remove(usize::from(player_idx)))
+}
+
+/// # Safety
+///
+/// `room_client` must point at a valid `RoomClient`.
+#[no_mangle] pub unsafe extern "C" fn room_client_other_state(room_client: *const RoomClient) -> StringHandle {
+    let room_client = &*room_client;
+    let (_, other) = format_room_state(&room_client.players, room_client.num_unassigned_clients, room_client.last_world);
+    StringHandle::from_string(other)
+}
+
+/// # Safety
+///
+/// `room_client` must point at a valid `RoomClient`.
+#[no_mangle] pub unsafe extern "C" fn room_client_kick_player(room_client: *mut RoomClient, player_idx: u8) -> HandleOwned<DebugResult<()>> {
+    let room_client = &mut *room_client;
+    let target_world = room_client.players[usize::from(player_idx)].world;
+    HandleOwned::new(room_client.write(&RoomClientMessage::KickPlayer(target_world)).map_err(DebugError::from))
 }
 
 /// Attempts to read a message from the server if one is available, without blocking if there is not.
