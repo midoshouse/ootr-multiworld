@@ -2,7 +2,10 @@
 #![forbid(unsafe_code)]
 
 use {
-    std::convert::Infallible as Never,
+    std::{
+        convert::Infallible as Never,
+        net::IpAddr,
+    },
     async_proto::Protocol as _,
     itertools::Itertools as _,
     tokio::net::TcpStream,
@@ -40,6 +43,8 @@ struct Args {
     id: u64,
     #[clap(parse(try_from_str = parse_api_key))]
     api_key: [u8; 32],
+    #[clap(long)]
+    server_ip: Option<IpAddr>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -53,8 +58,8 @@ enum Error {
 }
 
 #[wheel::main(debug)]
-async fn main(Args { id, api_key }: Args) -> Result<Never, Error> {
-    let mut tcp_stream = TcpStream::connect((multiworld::ADDRESS_V4, multiworld::PORT)).await?;
+async fn main(Args { id, api_key, server_ip }: Args) -> Result<Never, Error> {
+    let mut tcp_stream = TcpStream::connect((server_ip.unwrap_or(IpAddr::V4(multiworld::ADDRESS_V4)), multiworld::PORT)).await?;
     for room_name in multiworld::handshake(&mut tcp_stream).await? {
         println!("initial room: {room_name:?}");
     }
