@@ -2,10 +2,7 @@
 #![forbid(unsafe_code)]
 
 use {
-    std::{
-        convert::Infallible as Never,
-        net::IpAddr,
-    },
+    std::net::IpAddr,
     async_proto::Protocol as _,
     itertools::Itertools as _,
     tokio::net::TcpStream,
@@ -58,7 +55,7 @@ enum Error {
 }
 
 #[wheel::main(debug)]
-async fn main(Args { id, api_key, server_ip }: Args) -> Result<Never, Error> {
+async fn main(Args { id, api_key, server_ip }: Args) -> Result<(), Error> {
     let mut tcp_stream = TcpStream::connect((server_ip.unwrap_or(IpAddr::V4(multiworld::ADDRESS_V4)), multiworld::PORT)).await?;
     for room_name in multiworld::handshake(&mut tcp_stream).await? {
         println!("initial room: {room_name:?}");
@@ -75,6 +72,7 @@ async fn main(Args { id, api_key, server_ip }: Args) -> Result<Never, Error> {
                 }
                 println!("end active connections");
             }
+            ServerMessage::Goodbye => break,
             ServerMessage::EnterRoom { .. } |
             ServerMessage::PlayerId(_) |
             ServerMessage::ResetPlayerId(_) |
@@ -87,4 +85,5 @@ async fn main(Args { id, api_key, server_ip }: Args) -> Result<Never, Error> {
             ServerMessage::WrongPassword => unreachable!(),
         }
     }
+    Ok(())
 }

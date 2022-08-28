@@ -610,7 +610,8 @@ impl RoomClient {
         ServerMessage::OtherError(_) |
         ServerMessage::NewRoom(_) |
         ServerMessage::AdminLoginSuccess { .. } |
-        ServerMessage::WrongPassword => unreachable!(),
+        ServerMessage::WrongPassword |
+        ServerMessage::Goodbye => unreachable!(),
         ServerMessage::EnterRoom { .. } |
         ServerMessage::PlayerId(_) |
         ServerMessage::ResetPlayerId(_) |
@@ -645,7 +646,8 @@ impl RoomClient {
         ServerMessage::ItemQueue(_) |
         ServerMessage::GetItem(_) |
         ServerMessage::AdminLoginSuccess { .. } |
-        ServerMessage::WrongPassword => panic!("this message variant has no world ID"),
+        ServerMessage::WrongPassword |
+        ServerMessage::Goodbye => panic!("this message variant has no world ID"),
     }
 }
 
@@ -694,6 +696,7 @@ impl RoomClient {
         },
         ServerMessage::ItemQueue(queue) => room_client.item_queue = queue,
         ServerMessage::GetItem(item) => room_client.item_queue.push(item),
+        ServerMessage::Goodbye => { let _ = room_client.tcp_stream.shutdown(std::net::Shutdown::Both); }
     }
 }
 

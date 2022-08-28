@@ -76,6 +76,7 @@ enum Message {
     Pj64Connected(Arc<Mutex<OwnedWriteHalf>>),
     Pj64SubscriptionError(Arc<Error>),
     Plugin(subscriptions::ClientMessage),
+    Reconnect,
     Rooms(Arc<Mutex<OwnedWriteHalf>>, BTreeSet<String>),
     Server(ServerMessage),
     ServerSubscriptionError(Arc<Error>),
@@ -111,6 +112,7 @@ enum ServerConnectionState {
         num_unassigned_clients: u8,
         item_queue: Vec<u16>,
     },
+    Closed,
 }
 
 struct State {
@@ -268,6 +270,7 @@ impl Application for State {
                     Ok(Message::Nop)
                 })
             }
+            Message::Reconnect => self.server_connection = ServerConnectionState::Init,
             Message::Rooms(writer, rooms) => {
                 self.server_writer = Some(writer);
                 self.server_connection = ServerConnectionState::Lobby {
@@ -356,6 +359,9 @@ impl Application for State {
             Message::Server(ServerMessage::WrongPassword) => if let ServerConnectionState::Lobby { ref mut password, ref mut wrong_password, .. } = self.server_connection {
                 *wrong_password = true;
                 password.clear();
+            },
+            Message::Server(ServerMessage::Goodbye) => if !matches!(self.server_connection, ServerConnectionState::Error(_)) {
+                self.server_connection = ServerConnectionState::Closed;
             },
             Message::ServerSubscriptionError(e) => if !matches!(self.server_connection, ServerConnectionState::Error(_)) {
                 self.server_connection = ServerConnectionState::Error(e);
@@ -457,19 +463,25 @@ impl Application for State {
                         .padding(8)
                         .into()
                 }
+                ServerConnectionState::Closed => Column::new()
+                    .push(Text::new("You have been disconnected."))
+                    .push(Button::new(Text::new("Reconnect")).on_press(Message::Reconnect))
+                    .spacing(8)
+                    .padding(8)
+                    .into(),
             }
         }
     }
 
     fn subscription(&self) -> Subscription<Message> {
+        let mut subscriptions = Vec::with_capacity(2);
         if self.updates_checked {
-            Subscription::batch([
-                Subscription::from_recipe(subscriptions::Pj64Listener),
-                Subscription::from_recipe(subscriptions::Client),
-            ])
-        } else {
-            Subscription::none()
+            subscriptions.push(Subscription::from_recipe(subscriptions::Pj64Listener));
+            if !matches!(self.server_connection, ServerConnectionState::Closed) {
+                subscriptions.push(Subscription::from_recipe(subscriptions::Client));
+            }
         }
+        Subscription::batch(subscriptions)
     }
 }
 

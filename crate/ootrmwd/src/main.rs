@@ -252,7 +252,8 @@ async fn main(Args { subcommand }: Args) -> Result<(), Error> {
                     ServerMessage::PlayerName(_, _) |
                     ServerMessage::ItemQueue(_) |
                     ServerMessage::GetItem(_) |
-                    ServerMessage::WrongPassword => unreachable!(),
+                    ServerMessage::WrongPassword |
+                    ServerMessage::Goodbye => unreachable!(),
                 }
             }
             AdminClientMessage::Stop.write(&mut tcp_stream).await?;

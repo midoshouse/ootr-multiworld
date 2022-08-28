@@ -649,14 +649,15 @@ namespace MidosHouse.OotrMultiworld {
         }
 
         private void UpdateRoomState(RoomClient client) {
+            SuspendLayout();
             var num_players = client.NumPlayers();
             for (byte player_idx = 0; player_idx < num_players; player_idx++) {
                 if (player_idx >= this.playerStates.Count) {
                     var playerState = new Label();
                     playerState.TabIndex = 2 * player_idx + 4;
-                    playerState.Location = new Point(52, 42);
+                    playerState.Location = new Point(92, 40 * player_idx + 42);
                     playerState.AutoSize = true;
-                    playerState.Visible = false;
+                    playerState.Visible = this.otherState.Visible;
                     this.Controls.Add(playerState);
                     this.playerStates.Add(playerState);
 
@@ -664,7 +665,7 @@ namespace MidosHouse.OotrMultiworld {
                     kickButton.TabIndex = 2 * player_idx + 5;
                     kickButton.Location = new Point(12, 40 * player_idx + 42);
                     kickButton.AutoSize = true;
-                    kickButton.Visible = false;
+                    kickButton.Visible = this.otherState.Visible;
                     kickButton.Text = "Kick";
                     kickButton.Enabled = true;
                     kickButton.Click += (s, e) => {
@@ -692,6 +693,7 @@ namespace MidosHouse.OotrMultiworld {
                 this.playerStates.RemoveRange(num_players, this.playerStates.Count - num_players);
                 this.kickButtons.RemoveRange(num_players, this.kickButtons.Count - num_players);
             }
+            ResumeLayout();
         }
 
         private void ReadPlayerID() {

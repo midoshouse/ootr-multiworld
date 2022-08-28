@@ -127,7 +127,8 @@ impl Room {
 
     #[async_recursion]
     pub async fn remove_client(&mut self, client_id: SocketId) {
-        if let Some((player, _)) = self.clients.remove(&client_id) {
+        if let Some((player, writer)) = self.clients.remove(&client_id) {
+            let _ = ServerMessage::Goodbye.write(&mut *writer.lock().await).await;
             let msg = if let Some(Player { world, .. }) = player {
                 ServerMessage::PlayerDisconnected(world)
             } else {
@@ -305,6 +306,8 @@ pub enum ServerMessage {
     },
     /// The client sent the wrong password for the given room.
     WrongPassword,
+    /// The client will now be disconnected.
+    Goodbye,
 }
 
 #[derive(Debug, thiserror::Error)]
