@@ -79,8 +79,8 @@ async fn client_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::So
         }
         stream
     };
-    let room = {
-        let mut read = LobbyClientMessage::read(&mut reader);
+    let (mut reader, room) = {
+        let mut read = LobbyClientMessage::read_owned(reader);
         loop {
             select! {
                 new_room = room_stream.recv() => match new_room {
@@ -88,78 +88,82 @@ async fn client_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::So
                     Err(broadcast::error::RecvError::Closed) => unreachable!("room list should be maintained indefinitely"),
                     Err(broadcast::error::RecvError::Lagged(_)) => room_stream = rooms.0.lock().await.1.subscribe(),
                 },
-                msg = &mut read => match msg? {
-                    LobbyClientMessage::JoinRoom { name, password } => if let Some(room) = rooms.0.lock().await.0.get(&name) {
-                        if room.read().await.password == password {
-                            if room.read().await.clients.len() >= u8::MAX.into() { error!("room {name:?} is full") }
-                            {
-                                let mut room = room.write().await;
-                                room.add_client(socket_id, Arc::clone(&writer)).await;
-                                let mut players = Vec::<Player>::default();
-                                let mut num_unassigned_clients = 0;
-                                for &(player, _) in room.clients.values() {
-                                    if let Some(player) = player {
-                                        players.insert(players.binary_search_by_key(&player.world, |p| p.world).expect_err("duplicate world number"), player);
-                                    } else {
-                                        num_unassigned_clients += 1;
+                res = &mut read => {
+                    let (mut reader, msg) = res?;
+                    match msg {
+                        LobbyClientMessage::JoinRoom { name, password } => if let Some(room) = rooms.0.lock().await.0.get(&name) {
+                            if room.read().await.password == password {
+                                if room.read().await.clients.len() >= u8::MAX.into() { error!("room {name:?} is full") }
+                                {
+                                    let mut room = room.write().await;
+                                    room.add_client(socket_id, Arc::clone(&writer)).await;
+                                    let mut players = Vec::<Player>::default();
+                                    let mut num_unassigned_clients = 0;
+                                    for &(player, _) in room.clients.values() {
+                                        if let Some(player) = player {
+                                            players.insert(players.binary_search_by_key(&player.world, |p| p.world).expect_err("duplicate world number"), player);
+                                        } else {
+                                            num_unassigned_clients += 1;
+                                        }
                                     }
+                                    ServerMessage::EnterRoom { players, num_unassigned_clients }.write(&mut *writer.lock().await).await?;
                                 }
-                                ServerMessage::EnterRoom { players, num_unassigned_clients }.write(&mut *writer.lock().await).await?;
+                                break (reader, Arc::clone(room))
+                            } else {
+                                read = LobbyClientMessage::read_owned(reader);
+                                ServerMessage::WrongPassword.write(&mut *writer.lock().await).await?;
                             }
-                            break Arc::clone(room)
                         } else {
-                            ServerMessage::WrongPassword.write(&mut *writer.lock().await).await?;
+                            error!("there is no room named {name:?}")
+                        },
+                        LobbyClientMessage::CreateRoom { name, password } => {
+                            //TODO disallow creating new rooms if preparing for reboot? (or at least warn)
+                            if name.is_empty() { error!("room name must not be empty") }
+                            if name.chars().count() > 64 { error!("room name too long (maximum 64 characters)") }
+                            if name.contains('\0') { error!("room name must not contain null characters") }
+                            if password.chars().count() > 64 { error!("room password too long (maximum 64 characters)") }
+                            if password.contains('\0') { error!("room password must not contain null characters") }
+                            let mut clients = HashMap::default();
+                            clients.insert(socket_id, (None, Arc::clone(&writer)));
+                            let room = Arc::new(RwLock::new(Room {
+                                name: name.clone(),
+                                base_queue: Vec::default(),
+                                player_queues: HashMap::default(),
+                                last_saved: Instant::now(),
+                                db_pool: db_pool.clone(),
+                                password, clients,
+                            }));
+                            if !rooms.add(room.clone()).await { error!("a room with this name already exists") }
+                            //TODO automatically delete rooms after 7 days of inactivity
+                            ServerMessage::EnterRoom {
+                                players: Vec::default(),
+                                num_unassigned_clients: 1,
+                            }.write(&mut *writer.lock().await).await?;
+                            break (reader, room)
                         }
-                    } else {
-                        error!("there is no room named {name:?}")
-                    },
-                    LobbyClientMessage::CreateRoom { name, password } => {
-                        //TODO disallow creating new rooms if preparing for reboot? (or at least warn)
-                        if name.is_empty() { error!("room name must not be empty") }
-                        if name.chars().count() > 64 { error!("room name too long (maximum 64 characters)") }
-                        if name.contains('\0') { error!("room name must not contain null characters") }
-                        if password.chars().count() > 64 { error!("room password too long (maximum 64 characters)") }
-                        if password.contains('\0') { error!("room password must not contain null characters") }
-                        let mut clients = HashMap::default();
-                        clients.insert(socket_id, (None, Arc::clone(&writer)));
-                        let room = Arc::new(RwLock::new(Room {
-                            name: name.clone(),
-                            base_queue: Vec::default(),
-                            player_queues: HashMap::default(),
-                            last_saved: Instant::now(),
-                            db_pool: db_pool.clone(),
-                            password, clients,
-                        }));
-                        if !rooms.add(room.clone()).await { error!("a room with this name already exists") }
-                        //TODO automatically delete rooms after 7 days of inactivity
-                        ServerMessage::EnterRoom {
-                            players: Vec::default(),
-                            num_unassigned_clients: 1,
-                        }.write(&mut *writer.lock().await).await?;
-                        break room
-                    }
-                    LobbyClientMessage::Login { id, api_key } => if id == 14571800683221815449 && api_key == *include_bytes!("../../../assets/admin-api-key.bin") { //TODO allow any Mido's House user to log in but give them different permissions
-                        drop(read);
-                        let mut active_connections = BTreeMap::default();
-                        for (room_name, room) in &rooms.0.lock().await.0 {
-                            active_connections.insert(room_name.clone(), room.read().await.clients.len().try_into().expect("more than u8::MAX players in room"));
-                        }
-                        ServerMessage::AdminLoginSuccess { active_connections }.write(&mut *writer.lock().await).await?;
-                        loop {
-                            match AdminClientMessage::read(&mut reader).await? {
-                                AdminClientMessage::Stop => {
-                                    //TODO close TCP connections and listener
-                                    for room in rooms.0.lock().await.0.values() {
-                                        room.write().await.force_save().await?;
+                        LobbyClientMessage::Login { id, api_key } => if id == 14571800683221815449 && api_key == *include_bytes!("../../../assets/admin-api-key.bin") { //TODO allow any Mido's House user to log in but give them different permissions
+                            drop(read);
+                            let mut active_connections = BTreeMap::default();
+                            for (room_name, room) in &rooms.0.lock().await.0 {
+                                active_connections.insert(room_name.clone(), room.read().await.clients.len().try_into().expect("more than u8::MAX players in room"));
+                            }
+                            ServerMessage::AdminLoginSuccess { active_connections }.write(&mut *writer.lock().await).await?;
+                            loop {
+                                match AdminClientMessage::read(&mut reader).await? {
+                                    AdminClientMessage::Stop => {
+                                        //TODO close TCP connections and listener
+                                        for room in rooms.0.lock().await.0.values() {
+                                            room.write().await.force_save().await?;
+                                        }
+                                        process::exit(0)
                                     }
-                                    process::exit(0)
                                 }
                             }
-                        }
-                    } else {
-                        error!("wrong user ID or API key")
-                    },
-                },
+                        } else {
+                            error!("wrong user ID or API key")
+                        },
+                    }
+                }
             }
         }
     };

@@ -4,7 +4,7 @@ version = "3.0.0"
 edition = "2021"
 
 [dependencies]
-async-proto = "0.15"
+async-proto = "0.15.1"
 itertools = "0.10"
 thiserror = "1"
 

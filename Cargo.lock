@@ -225,9 +225,9 @@ dependencies = [
 
 [[package]]
 name = "async-proto"
-version = "0.15.0"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "513ef0e179982711a49d307f26b8bf0c470d909810423170dbfd8642513e7b84"
+checksum = "ab127601b7804d0313f906acc995c1206e1ccf8bf539fda77944ad98494426c3"
 dependencies = [
  "async-proto-derive",
  "byteorder",
@@ -237,9 +237,9 @@ dependencies = [
 
 [[package]]
 name = "async-proto-derive"
-version = "0.15.0"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9956e5eff803396f4df582e34515318989f134cabbc5fd43131b7245155cf64"
+checksum = "ff67c5c71680087f749a80e3b9914f89589d5576179c30c1c7e993a5fec1dca9"
 dependencies = [
  "itertools",
  "proc-macro2",
@@ -4245,9 +4245,9 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.4.4"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66d72b759436ae32898a2af0a14218dbf55efde3feeb170eb623637db85ee1e0"
+checksum = "10c98bba371b9b22a71a9414e420f92ddeb2369239af08200816169d5e2dd7aa"
 dependencies = [
  "libc",
  "winapi",
