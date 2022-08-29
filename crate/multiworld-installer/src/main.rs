@@ -104,6 +104,7 @@ enum Message {
     Back,
     BrowseEmulatorPath,
     BrowseMultiworldPath,
+    ConfigWriteFailed,
     Continue,
     EmulatorPath(String),
     Error(Arc<Error>),
@@ -183,6 +184,7 @@ enum Page {
         emulator: Emulator,
         emulator_path: String,
         multiworld_path: Option<String>,
+        config_write_failed: bool,
     },
     AskLaunch {
         emulator: Emulator,
@@ -263,8 +265,7 @@ impl Application for State {
                 Page::LocateEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => Page::SelectEmulator { emulator: Some(emulator), install_emulator: Some(install_emulator), emulator_path: Some(emulator_path.clone()), multiworld_path: multiworld_path.clone() },
                 Page::InstallEmulator { .. } => unreachable!(),
                 Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
-                Page::InstallMultiworld { .. } => unreachable!(),
-                Page::AskLaunch { emulator, ref emulator_path, ref multiworld_path } => match emulator {
+                Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path, .. } | Page::AskLaunch { emulator, ref emulator_path, ref multiworld_path } => match emulator {
                     Emulator::BizHawk => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
                     Emulator::Project64 => Page::LocateMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone().expect("multiworld app path must be set for Project64") },
                 },
@@ -301,6 +302,7 @@ impl Application for State {
                     })
                 })
             }
+            Message::ConfigWriteFailed => if let Page::InstallMultiworld { ref mut config_write_failed, .. } = self.page { *config_write_failed = true },
             Message::Continue => match self.page {
                 Page::Error(_) | Page::Elevated => unreachable!(),
                 Page::SelectEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => {
@@ -451,8 +453,7 @@ impl Application for State {
                     return cmd(future::ok(Message::LocateMultiworld))
                 },
                 Page::InstallEmulator { .. } => unreachable!(),
-                Page::LocateMultiworld { .. } => return cmd(future::ok(Message::InstallMultiworld)),
-                Page::InstallMultiworld { .. } => unreachable!(),
+                Page::LocateMultiworld { .. } | Page::InstallMultiworld { .. } => return cmd(future::ok(Message::InstallMultiworld)),
                 Page::AskLaunch { emulator, ref emulator_path, ref multiworld_path } => {
                     if self.open_emulator {
                         match emulator {
@@ -477,12 +478,13 @@ impl Application for State {
             Message::Exit => self.should_exit = true,
             Message::InstallMultiworld => {
                 let (emulator, emulator_path, multiworld_path) = match self.page {
-                    Page::LocateEmulator { emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, emulator_path.clone(), multiworld_path.clone()),
-                    Page::InstallEmulator { emulator, ref emulator_path, ref multiworld_path } => (emulator, emulator_path.clone(), multiworld_path.clone()),
+                    Page::LocateEmulator { emulator, ref emulator_path, ref multiworld_path, .. } |
+                    Page::InstallEmulator { emulator, ref emulator_path, ref multiworld_path } |
+                    Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, emulator_path.clone(), multiworld_path.clone()),
                     Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => (emulator, emulator_path.clone(), Some(multiworld_path.clone())),
                     _ => unreachable!(),
                 };
-                self.page = Page::InstallMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
+                self.page = Page::InstallMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone(), config_write_failed: false };
                 let emulator_dir = PathBuf::from(emulator_path);
                 match emulator {
                     Emulator::BizHawk => return cmd(async move {
@@ -513,8 +515,11 @@ impl Application for State {
                             };
                             config.settings.basic_mode = 0;
                             config.debugger.debugger = 1;
-                            fs::write(config_path, serde_ini::to_vec(&config)?).await?;
-                            Ok(Message::MultiworldInstalled)
+                            match fs::write(config_path, serde_ini::to_vec(&config)?).await {
+                                Ok(_) => Ok(Message::MultiworldInstalled),
+                                Err(wheel::Error::Io { inner, .. }) if inner.raw_os_error() == Some(32) => Ok(Message::ConfigWriteFailed),
+                                Err(e) => Err(e.into()),
+                            }
                         })
                     }
                 }
@@ -530,7 +535,7 @@ impl Application for State {
                     Emulator::Project64 => self.page = Page::LocateMultiworld { emulator, emulator_path, multiworld_path: multiworld_path.or_else(|| UserDirs::new().map(|user_dirs| user_dirs.home_dir().join("bin").join("Mido's House Multiworld for Project64.exe").into_os_string().into_string().expect("Windows paths are valid Unicode"))).unwrap_or_default() },
                 }
             }
-            Message::MultiworldInstalled => if let Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path } = self.page {
+            Message::MultiworldInstalled => if let Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path, .. } = self.page {
                 self.page = Page::AskLaunch { emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
             },
             Message::MultiworldPath(new_path) => if let Page::LocateMultiworld { ref mut multiworld_path, .. } = self.page { *multiworld_path = new_path },
@@ -606,13 +611,7 @@ impl Application for State {
                     !emulator_path.is_empty(),
                 )),
             ),
-            Page::InstallEmulator { emulator, .. } => (
-                match emulator {
-                    Emulator::BizHawk => Text::new("Installing BizHawk, please wait…").color(text_color),
-                    Emulator::Project64 => Text::new("Installing Project64, please wait…").color(text_color),
-                }.into(),
-                None,
-            ),
+            Page::InstallEmulator { emulator, .. } => (Text::new(format!("Installing {emulator}, please wait…")).color(text_color).into(), None),
             Page::LocateMultiworld { ref multiworld_path, .. } => (
                 Column::new()
                     .push(Text::new("Install Multiworld to:").color(text_color))
@@ -625,7 +624,11 @@ impl Application for State {
                     .into(),
                 Some((Text::new(format!("Install Multiworld")).color(text_color).into(), !multiworld_path.is_empty())),
             ),
-            Page::InstallMultiworld { .. } => (Text::new("Installing multiworld, please wait…").color(text_color).into(), None),
+            Page::InstallMultiworld { config_write_failed: true, emulator, .. } => (
+                Text::new(format!("Could not adjust {emulator} settings. Please close {emulator} and try again.")).color(text_color).into(),
+                Some((Text::new(format!("Try Again")).color(text_color).into(), true)),
+            ),
+            Page::InstallMultiworld { config_write_failed: false, .. } => (Text::new("Installing multiworld, please wait…").color(text_color).into(), None),
             Page::AskLaunch { emulator, .. } => (
                 {
                     let mut col = Column::new();
