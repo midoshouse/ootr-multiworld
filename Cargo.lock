@@ -2916,6 +2916,7 @@ name = "multiworld-pj64-gui"
 version = "4.0.0"
 dependencies = [
  "async-proto",
+ "chrono",
  "dark-light",
  "directories",
  "futures",

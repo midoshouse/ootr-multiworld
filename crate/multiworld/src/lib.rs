@@ -23,6 +23,7 @@ use {
     chrono::prelude::*,
     semver::Version,
     tokio::{
+        io,
         net::{
             TcpStream,
             tcp::OwnedWriteHalf,
@@ -54,6 +55,36 @@ const TRIFORCE_PIECE: u16 = 0xca;
 
 #[cfg(unix)] pub fn socket_id<T: AsRawFd>(socket: &T) -> SocketId { socket.as_raw_fd() }
 #[cfg(windows)] pub fn socket_id<T: AsRawSocket>(socket: &T) -> SocketId { socket.as_raw_socket() }
+
+pub trait IsNetworkError {
+    fn is_network_error(&self) -> bool;
+}
+
+impl IsNetworkError for io::Error {
+    fn is_network_error(&self) -> bool {
+        //TODO io::ErrorKind::NetworkUnreachable should also be considered here, as it can occur during a server reboot, but it is currently unstable, making it impossible to match against. See https://github.com/rust-lang/rust/issues/86442
+        matches!(self.kind(), io::ErrorKind::ConnectionAborted | io::ErrorKind::ConnectionRefused | io::ErrorKind::ConnectionReset | io::ErrorKind::TimedOut | io::ErrorKind::UnexpectedEof)
+    }
+}
+
+impl IsNetworkError for async_proto::ReadError {
+    fn is_network_error(&self) -> bool {
+        match self {
+            Self::EndOfStream => true,
+            Self::Io(e) => e.is_network_error(),
+            _ => false,
+        }
+    }
+}
+
+impl IsNetworkError for async_proto::WriteError {
+    fn is_network_error(&self) -> bool {
+        match self {
+            Self::Io(e) => e.is_network_error(),
+            _ => false,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Protocol)]
 pub struct Player {
@@ -325,6 +356,16 @@ pub enum ClientError {
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("protocol version mismatch: server is version {0} but we're version {}", proto_version())]
     VersionMismatch(u8),
+}
+
+impl IsNetworkError for ClientError {
+    fn is_network_error(&self) -> bool {
+        match self {
+            Self::Read(e) => e.is_network_error(),
+            Self::Write(e) => e.is_network_error(),
+            Self::VersionMismatch(_) => false,
+        }
+    }
 }
 
 pub async fn handshake(tcp_stream: &mut TcpStream) -> Result<BTreeSet<String>, ClientError> {

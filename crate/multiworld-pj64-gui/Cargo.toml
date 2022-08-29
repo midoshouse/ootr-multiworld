@@ -8,6 +8,7 @@ winres = "0.1"
 
 [dependencies]
 async-proto = "0.15.1"
+chrono = "0.4"
 dark-light = "0.2"
 directories = "4"
 futures = "0.3"

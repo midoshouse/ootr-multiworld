@@ -10,8 +10,10 @@ use {
         future::Future,
         num::NonZeroU8,
         sync::Arc,
+        time::Duration,
     },
     async_proto::Protocol as _,
+    chrono::prelude::*,
     dark_light::Mode::*,
     directories::ProjectDirs,
     iced::{
@@ -35,8 +37,13 @@ use {
         io,
         net::tcp::OwnedWriteHalf,
         sync::Mutex,
+        time::{
+            Instant,
+            sleep_until,
+        },
     },
     multiworld::{
+        IsNetworkError,
         LobbyClientMessage,
         Player,
         RoomClientMessage,
@@ -66,6 +73,19 @@ pub(crate) enum Error {
     Server(String),
     #[error("protocol version mismatch: Project64 script is version {0} but we're version {}", MW_PJ64_PROTO_VERSION)]
     VersionMismatch(u8),
+}
+
+impl IsNetworkError for Error {
+    fn is_network_error(&self) -> bool {
+        match self {
+            Self::Client(e) => e.is_network_error(),
+            Self::Elapsed(_) => true,
+            Self::Io(e) => e.is_network_error(),
+            Self::Read(e) => e.is_network_error(),
+            Self::Write(e) => e.is_network_error(),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -100,7 +120,10 @@ fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) ->
 }
 
 enum ServerConnectionState {
-    Error(Arc<Error>),
+    Error {
+        e: Arc<Error>,
+        auto_retry: bool,
+    },
     Init,
     Lobby {
         rooms: BTreeSet<String>,
@@ -124,6 +147,8 @@ struct State {
     pj64_writer: Option<Arc<Mutex<OwnedWriteHalf>>>,
     server_connection: ServerConnectionState,
     server_writer: Option<Arc<Mutex<OwnedWriteHalf>>>,
+    retry: Instant,
+    wait_time: Duration,
     player_id: Option<NonZeroU8>,
     player_name: Option<[u8; 8]>,
     updates_checked: bool,
@@ -142,6 +167,8 @@ impl Application for State {
             pj64_writer: None,
             server_connection: ServerConnectionState::Init,
             server_writer: None,
+            retry: Instant::now(),
+            wait_time: Duration::from_secs(1),
             player_id: None,
             player_name: None,
             updates_checked: false,
@@ -292,8 +319,11 @@ impl Application for State {
                     rooms,
                 };
             }
-            Message::Server(ServerMessage::OtherError(e)) => if !matches!(self.server_connection, ServerConnectionState::Error(_)) {
-                self.server_connection = ServerConnectionState::Error(Arc::new(Error::Server(e)));
+            Message::Server(ServerMessage::OtherError(e)) => if !matches!(self.server_connection, ServerConnectionState::Error { .. }) {
+                self.server_connection = ServerConnectionState::Error {
+                    e: Arc::new(Error::Server(e)),
+                    auto_retry: false,
+                };
             },
             Message::Server(ServerMessage::NewRoom(name)) => if let ServerConnectionState::Lobby { ref mut rooms, .. } = self.server_connection { rooms.insert(name); },
             Message::Server(ServerMessage::EnterRoom { players, num_unassigned_clients }) => {
@@ -370,12 +400,33 @@ impl Application for State {
                 *wrong_password = true;
                 password.clear();
             },
-            Message::Server(ServerMessage::Goodbye) => if !matches!(self.server_connection, ServerConnectionState::Error(_)) {
+            Message::Server(ServerMessage::Goodbye) => if !matches!(self.server_connection, ServerConnectionState::Error { .. }) {
                 self.server_connection = ServerConnectionState::Closed;
             },
             Message::Server(ServerMessage::Ping) => {}
-            Message::ServerSubscriptionError(e) => if !matches!(self.server_connection, ServerConnectionState::Error(_)) {
-                self.server_connection = ServerConnectionState::Error(e);
+            Message::ServerSubscriptionError(e) => if !matches!(self.server_connection, ServerConnectionState::Error { .. }) {
+                if e.is_network_error() {
+                    if self.retry.elapsed() >= Duration::from_secs(60 * 60 * 24) {
+                        self.wait_time = Duration::from_secs(1); // reset wait time after no error for a day
+                    } else {
+                        self.wait_time *= 2; // exponential backoff
+                    }
+                    self.retry = Instant::now() + self.wait_time;
+                    self.server_connection = ServerConnectionState::Error {
+                        auto_retry: true,
+                        e,
+                    };
+                    let retry = self.retry;
+                    return cmd(async move {
+                        sleep_until(retry).await;
+                        Ok(Message::Reconnect)
+                    })
+                } else {
+                    self.server_connection = ServerConnectionState::Error {
+                        auto_retry: false,
+                        e,
+                    };
+                }
             },
             Message::SetCreateNewRoom(new_val) => if let ServerConnectionState::Lobby { ref mut create_new_room, .. } = self.server_connection { *create_new_room = new_val },
             Message::SetExistingRoomSelection(name) => if let ServerConnectionState::Lobby { ref mut existing_room_selection, .. } = self.server_connection { *existing_room_selection = Some(name) },
@@ -422,10 +473,21 @@ impl Application for State {
                 .into()
         } else {
             match self.server_connection {
-                ServerConnectionState::Error(ref e) => Column::new()
+                ServerConnectionState::Error { auto_retry: false, ref e } => Column::new()
                     .push(Text::new("An error occurred during communication with the server:").color(text_color))
                     .push(Text::new(e.to_string()).color(text_color))
                     .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")).color(text_color))
+                    .spacing(8)
+                    .padding(8)
+                    .into(),
+                ServerConnectionState::Error { auto_retry: true, ref e } => Column::new()
+                    .push(Text::new("A network error occurred:").color(text_color))
+                    .push(Text::new(e.to_string()).color(text_color))
+                    .push(Text::new(if let Ok(retry) = chrono::Duration::from_std(self.retry.duration_since(Instant::now())) {
+                        format!("Reconnecting at {}", (Local::now() + retry).format("%H:%M:%S"))
+                    } else {
+                        format!("Reconnecting…")
+                    }).color(text_color)) //TODO live countdown
                     .spacing(8)
                     .padding(8)
                     .into(),
@@ -493,7 +555,7 @@ impl Application for State {
         let mut subscriptions = Vec::with_capacity(2);
         if self.updates_checked {
             subscriptions.push(Subscription::from_recipe(subscriptions::Pj64Listener));
-            if !matches!(self.server_connection, ServerConnectionState::Closed) {
+            if !matches!(self.server_connection, ServerConnectionState::Error { .. } | ServerConnectionState::Closed) {
                 subscriptions.push(Subscription::from_recipe(subscriptions::Client));
             }
         }
