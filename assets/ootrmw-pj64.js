@@ -189,7 +189,7 @@ sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
                     }
                     mem.u32[coopContextAddr + 0xc] = 0;
                     mem.u16[coopContextAddr + 0x10] = 0;
-                    mem.u16[coopContextAddr] = 0;
+                    mem.u16[coopContextAddr + 0x12] = 0;
                 }
                 // receive item
                 var stateLogo = mem.u32[ADDR_ANY_RDRAM.start + 0x11f200];
