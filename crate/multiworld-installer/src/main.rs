@@ -15,6 +15,7 @@ use {
         },
         sync::Arc,
     },
+    dark_light::Mode::*,
     directories::UserDirs,
     futures::{
         future::{
@@ -60,7 +61,10 @@ use {
             SyncCommandOutputExt as _,
         },
     },
-    multiworld::github::Repo,
+    multiworld::{
+        github::Repo,
+        style::Style,
+    },
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -239,6 +243,13 @@ impl Application for State {
         } else {
             Command::none()
         })
+    }
+
+    fn background_color(&self) -> iced::Color {
+        match dark_light::detect() { //TODO automatically update on system theme change
+            Dark => iced::Color::BLACK,
+            Light => iced::Color::WHITE,
+        }
     }
 
     fn should_exit(&self) -> bool { self.should_exit }
@@ -533,25 +544,30 @@ impl Application for State {
     }
 
     fn view(&self) -> Element<'_, Message> {
+        let system_theme = dark_light::detect(); //TODO automatically update on system theme change
+        let text_color = match system_theme {
+            Dark => iced::Color::WHITE,
+            Light => iced::Color::BLACK,
+        };
         let (top, next_btn) = match self.page {
             Page::Error(ref e) => (
                 Into::<Element<'_, Message>>::into(Column::new()
-                    .push(Text::new("An error occurred during the installation:"))
-                    .push(Text::new(e.to_string()))
-                    .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")))
+                    .push(Text::new("An error occurred during the installation:").color(text_color))
+                    .push(Text::new(e.to_string()).color(text_color))
+                    .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")).color(text_color))
                     .spacing(8)),
                 None,
             ),
             Page::Elevated => (
-                Text::new("The installer has been reopened with admin permissions. Please continue there.").into(),
+                Text::new("The installer has been reopened with admin permissions. Please continue there.").color(text_color).into(),
                 None,
             ),
             Page::SelectEmulator { emulator, .. } => (
                 Column::new()
-                    .push(Text::new("Which emulator do you want to use?"))
-                    .push(Text::new("Multiworld can be added to an existing installation of the selected emulator, or it can install the emulator for you."))
-                    .push(Radio::new(Emulator::BizHawk, "BizHawk", emulator, Message::SetEmulator))
-                    .push(Radio::new(Emulator::Project64, "Project64", emulator, Message::SetEmulator))
+                    .push(Text::new("Which emulator do you want to use?").color(text_color))
+                    .push(Text::new("Multiworld can be added to an existing installation of the selected emulator, or it can install the emulator for you.").color(text_color))
+                    .push(Radio::new(Emulator::BizHawk, "BizHawk", emulator, Message::SetEmulator).style(Style(system_theme)))
+                    .push(Radio::new(Emulator::Project64, "Project64", emulator, Message::SetEmulator).style(Style(system_theme)))
                     .spacing(8)
                     .into(),
                 Some({
@@ -559,15 +575,15 @@ impl Application for State {
                     if matches!(emulator, Some(Emulator::Project64)) && !is_elevated() {
                         row = row.push(Image::new(image::Handle::from_memory(include_bytes!("../../../assets/uac.png").to_vec())).height(Length::Units(20)));
                     }
-                    row = row.push(Text::new("Continue"));
+                    row = row.push(Text::new("Continue").color(text_color));
                     (Into::<Element<'_, Message>>::into(row.spacing(8)), emulator.is_some())
                 })
             ),
             Page::LocateEmulator { emulator, install_emulator, ref emulator_path, .. } => (
                 {
                     let mut col = Column::new();
-                    col = col.push(Radio::new(true, format!("Install {emulator} to:"), Some(install_emulator), Message::SetInstallEmulator));
-                    col = col.push(Radio::new(false, format!("I already have {emulator} at:"), Some(install_emulator), Message::SetInstallEmulator));
+                    col = col.push(Radio::new(true, format!("Install {emulator} to:"), Some(install_emulator), Message::SetInstallEmulator).style(Style(system_theme)));
+                    col = col.push(Radio::new(false, format!("I already have {emulator} at:"), Some(install_emulator), Message::SetInstallEmulator).style(Style(system_theme)));
                     col = col.push(Row::new()
                         .push(TextInput::new(&if install_emulator {
                             Cow::Owned(format!("{emulator} target folder"))
@@ -576,68 +592,68 @@ impl Application for State {
                                 Emulator::BizHawk => Cow::Borrowed("The folder with EmuHawk.exe in it"),
                                 Emulator::Project64 => Cow::Borrowed("The folder with Project64.exe in it"),
                             }
-                        }, emulator_path, Message::EmulatorPath).padding(5))
-                        .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseEmulatorPath))
+                        }, emulator_path, Message::EmulatorPath).padding(5).style(Style(system_theme)))
+                        .push(Button::new(Text::new("Browse…").color(text_color)).on_press(Message::BrowseEmulatorPath).style(Style(system_theme)))
                         .spacing(8)
                     );
                     if install_emulator && matches!(emulator, Emulator::Project64) {
-                        col = col.push(Checkbox::new(self.create_desktop_shortcut, "Create desktop shortcut", Message::SetCreateDesktopShortcut));
+                        col = col.push(Checkbox::new(self.create_desktop_shortcut, "Create desktop shortcut", Message::SetCreateDesktopShortcut).style(Style(system_theme)));
                     }
                     col.spacing(8).into()
                 },
                 Some((
-                    if install_emulator { Text::new(format!("Install {emulator}")) } else { Text::new("Continue") }.into(),
+                    if install_emulator { Text::new(format!("Install {emulator}")).color(text_color) } else { Text::new("Continue").color(text_color) }.into(),
                     !emulator_path.is_empty(),
                 )),
             ),
             Page::InstallEmulator { emulator, .. } => (
                 match emulator {
-                    Emulator::BizHawk => Text::new("Installing BizHawk, please wait…"),
-                    Emulator::Project64 => Text::new("Installing Project64, please wait…"),
+                    Emulator::BizHawk => Text::new("Installing BizHawk, please wait…").color(text_color),
+                    Emulator::Project64 => Text::new("Installing Project64, please wait…").color(text_color),
                 }.into(),
                 None,
             ),
             Page::LocateMultiworld { ref multiworld_path, .. } => (
                 Column::new()
-                    .push(Text::new("Install Multiworld to:"))
+                    .push(Text::new("Install Multiworld to:").color(text_color))
                     .push(Row::new()
-                        .push(TextInput::new("Multiworld target folder", multiworld_path, Message::MultiworldPath).padding(5))
-                        .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseMultiworldPath))
+                        .push(TextInput::new("Multiworld target folder", multiworld_path, Message::MultiworldPath).padding(5).style(Style(system_theme)))
+                        .push(Button::new(Text::new("Browse…").color(text_color)).on_press(Message::BrowseMultiworldPath).style(Style(system_theme)))
                         .spacing(8)
                     )
                     .spacing(8)
                     .into(),
-                Some((Text::new(format!("Install Multiworld")).into(), !multiworld_path.is_empty())),
+                Some((Text::new(format!("Install Multiworld")).color(text_color).into(), !multiworld_path.is_empty())),
             ),
-            Page::InstallMultiworld { .. } => (Text::new("Installing multiworld, please wait…").into(), None),
+            Page::InstallMultiworld { .. } => (Text::new("Installing multiworld, please wait…").color(text_color).into(), None),
             Page::AskLaunch { emulator, .. } => (
                 {
                     let mut col = Column::new();
-                    col = col.push(Text::new("Multiworld has been installed."));
+                    col = col.push(Text::new("Multiworld has been installed.").color(text_color));
                     match emulator {
                         Emulator::BizHawk => {
-                            col = col.push(Text::new("To play multiworld, in BizHawk, select Tools → External Tool → Mido's House Multiworld for BizHawk."));
-                            col = col.push(Checkbox::new(self.open_emulator, "Open BizHawk now", Message::SetOpenEmulator));
+                            col = col.push(Text::new("To play multiworld, in BizHawk, select Tools → External Tool → Mido's House Multiworld for BizHawk.").color(text_color));
+                            col = col.push(Checkbox::new(self.open_emulator, "Open BizHawk now", Message::SetOpenEmulator).style(Style(system_theme)));
                         }
                         Emulator::Project64 => {
-                            col = col.push(Text::new("To play multiworld, open the “Mido's House Multiworld for Project64” app and follow its instructions."));
-                            col = col.push(Checkbox::new(self.open_emulator, "Open Multiworld and Project64 now", Message::SetOpenEmulator));
+                            col = col.push(Text::new("To play multiworld, open the “Mido's House Multiworld for Project64” app and follow its instructions.").color(text_color));
+                            col = col.push(Checkbox::new(self.open_emulator, "Open Multiworld and Project64 now", Message::SetOpenEmulator).style(Style(system_theme)));
                         }
                     }
                     col.spacing(8).into()
                 },
-                Some((Text::new("Finish").into(), true)),
+                Some((Text::new("Finish").color(text_color).into(), true)),
             ),
         };
         let mut bottom_row = Row::new();
         if let Some((btn_content, enabled)) = next_btn {
             if matches!(self.page, Page::SelectEmulator { .. }) {
-                bottom_row = bottom_row.push(Text::new(concat!("v", env!("CARGO_PKG_VERSION"))));
+                bottom_row = bottom_row.push(Text::new(concat!("v", env!("CARGO_PKG_VERSION"))).color(text_color));
             } else {
-                bottom_row = bottom_row.push(Button::new(Text::new("Back")).on_press(Message::Back));
+                bottom_row = bottom_row.push(Button::new(Text::new("Back").color(text_color)).on_press(Message::Back).style(Style(system_theme)));
             }
             bottom_row = bottom_row.push(Space::with_width(Length::Fill));
-            let mut next_btn = Button::new(btn_content);
+            let mut next_btn = Button::new(btn_content).style(Style(system_theme));
             if enabled { next_btn = next_btn.on_press(Message::Continue) }
             bottom_row = bottom_row.push(next_btn);
         }

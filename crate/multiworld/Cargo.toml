@@ -3,6 +3,9 @@ name = "multiworld"
 version = "3.0.0"
 edition = "2021"
 
+[features]
+style = ["dark-light", "iced"]
+
 [dependencies]
 async-proto = "0.15.1"
 async-recursion = "1"
@@ -10,6 +13,15 @@ chrono = "0.4"
 semver = "1"
 serde_json = "1"
 thiserror = "1"
+
+[dependencies.dark-light]
+version = "0.2"
+optional = true
+
+[dependencies.iced]
+version = "0.4"
+features = ["pure"]
+optional = true
 
 [dependencies.reqwest]
 version = "0.11"

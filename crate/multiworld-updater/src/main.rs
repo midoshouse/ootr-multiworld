@@ -17,6 +17,7 @@ use {
         time::Duration,
     },
     bytes::Bytes,
+    dark_light::Mode::*,
     futures::{
         future::Future,
         stream::TryStreamExt as _,
@@ -53,9 +54,12 @@ use {
         File,
     },
     winapi::um::fileapi::GetFullPathNameW,
-    multiworld::github::{
-        ReleaseAsset,
-        Repo,
+    multiworld::{
+        github::{
+            ReleaseAsset,
+            Repo,
+        },
+        style::Style,
     },
 };
 
@@ -168,6 +172,13 @@ impl Application for App {
             state: State::WaitExit,
             args,
         }, cmd)
+    }
+
+    fn background_color(&self) -> iced::Color {
+        match dark_light::detect() { //TODO automatically update on system theme change
+            Dark => iced::Color::BLACK,
+            Light => iced::Color::WHITE,
+        }
     }
 
     fn title(&self) -> String { format!("updating Mido's House Multiworld…") }
@@ -369,42 +380,47 @@ impl Application for App {
     }
 
     fn view(&self) -> Element<'_, Message> {
+        let system_theme = dark_light::detect(); //TODO automatically update on system theme change
+        let text_color = match system_theme {
+            Dark => iced::Color::WHITE,
+            Light => iced::Color::BLACK,
+        };
         match self.state {
             State::WaitExit => match self.args {
                 Args::BizHawk { .. } => Column::new()
-                    .push(Text::new("An update for Mido's House Multiworld for BizHawk is available."))
-                    .push(Text::new("Please close BizHawk to start the update."))
+                    .push(Text::new("An update for Mido's House Multiworld for BizHawk is available.").color(text_color))
+                    .push(Text::new("Please close BizHawk to start the update.").color(text_color))
                     .into(),
                 Args::Pj64 { .. } => Column::new()
-                    .push(Text::new("An update for Mido's House Multiworld for Project64 is available."))
-                    .push(Text::new("Waiting to make sure the old version has exited…"))
+                    .push(Text::new("An update for Mido's House Multiworld for Project64 is available.").color(text_color))
+                    .push(Text::new("Waiting to make sure the old version has exited…").color(text_color))
                     .into(),
             },
-            State::GetMultiworldRelease => Text::new("Checking latest release…").into(),
-            State::DownloadMultiworld => Text::new("Starting download…").into(),
-            State::ExtractMultiworld => Text::new("Downloading and extracting multiworld…").into(),
-            State::GetBizHawkRelease => Text::new("Getting BizHawk download link…").into(),
-            State::StartDownloadBizHawk => Text::new("Starting BizHawk download…").into(),
-            State::DownloadBizHawk => Text::new("Downloading BizHawk…").into(),
-            State::ExtractBizHawk => Text::new("Extracting BizHawk…").into(),
-            State::Replace => Text::new("Downloading update…").into(),
-            State::WaitDownload => Text::new("Finishing download…").into(),
-            State::Launch => Text::new("Starting new version…").into(),
-            State::Done => Text::new("Closing updater…").into(),
+            State::GetMultiworldRelease => Text::new("Checking latest release…").color(text_color).into(),
+            State::DownloadMultiworld => Text::new("Starting download…").color(text_color).into(),
+            State::ExtractMultiworld => Text::new("Downloading and extracting multiworld…").color(text_color).into(),
+            State::GetBizHawkRelease => Text::new("Getting BizHawk download link…").color(text_color).into(),
+            State::StartDownloadBizHawk => Text::new("Starting BizHawk download…").color(text_color).into(),
+            State::DownloadBizHawk => Text::new("Downloading BizHawk…").color(text_color).into(),
+            State::ExtractBizHawk => Text::new("Extracting BizHawk…").color(text_color).into(),
+            State::Replace => Text::new("Downloading update…").color(text_color).into(),
+            State::WaitDownload => Text::new("Finishing download…").color(text_color).into(),
+            State::Launch => Text::new("Starting new version…").color(text_color).into(),
+            State::Done => Text::new("Closing updater…").color(text_color).into(),
             State::Error(ref e) => Column::new()
-                .push(Text::new("Error").size(24).width(Length::Fill).horizontal_alignment(alignment::Horizontal::Center))
-                .push(Text::new(e.to_string()))
-                .push(Text::new(format!("debug info: {e:?}")))
-                .push(Text::new("Support").size(24).width(Length::Fill).horizontal_alignment(alignment::Horizontal::Center))
-                .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813."))
+                .push(Text::new("Error").size(24).width(Length::Fill).horizontal_alignment(alignment::Horizontal::Center).color(text_color))
+                .push(Text::new(e.to_string()).color(text_color))
+                .push(Text::new(format!("debug info: {e:?}")).color(text_color))
+                .push(Text::new("Support").size(24).width(Length::Fill).horizontal_alignment(alignment::Horizontal::Center).color(text_color))
+                .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813.").color(text_color))
                 .push(Row::new()
-                    .push(Button::new(Text::new("invite link")).on_press(Message::DiscordInvite))
-                    .push(Button::new(Text::new("direct channel link")).on_press(Message::DiscordChannel))
+                    .push(Button::new(Text::new("invite link").color(text_color)).on_press(Message::DiscordInvite).style(Style(system_theme)))
+                    .push(Button::new(Text::new("direct channel link").color(text_color)).on_press(Message::DiscordChannel).style(Style(system_theme)))
                 )
-                .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord."))
+                .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord.").color(text_color))
                 .push(Row::new()
-                    .push(Text::new("• Or "))
-                    .push(Button::new(Text::new("open an issue")).on_press(Message::NewIssue))
+                    .push(Text::new("• Or ").color(text_color))
+                    .push(Button::new(Text::new("open an issue").color(text_color)).on_press(Message::NewIssue).style(Style(system_theme)))
                 )
                 .into(),
         }

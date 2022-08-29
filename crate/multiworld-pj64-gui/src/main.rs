@@ -12,6 +12,7 @@ use {
         sync::Arc,
     },
     async_proto::Protocol as _,
+    dark_light::Mode::*,
     directories::ProjectDirs,
     iced::{
         Command,
@@ -42,6 +43,7 @@ use {
         ServerMessage,
         format_room_state,
         github::Repo,
+        style::Style,
     },
 };
 
@@ -166,6 +168,13 @@ impl Application for State {
             }
             Ok(Message::UpToDate)
         }))
+    }
+
+    fn background_color(&self) -> iced::Color {
+        match dark_light::detect() { //TODO automatically update on system theme change
+            Dark => iced::Color::BLACK,
+            Light => iced::Color::WHITE,
+        }
     }
 
     fn should_exit(&self) -> bool { self.should_exit }
@@ -376,69 +385,74 @@ impl Application for State {
     }
 
     fn view(&self) -> Element<'_, Message> {
+        let system_theme = dark_light::detect(); //TODO automatically update on system theme change
+        let text_color = match system_theme {
+            Dark => iced::Color::WHITE,
+            Light => iced::Color::BLACK,
+        };
         if let Some(ref e) = self.command_error {
             Column::new()
-                .push(Text::new("An error occurred:"))
-                .push(Text::new(e.to_string()))
-                .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")))
+                .push(Text::new("An error occurred:").color(text_color))
+                .push(Text::new(e.to_string()).color(text_color))
+                .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")).color(text_color))
                 .spacing(8)
                 .padding(8)
                 .into()
         } else if let Some(ref e) = self.pj64_subscription_error {
             Column::new()
-                .push(Text::new("An error occurred during communication with Project64:"))
-                .push(Text::new(e.to_string()))
-                .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")))
+                .push(Text::new("An error occurred during communication with Project64:").color(text_color))
+                .push(Text::new(e.to_string()).color(text_color))
+                .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")).color(text_color))
                 .spacing(8)
                 .padding(8)
                 .into()
         } else if !self.updates_checked {
             Column::new()
-                .push(Text::new("Checking for updates…"))
+                .push(Text::new("Checking for updates…").color(text_color))
                 .spacing(8)
                 .padding(8)
                 .into()
         } else if self.pj64_writer.is_none() {
             Column::new()
-                .push(Text::new("Waiting for Project64…\n\n1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window."))
+                .push(Text::new("Waiting for Project64…\n\n1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.").color(text_color))
                 .spacing(8)
                 .padding(8)
                 .into()
         } else {
             match self.server_connection {
                 ServerConnectionState::Error(ref e) => Column::new()
-                    .push(Text::new("An error occurred during communication with the server:"))
-                    .push(Text::new(e.to_string()))
-                    .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")))
+                    .push(Text::new("An error occurred during communication with the server:").color(text_color))
+                    .push(Text::new(e.to_string()).color(text_color))
+                    .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")).color(text_color))
                     .spacing(8)
                     .padding(8)
                     .into(),
                 ServerConnectionState::Init => Column::new()
-                    .push(Text::new("Connecting to server…"))
+                    .push(Text::new("Connecting to server…").color(text_color))
                     .spacing(8)
                     .padding(8)
                     .into(),
                 ServerConnectionState::Lobby { wrong_password: true, .. } => Column::new()
-                    .push(Text::new("wrong password"))
-                    .push(Button::new(Text::new("OK")).on_press(Message::DismissWrongPassword))
+                    .push(Text::new("wrong password").color(text_color))
+                    .push(Button::new(Text::new("OK").color(text_color)).on_press(Message::DismissWrongPassword).style(Style(system_theme)))
                     .spacing(8)
                     .padding(8)
                     .into(),
                 ServerConnectionState::Lobby { wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password } => Column::new()
-                    .push(Radio::new(false, "Connect to existing room", Some(create_new_room), Message::SetCreateNewRoom))
-                    .push(Radio::new(true, "Create new room", Some(create_new_room), Message::SetCreateNewRoom))
+                    .push(Radio::new(false, "Connect to existing room", Some(create_new_room), Message::SetCreateNewRoom).style(Style(system_theme)))
+                    .push(Radio::new(true, "Create new room", Some(create_new_room), Message::SetCreateNewRoom).style(Style(system_theme)))
                     .push(if create_new_room {
-                        Element::from(TextInput::new("Room name", new_room_name, Message::SetNewRoomName).on_submit(Message::JoinRoom).padding(5))
+                        Element::from(TextInput::new("Room name", new_room_name, Message::SetNewRoomName).on_submit(Message::JoinRoom).padding(5).style(Style(system_theme)))
                     } else {
                         if rooms.is_empty() {
-                            Text::new("(no rooms currently open)").into()
+                            Text::new("(no rooms currently open)").color(text_color).into()
                         } else {
-                            PickList::new(rooms.iter().cloned().collect_vec(), existing_room_selection.clone(), Message::SetExistingRoomSelection).into()
+                            PickList::new(rooms.iter().cloned().collect_vec(), existing_room_selection.clone(), Message::SetExistingRoomSelection).style(Style(system_theme)).into()
                         }
                     })
-                    .push(TextInput::new("Password", password, Message::SetPassword).password().on_submit(Message::JoinRoom).padding(5))
+                    .push(TextInput::new("Password", password, Message::SetPassword).password().on_submit(Message::JoinRoom).padding(5).style(Style(system_theme)))
                     .push({
-                        let mut btn = Button::new(Text::new("Connect"));
+                        let mut btn = Button::new(Text::new("Connect").color(text_color)).style(Style(system_theme));
                         if if create_new_room { !new_room_name.is_empty() } else { existing_room_selection.is_some() } && !password.is_empty() { btn = btn.on_press(Message::JoinRoom) }
                         btn
                     })
@@ -451,21 +465,21 @@ impl Application for State {
                     for (player_idx, player) in players.into_iter().enumerate() {
                         let player_id = NonZeroU8::new(u8::try_from(player_idx + 1).expect("too many players")).expect("iterator index + 1 was 0");
                         let mut row = Row::new();
-                        row = row.push(Text::new(player));
+                        row = row.push(Text::new(player).color(text_color));
                         if self.player_id.map_or(true, |my_id| my_id != player_id) {
-                            row = row.push(Button::new(Text::new("Kick")).on_press(Message::Kick(player_id)));
+                            row = row.push(Button::new(Text::new("Kick").color(text_color)).on_press(Message::Kick(player_id)).style(Style(system_theme)));
                         }
                         col = col.push(row);
                     }
                     col
-                        .push(Text::new(other))
+                        .push(Text::new(other).color(text_color))
                         .spacing(8)
                         .padding(8)
                         .into()
                 }
                 ServerConnectionState::Closed => Column::new()
-                    .push(Text::new("You have been disconnected."))
-                    .push(Button::new(Text::new("Reconnect")).on_press(Message::Reconnect))
+                    .push(Text::new("You have been disconnected.").color(text_color))
+                    .push(Button::new(Text::new("Reconnect").color(text_color)).on_press(Message::Reconnect).style(Style(system_theme)))
                     .spacing(8)
                     .padding(8)
                     .into(),

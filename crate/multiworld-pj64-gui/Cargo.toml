@@ -8,6 +8,7 @@ winres = "0.1"
 
 [dependencies]
 async-proto = "0.15.1"
+dark-light = "0.2"
 directories = "4"
 futures = "0.3"
 iced_futures = "0.4"
@@ -27,6 +28,7 @@ features = ["ico"]
 
 [dependencies.multiworld]
 path = "../multiworld"
+features = ["style"]
 
 [dependencies.reqwest]
 version = "0.11"
