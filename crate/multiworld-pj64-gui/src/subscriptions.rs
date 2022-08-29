@@ -8,6 +8,7 @@ use {
         net::Ipv4Addr,
         num::NonZeroU8,
         sync::Arc,
+        time::Duration,
     },
     async_proto::Protocol,
     futures::{
@@ -25,8 +26,15 @@ use {
             TcpListener,
             TcpStream,
         },
+        pin,
+        select,
         sync::Mutex,
+        time::{
+            interval,
+            timeout,
+        },
     },
+    multiworld::LobbyClientMessage,
     crate::{
         Error,
         MW_PJ64_PROTO_VERSION,
@@ -102,10 +110,23 @@ impl<H: Hasher, I> Recipe<H, I> for Client {
             .and_then(|mut tcp_stream| async move {
                 let rooms = multiworld::handshake(&mut tcp_stream).await?;
                 let (reader, writer) = tcp_stream.into_split();
+                let writer = Arc::new(Mutex::new(writer));
+                let interval = interval(Duration::from_secs(30));
                 Ok(
-                    stream::once(future::ok(Message::Rooms(Arc::new(Mutex::new(writer)), rooms)))
-                    .chain(stream::try_unfold(reader, |mut reader| async move {
-                        Ok(Some((Message::Server(multiworld::ServerMessage::read(&mut reader).await?), reader)))
+                    stream::once(future::ok(Message::Rooms(writer.clone(), rooms)))
+                    .chain(stream::try_unfold((reader, writer, interval), |(reader, writer, mut interval)| async move {
+                        pin! {
+                            let read = timeout(Duration::from_secs(60), multiworld::ServerMessage::read_owned(reader));
+                        }
+                        Ok(loop {
+                            select! {
+                                res = &mut read => {
+                                    let (reader, msg) = res??;
+                                    break Some((Message::Server(msg), (reader, writer, interval)))
+                                },
+                                _ = interval.tick() => LobbyClientMessage::Ping.write(&mut *writer.lock().await).await?, // can also function as Ping in other connection states
+                            }
+                        })
                     }))
                 )
             })

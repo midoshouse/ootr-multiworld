@@ -1,6 +1,6 @@
 [package]
 name = "ootrmwd"
-version = "3.0.0"
+version = "4.0.0"
 edition = "2021"
 
 [dependencies]
@@ -24,7 +24,7 @@ features = ["postgres", "runtime-tokio-rustls"]
 
 [dependencies.tokio]
 version = "1"
-features = ["macros", "net", "rt-multi-thread", "sync"]
+features = ["macros", "net", "rt-multi-thread", "sync", "time"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"

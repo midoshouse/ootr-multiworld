@@ -318,6 +318,7 @@ impl RoomClient {
     HandleOwned::new(match lobby_client.try_read() {
         Ok(Some(ServerMessage::OtherError(e))) => Err(DebugError(e)),
         Ok(Some(ServerMessage::WrongPassword)) => Err(DebugError(format!("wrong password"))),
+        Ok(None | Some(ServerMessage::Ping)) => Ok(String::default()),
         Ok(Some(ServerMessage::NewRoom(name))) => {
             if let Err(idx) = lobby_client.rooms.binary_search(&name) {
                 lobby_client.rooms.insert(idx, name.clone());
@@ -325,7 +326,6 @@ impl RoomClient {
             Ok(name)
         }
         Ok(Some(msg)) => Err(DebugError(format!("{msg:?}"))),
-        Ok(None) => Ok(String::default()),
         Err(e) => Err(DebugError::from(e)),
     })
 }
@@ -549,6 +549,7 @@ impl RoomClient {
     HandleOwned::new(match room_client.try_read() {
         Ok(Some(ServerMessage::OtherError(e))) => Err(DebugError(e)),
         Ok(Some(ServerMessage::WrongPassword)) => Err(DebugError(format!("wrong password"))),
+        Ok(Some(ServerMessage::Ping)) => Ok(None),
         Ok(opt_msg) => Ok(opt_msg),
         Err(e) => Err(DebugError::from(e)),
     })
@@ -611,7 +612,8 @@ impl RoomClient {
         ServerMessage::NewRoom(_) |
         ServerMessage::AdminLoginSuccess { .. } |
         ServerMessage::WrongPassword |
-        ServerMessage::Goodbye => unreachable!("tried to check effect type of {msg:?}"),
+        ServerMessage::Goodbye |
+        ServerMessage::Ping => unreachable!("tried to check effect type of {msg:?}"),
         ServerMessage::EnterRoom { .. } |
         ServerMessage::PlayerId(_) |
         ServerMessage::ResetPlayerId(_) |
@@ -647,7 +649,8 @@ impl RoomClient {
         ServerMessage::GetItem(_) |
         ServerMessage::AdminLoginSuccess { .. } |
         ServerMessage::WrongPassword |
-        ServerMessage::Goodbye => panic!("this message variant has no world ID"),
+        ServerMessage::Goodbye |
+        ServerMessage::Ping => panic!("this message variant has no world ID"),
     }
 }
 
@@ -697,6 +700,7 @@ impl RoomClient {
         ServerMessage::ItemQueue(queue) => room_client.item_queue = queue,
         ServerMessage::GetItem(item) => room_client.item_queue.push(item),
         ServerMessage::Goodbye => { let _ = room_client.tcp_stream.shutdown(std::net::Shutdown::Both); }
+        ServerMessage::Ping => {}
     }
 }
 

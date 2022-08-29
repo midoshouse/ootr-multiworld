@@ -1,6 +1,6 @@
 [package]
 name = "multiworld-pj64-gui"
-version = "3.0.0"
+version = "4.0.0"
 edition = "2021"
 
 [build-dependencies]
@@ -37,7 +37,7 @@ features = ["json", "rustls-tls", "stream", "trust-dns"]
 
 [dependencies.tokio]
 version = "1"
-features = ["fs", "net", "sync"]
+features = ["fs", "net", "sync", "time"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"

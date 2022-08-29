@@ -54,6 +54,7 @@ const MW_PJ64_PROTO_VERSION: u8 = 1; //TODO sync with JS code
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
     #[error(transparent)] Client(#[from] multiworld::ClientError),
+    #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
@@ -372,6 +373,7 @@ impl Application for State {
             Message::Server(ServerMessage::Goodbye) => if !matches!(self.server_connection, ServerConnectionState::Error(_)) {
                 self.server_connection = ServerConnectionState::Closed;
             },
+            Message::Server(ServerMessage::Ping) => {}
             Message::ServerSubscriptionError(e) => if !matches!(self.server_connection, ServerConnectionState::Error(_)) {
                 self.server_connection = ServerConnectionState::Error(e);
             },

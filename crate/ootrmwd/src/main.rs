@@ -9,13 +9,20 @@ use {
         },
         convert::TryFrom as _,
         net::Ipv6Addr,
+        pin::Pin,
         process,
         sync::Arc,
-        time::Instant,
+        time::{
+            Duration,
+            Instant,
+        },
     },
     async_proto::Protocol as _,
     chrono::prelude::*,
-    futures::stream::TryStreamExt as _,
+    futures::{
+        future::Future,
+        stream::TryStreamExt as _,
+    },
     sqlx::postgres::{
         PgConnectOptions,
         PgPool,
@@ -30,11 +37,16 @@ use {
                 OwnedWriteHalf,
             },
         },
+        pin,
         select,
         sync::{
             Mutex,
             RwLock,
             broadcast,
+        },
+        time::{
+            interval,
+            timeout,
         },
     },
     multiworld::{
@@ -49,6 +61,7 @@ use {
 
 #[derive(Debug, thiserror::Error)]
 enum SessionError {
+    #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Sql(#[from] sqlx::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
@@ -80,7 +93,11 @@ async fn client_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::So
         stream
     };
     let (mut reader, room) = {
-        let mut read = LobbyClientMessage::read_owned(reader);
+        fn next_message(reader: OwnedReadHalf) -> Pin<Box<dyn Future<Output = Result<Result<(OwnedReadHalf, LobbyClientMessage), async_proto::ReadError>, tokio::time::error::Elapsed>> + Send>> {
+            Box::pin(timeout(Duration::from_secs(60), LobbyClientMessage::read_owned(reader)))
+        }
+
+        let mut read = next_message(reader);
         loop {
             select! {
                 new_room = room_stream.recv() => match new_room {
@@ -89,8 +106,9 @@ async fn client_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::So
                     Err(broadcast::error::RecvError::Lagged(_)) => room_stream = rooms.0.lock().await.1.subscribe(),
                 },
                 res = &mut read => {
-                    let (mut reader, msg) = res?;
+                    let (mut reader, msg) = res??;
                     match msg {
+                        LobbyClientMessage::Ping => read = next_message(reader),
                         LobbyClientMessage::JoinRoom { name, password } => if let Some(room) = rooms.0.lock().await.0.get(&name) {
                             if room.read().await.password == password {
                                 if room.read().await.clients.len() >= u8::MAX.into() { error!("room {name:?} is full") }
@@ -110,7 +128,7 @@ async fn client_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::So
                                 }
                                 break (reader, Arc::clone(room))
                             } else {
-                                read = LobbyClientMessage::read_owned(reader);
+                                read = next_message(reader);
                                 ServerMessage::WrongPassword.write(&mut *writer.lock().await).await?;
                             }
                         } else {
@@ -149,7 +167,8 @@ async fn client_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::So
                             }
                             ServerMessage::AdminLoginSuccess { active_connections }.write(&mut *writer.lock().await).await?;
                             loop {
-                                match AdminClientMessage::read(&mut reader).await? {
+                                match timeout(Duration::from_secs(60), AdminClientMessage::read(&mut reader)).await?? {
+                                    AdminClientMessage::Ping => {}
                                     AdminClientMessage::Stop => {
                                         //TODO close TCP connections and listener
                                         for room in rooms.0.lock().await.0.values() {
@@ -168,7 +187,8 @@ async fn client_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::So
         }
     };
     loop {
-        match RoomClientMessage::read(&mut reader).await? {
+        match timeout(Duration::from_secs(60), RoomClientMessage::read(&mut reader)).await?? {
+            RoomClientMessage::Ping => {}
             RoomClientMessage::PlayerId(id) => if !room.write().await.load_player(socket_id, id).await {
                 error!("world {id} is already taken")
             },
@@ -245,7 +265,8 @@ async fn main(Args { subcommand }: Args) -> Result<(), Error> {
             loop {
                 match ServerMessage::read(&mut tcp_stream).await? {
                     ServerMessage::OtherError(msg) => return Err(Error::Server(msg)),
-                    ServerMessage::NewRoom(_) => {}
+                    ServerMessage::NewRoom(_) |
+                    ServerMessage::Ping => {}
                     ServerMessage::AdminLoginSuccess { .. } => break,
                     ServerMessage::EnterRoom { .. } |
                     ServerMessage::PlayerId(_) |
@@ -288,8 +309,20 @@ async fn main(Args { subcommand }: Args) -> Result<(), Error> {
                 let db_pool = db_pool.clone();
                 let rooms = rooms.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = client_session(db_pool, rooms.clone(), socket_id, reader, writer).await {
-                        eprintln!("{} error in client session: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
+                    pin! {
+                        let session = client_session(db_pool, rooms.clone(), socket_id, reader, writer.clone());
+                    }
+                    let mut interval = interval(Duration::from_secs(30));
+                    loop {
+                        select! {
+                            res = &mut session => {
+                                if let Err(e) = res {
+                                    eprintln!("{} error in client session: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
+                                }
+                                break
+                            }
+                            _ = interval.tick() => if let Err(_) = ServerMessage::Ping.write(&mut *writer.lock().await).await { break },
+                        }
                     }
                     for room in rooms.0.lock().await.0.values() {
                         if room.read().await.has_client(socket_id) {

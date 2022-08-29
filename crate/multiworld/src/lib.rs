@@ -236,6 +236,8 @@ impl Room {
 
 #[derive(Protocol)]
 pub enum LobbyClientMessage {
+    /// Tells the server we're still here. Should be sent every 30 seconds; the server will consider the connection lost if no message is received for 60 seconds.
+    Ping,
     JoinRoom {
         name: String,
         password: String,
@@ -252,12 +254,16 @@ pub enum LobbyClientMessage {
 
 #[derive(Protocol)]
 pub enum AdminClientMessage {
+    /// Tells the server we're still here. Should be sent every 30 seconds; the server will consider the connection lost if no message is received for 60 seconds.
+    Ping,
     /// Stops the server.
     Stop,
 }
 
 #[derive(Protocol)]
 pub enum RoomClientMessage {
+    /// Tells the server we're still here. Should be sent every 30 seconds; the server will consider the connection lost if no message is received for 60 seconds.
+    Ping,
     /// Claims a world.
     PlayerId(NonZeroU8),
     /// Unloads the previously claimed world.
@@ -309,6 +315,8 @@ pub enum ServerMessage {
     WrongPassword,
     /// The client will now be disconnected.
     Goodbye,
+    /// Tells the client we're still here. Sent every 30 seconds; clients should consider the connection lost if no message is received for 60 seconds.
+    Ping,
 }
 
 #[derive(Debug, thiserror::Error)]
