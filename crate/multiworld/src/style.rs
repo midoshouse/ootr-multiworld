@@ -87,10 +87,7 @@ impl pick_list::StyleSheet for Style {
                 Dark => Color::BLACK,
                 Light => Color::WHITE,
             },
-            selected_background: Background::Color(match self.0 {
-                Dark => Color::from_rgb(0.0, 0.0, 0.8),
-                Light => Color::from_rgb(0.4, 0.4, 1.0),
-            }),
+            selected_background: Background::Color(Color::from_rgb(0.4, 0.4, 1.0)),
         }
     }
 
