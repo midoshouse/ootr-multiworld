@@ -567,68 +567,80 @@ namespace MidosHouse.OotrMultiworld {
                 } else {
                     SyncPlayerNames();
                 }
-                using (var res = this.roomClient.TryRecv()) {
-                    if (res.IsOkSome()) {
-                        using (var msg = res.UnwrapUnwrap()) {
-                            switch (msg.EffectType()) {
-                                case 0: { // changes room state
-                                    msg.Apply(this.roomClient);
-                                    this.UpdateRoomState(this.roomClient);
-                                    break;
+                ReceiveMessage(this.roomClient);
+                if (this.playerID != null && this.coopContextAddr != null) {
+                    SendItem(this.roomClient, this.coopContextAddr.Value);
+                    ReceiveItem(this.roomClient, this.coopContextAddr.Value, this.playerID.Value);
+                }
+            }
+        }
+
+        private void ReceiveMessage(RoomClient roomClient) {
+            using (var res = roomClient.TryRecv()) {
+                if (res.IsOkSome()) {
+                    using (var msg = res.UnwrapUnwrap()) {
+                        switch (msg.EffectType()) {
+                            case 0: { // changes room state
+                                msg.Apply(roomClient);
+                                this.UpdateRoomState(roomClient);
+                                break;
+                            }
+                            case 1: { // sets a player name and changes room state
+                                if (this.coopContextAddr != null) {
+                                    APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + msg.World() * 0x8, msg.Filename(), "System Bus");
                                 }
-                                case 1: { // sets a player name and changes room state
-                                    if (this.coopContextAddr != null) {
-                                        APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + msg.World() * 0x8, msg.Filename(), "System Bus");
-                                    }
-                                    msg.Apply(this.roomClient);
-                                    this.UpdateRoomState(this.roomClient);
-                                    break;
-                                }
-                                default: {
-                                    Error($"received unknown server message of effect type {msg.EffectType()}");
-                                    break;
-                                }
+                                msg.Apply(roomClient);
+                                this.UpdateRoomState(roomClient);
+                                break;
+                            }
+                            default: {
+                                Error($"received unknown server message of effect type {msg.EffectType()}");
+                                break;
                             }
                         }
-                    } else if (res.IsErr()) {
-                        using (var err = res.DebugErr()) {
-                            Error(err.AsString());
-                        }
+                    }
+                } else if (res.IsErr()) {
+                    using (var err = res.DebugErr()) {
+                        Error(err.AsString());
                     }
                 }
-                if (this.playerID != null && this.coopContextAddr != null) {
-                    var outgoingKey = APIs.Memory.ReadU32(this.coopContextAddr.Value + 0xc, "System Bus");
-                    if (outgoingKey != 0) {
-                        var kind = (ushort) APIs.Memory.ReadU16(this.coopContextAddr.Value + 0x10, "System Bus");
-                        var player = (byte) APIs.Memory.ReadU16(this.coopContextAddr.Value + 0x12, "System Bus");
-                        if (player == this.playerID && kind != 0xca) {
-                            //Debug($"P{this.playerID}: Found {outgoingKey}, an item {kind} for myself");
-                        } else if (outgoingKey == 0xff05ff) {
-                            //Debug($"P{this.playerID}: Found an item {kind} for player {player} sent via network, ignoring");
-                        } else {
-                            //Debug($"P{this.playerID}: Found {outgoingKey}, an item {kind} for player {player}");
-                            this.roomClient.SendItem(outgoingKey, kind, player);
-                        }
-                        APIs.Memory.WriteU32(this.coopContextAddr.Value + 0xc, 0, "System Bus");
-                        APIs.Memory.WriteU16(this.coopContextAddr.Value + 0x10, 0, "System Bus");
-                        APIs.Memory.WriteU16(this.coopContextAddr.Value + 0x12, 0, "System Bus");
-                    }
-                    var stateLogo = APIs.Memory.ReadU32(0x11f200, "RDRAM");
-                    var stateMain = APIs.Memory.ReadS8(0x11b92f, "RDRAM");
-                    var stateMenu = APIs.Memory.ReadS8(0x1d8dd5, "RDRAM");
-                    if (stateLogo != 0x802c_5880 && stateLogo != 0 && stateMain != 1 && stateMain != 2 && stateMenu == 0) {
-                        if (APIs.Memory.ReadU16(this.coopContextAddr.Value + 0x8, "System Bus") == 0) {
-                            var internalCount = (ushort) APIs.Memory.ReadU16(0x11a5d0 + 0x90, "RDRAM");
-                            var externalCount = this.roomClient.ItemQueueLen();
-                            if (internalCount < externalCount) {
-                                var item = this.roomClient.Item((ushort) internalCount);
-                                //Debug($"P{this.playerID}: Received an item {item} from another player");
-                                APIs.Memory.WriteU16(this.coopContextAddr.Value + 0x8, item, "System Bus");
-                                APIs.Memory.WriteU16(this.coopContextAddr.Value + 0x6, item == 0xca ? (this.playerID == 1 ? 2u : 1) : this.playerID.Value, "System Bus");
-                            } else if (internalCount > externalCount) {
-                                // warning: gap in received items
-                            }
-                        }
+            }
+        }
+
+        private void SendItem(RoomClient roomClient, uint coopContextAddr) {
+            var outgoingKey = APIs.Memory.ReadU32(coopContextAddr + 0xc, "System Bus");
+            if (outgoingKey != 0) {
+                var kind = (ushort) APIs.Memory.ReadU16(coopContextAddr + 0x10, "System Bus");
+                var player = (byte) APIs.Memory.ReadU16(coopContextAddr + 0x12, "System Bus");
+                if (player == this.playerID && kind != 0xca) {
+                    //Debug($"P{this.playerID}: Found {outgoingKey}, an item {kind} for myself");
+                } else if (outgoingKey == 0xff05ff) {
+                    //Debug($"P{this.playerID}: Found an item {kind} for player {player} sent via network, ignoring");
+                } else {
+                    //Debug($"P{this.playerID}: Found {outgoingKey}, an item {kind} for player {player}");
+                    roomClient.SendItem(outgoingKey, kind, player);
+                }
+                APIs.Memory.WriteU32(coopContextAddr + 0xc, 0, "System Bus");
+                APIs.Memory.WriteU16(coopContextAddr + 0x10, 0, "System Bus");
+                APIs.Memory.WriteU16(coopContextAddr + 0x12, 0, "System Bus");
+            }
+        }
+
+        private void ReceiveItem(RoomClient roomClient, uint coopContextAddr, byte playerID) {
+            var stateLogo = APIs.Memory.ReadU32(0x11f200, "RDRAM");
+            var stateMain = APIs.Memory.ReadS8(0x11b92f, "RDRAM");
+            var stateMenu = APIs.Memory.ReadS8(0x1d8dd5, "RDRAM");
+            if (stateLogo != 0x802c_5880 && stateLogo != 0 && stateMain != 1 && stateMain != 2 && stateMenu == 0) {
+                if (APIs.Memory.ReadU16(coopContextAddr + 0x8, "System Bus") == 0) {
+                    var internalCount = (ushort) APIs.Memory.ReadU16(0x11a5d0 + 0x90, "RDRAM");
+                    var externalCount = roomClient.ItemQueueLen();
+                    if (internalCount < externalCount) {
+                        var item = roomClient.Item((ushort) internalCount);
+                        //Debug($"P{playerID}: Received an item {item} from another player");
+                        APIs.Memory.WriteU16(coopContextAddr + 0x8, item, "System Bus");
+                        APIs.Memory.WriteU16(coopContextAddr + 0x6, item == 0xca ? (playerID == 1 ? 2u : 1) : playerID, "System Bus");
+                    } else if (internalCount > externalCount) {
+                        // warning: gap in received items
                     }
                 }
             }
