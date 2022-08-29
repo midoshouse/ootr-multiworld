@@ -84,8 +84,8 @@ async fn main(Args { id, api_key, server_ip }: Args) -> Result<(), Error> {
                     ServerMessage::NewRoom(room_name) => println!("new room: {room_name:?}"),
                     ServerMessage::AdminLoginSuccess { active_connections } => {
                         println!("admin login success, active connections:");
-                        for (room_name, count) in active_connections {
-                            println!("{room_name:?}: {count}");
+                        for (room_name, (players, num_unassigned_clients)) in active_connections {
+                            println!("{room_name:?}: {:?} and {num_unassigned_clients} clients with no world", players.into_iter().format(", "));
                         }
                         println!("end active connections");
                     }

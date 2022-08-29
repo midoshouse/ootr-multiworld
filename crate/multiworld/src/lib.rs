@@ -340,7 +340,7 @@ pub enum ServerMessage {
     GetItem(u16),
     /// You have logged in as an admin and are now sending [`AdminClientMessage`]s.
     AdminLoginSuccess {
-        active_connections: BTreeMap<String, u8>,
+        active_connections: BTreeMap<String, (Vec<Player>, u8)>,
     },
     /// The client sent the wrong password for the given room.
     WrongPassword,

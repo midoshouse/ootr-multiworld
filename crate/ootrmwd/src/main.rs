@@ -163,7 +163,17 @@ async fn client_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::So
                             drop(read);
                             let mut active_connections = BTreeMap::default();
                             for (room_name, room) in &rooms.0.lock().await.0 {
-                                active_connections.insert(room_name.clone(), room.read().await.clients.len().try_into().expect("more than u8::MAX players in room"));
+                                let room = room.read().await;
+                                let mut players = Vec::<Player>::default();
+                                let mut num_unassigned_clients = 0;
+                                for &(player, _) in room.clients.values() {
+                                    if let Some(player) = player {
+                                        players.insert(players.binary_search_by_key(&player.world, |p| p.world).expect_err("duplicate world number"), player);
+                                    } else {
+                                        num_unassigned_clients += 1;
+                                    }
+                                }
+                                active_connections.insert(room_name.clone(), (players, num_unassigned_clients));
                             }
                             ServerMessage::AdminLoginSuccess { active_connections }.write(&mut *writer.lock().await).await?;
                             loop {
