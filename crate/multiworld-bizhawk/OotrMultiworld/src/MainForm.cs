@@ -54,6 +54,7 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern void message_free(IntPtr msg);
         [DllImport("multiworld")] internal static extern bool opt_message_result_is_err(OptMessageResult opt_msg_res);
         [DllImport("multiworld")] internal static extern StringHandle opt_message_result_debug_err(IntPtr opt_msg_res);
+        [DllImport("multiworld")] internal static extern StringHandle message_debug(ServerMessage msg);
         [DllImport("multiworld")] internal static extern byte message_effect_type(ServerMessage msg);
         [DllImport("multiworld")] internal static extern byte message_player_id(ServerMessage msg);
         [DllImport("multiworld")] internal static extern IntPtr message_player_name(ServerMessage msg);
@@ -293,6 +294,7 @@ namespace MidosHouse.OotrMultiworld {
             return true;
         }
 
+        internal StringHandle Debug() => Native.message_debug(this);
         internal byte EffectType() => Native.message_effect_type(this);
         internal byte World() => Native.message_player_id(this);
 
@@ -580,12 +582,18 @@ namespace MidosHouse.OotrMultiworld {
                 if (res.IsOkSome()) {
                     using (var msg = res.UnwrapUnwrap()) {
                         switch (msg.EffectType()) {
-                            case 0: { // changes room state
+                            case 0: {
+                                using (var msg_debug = msg.Debug()) {
+                                    Error($"received unexpected server message: {msg_debug.AsString()}");
+                                }
+                                break;
+                            }
+                            case 1: { // changes room state
                                 msg.Apply(roomClient);
                                 this.UpdateRoomState(roomClient);
                                 break;
                             }
-                            case 1: { // sets a player name and changes room state
+                            case 2: { // sets a player name and changes room state
                                 if (this.coopContextAddr != null) {
                                     APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + msg.World() * 0x8, msg.Filename(), "System Bus");
                                 }

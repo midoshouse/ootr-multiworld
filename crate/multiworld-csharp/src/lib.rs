@@ -148,6 +148,7 @@ pub struct RoomClient {
     wait_time: Duration,
     room_name: String,
     room_password: String,
+    last_ping: Instant,
     players: Vec<Player>,
     num_unassigned_clients: u8,
     last_world: Option<NonZeroU8>,
@@ -164,6 +165,16 @@ impl RoomClient {
     fn write(&mut self, msg: &impl Protocol) -> Result<(), async_proto::WriteError> {
         self.tcp_stream.set_nonblocking(false)?;
         msg.write_sync(&mut self.tcp_stream)
+    }
+
+    fn set_retry(&mut self) {
+        self.retrying = true;
+        if self.retry.elapsed() >= Duration::from_secs(60 * 60 * 24) {
+            self.wait_time = Duration::from_secs(1); // reset wait time after no error for a day
+        } else {
+            self.wait_time *= 2; // exponential backoff
+        }
+        self.retry = Instant::now() + self.wait_time;
     }
 }
 
@@ -397,6 +408,7 @@ fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: Str
         retrying: false,
         retry: Instant::now(),
         wait_time: Duration::from_secs(1),
+        last_ping: Instant::now(),
         last_world: None,
         last_name: Filename::default(),
         item_queue: Vec::default(),
@@ -593,19 +605,23 @@ fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: Str
             Ok(None)
         }
     } else {
+        if room_client.last_ping.elapsed() >= Duration::from_secs(30) {
+            if let Err(e) = room_client.write(&RoomClientMessage::Ping) {
+                return HandleOwned::new(Err(DebugError::from(e)))
+            }
+            room_client.last_ping = Instant::now();
+        }
         match room_client.try_read() {
             Ok(Some(ServerMessage::OtherError(e))) => Err(DebugError(e)),
             Ok(Some(ServerMessage::WrongPassword)) => Err(DebugError(format!("wrong password"))),
             Ok(Some(ServerMessage::Ping)) => Ok(None),
+            Ok(Some(ServerMessage::Goodbye)) => {
+                room_client.set_retry(); //TODO only automatically reconnect to lobby, not the room from which we were kicked?
+                Ok(None)
+            }
             Ok(opt_msg) => Ok(opt_msg),
             Err(e) if e.is_network_error() => {
-                room_client.retrying = true;
-                if room_client.retry.elapsed() >= Duration::from_secs(60 * 60 * 24) {
-                    room_client.wait_time = Duration::from_secs(1); // reset wait time after no error for a day
-                } else {
-                    room_client.wait_time *= 2; // exponential backoff
-                }
-                room_client.retry = Instant::now() + room_client.wait_time;
+                room_client.set_retry();
                 Ok(None)
             }
             Err(e) => Err(DebugError::from(e)),
@@ -663,7 +679,25 @@ fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: Str
 /// # Safety
 ///
 /// `msg` must point at a valid `ServerMessage`.
-#[no_mangle] pub unsafe extern "C" fn message_effect_type(msg: *const ServerMessage) -> u8 {
+#[no_mangle] pub unsafe extern "C" fn message_debug(msg: *const ServerMessage) -> StringHandle {
+    let msg = &*msg;
+    StringHandle::from_string(format!("{msg:?}"))
+}
+
+#[repr(u8)]
+pub enum MessageEffectType {
+    /// This message should never be received by the room client.
+    Error = 0,
+    /// This message changes the room state.
+    ChangeRoomState = 1,
+    /// This message sets the player name for a world and changes the room state.
+    SetPlayerNameChangeRoomState = 2,
+}
+
+/// # Safety
+///
+/// `msg` must point at a valid `ServerMessage`.
+#[no_mangle] pub unsafe extern "C" fn message_effect_type(msg: *const ServerMessage) -> MessageEffectType {
     let msg = &*msg;
     match msg {
         ServerMessage::OtherError(_) |
@@ -671,7 +705,7 @@ fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: Str
         ServerMessage::AdminLoginSuccess { .. } |
         ServerMessage::WrongPassword |
         ServerMessage::Goodbye |
-        ServerMessage::Ping => unreachable!("tried to check effect type of {msg:?}"),
+        ServerMessage::Ping => MessageEffectType::Error,
         ServerMessage::EnterRoom { .. } |
         ServerMessage::PlayerId(_) |
         ServerMessage::ResetPlayerId(_) |
@@ -679,8 +713,8 @@ fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: Str
         ServerMessage::PlayerDisconnected(_) |
         ServerMessage::UnregisteredClientDisconnected |
         ServerMessage::ItemQueue(_) |
-        ServerMessage::GetItem(_) => 0, // changes room state
-        ServerMessage::PlayerName(_, _) => 1, // sets a player name and changes room state
+        ServerMessage::GetItem(_) => MessageEffectType::ChangeRoomState,
+        ServerMessage::PlayerName(_, _) => MessageEffectType::SetPlayerNameChangeRoomState,
     }
 }
 
