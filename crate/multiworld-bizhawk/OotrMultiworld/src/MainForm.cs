@@ -10,6 +10,7 @@ using BizHawk.Client.EmuHawk;
 
 namespace MidosHouse.OotrMultiworld {
     internal class Native {
+        [DllImport("multiworld")] internal static extern StringHandle version_string();
         [DllImport("multiworld")] internal static extern BoolResult update_available();
         [DllImport("multiworld")] internal static extern void bool_result_free(IntPtr bool_res);
         [DllImport("multiworld")] internal static extern bool bool_result_is_ok(BoolResult bool_res);
@@ -389,6 +390,7 @@ namespace MidosHouse.OotrMultiworld {
         private ComboBox rooms = new ComboBox();
         private TextBox password = new TextBox();
         private Button createJoinButton = new Button();
+        private Label version = new Label();
         private List<Label> playerStates = new List<Label>();
         private List<Button> kickButtons = new List<Button>();
         private Label otherState = new Label();
@@ -465,6 +467,16 @@ namespace MidosHouse.OotrMultiworld {
                 }
             };
             this.Controls.Add(this.createJoinButton);
+
+            this.version.TabIndex = 4;
+            this.version.Location = new Point(162, 119);
+            this.version.AutoSize = false;
+            this.version.Size = new Size(335, 25);
+            this.version.TextAlign = ContentAlignment.MiddleRight;
+            using (var versionString = Native.version_string()) {
+                this.version.Text = $"v{versionString.AsString()}";
+            }
+            this.Controls.Add(this.version);
 
             this.otherState.TabIndex = 4;
             this.otherState.Location = new Point(12, 42);
@@ -662,6 +674,7 @@ namespace MidosHouse.OotrMultiworld {
             this.rooms.Visible = false;
             this.password.Visible = false;
             this.createJoinButton.Visible = false;
+            this.version.Visible = false;
             this.ShowUI();
             ResumeLayout(true);
             ReadPlayerID();
@@ -818,6 +831,7 @@ namespace MidosHouse.OotrMultiworld {
             this.rooms.Visible = false;
             this.password.Visible = false;
             this.createJoinButton.Visible = false;
+            this.version.Visible = false;
             for (var player_idx = 0; player_idx < this.playerStates.Count; player_idx++) {
                 this.playerStates[player_idx].Visible = false;
                 this.kickButtons[player_idx].Visible = false;
@@ -830,6 +844,7 @@ namespace MidosHouse.OotrMultiworld {
                 this.rooms.Visible = true;
                 this.password.Visible = true;
                 this.createJoinButton.Visible = true;
+                this.version.Visible = true;
             }
             if (this.roomClient != null) {
                 for (var player_idx = 0; player_idx < this.playerStates.Count; player_idx++) {

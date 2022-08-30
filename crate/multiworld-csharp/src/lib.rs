@@ -179,6 +179,10 @@ impl RoomClient {
     }
 }
 
+#[no_mangle] pub extern "C" fn version_string() -> StringHandle {
+    StringHandle::from_string(env!("CARGO_PKG_VERSION"))
+}
+
 #[no_mangle] pub extern "C" fn update_available() -> HandleOwned<DebugResult<bool>> {
     let repo = Repo::new("midoshouse", "ootr-multiworld");
     HandleOwned::new(
