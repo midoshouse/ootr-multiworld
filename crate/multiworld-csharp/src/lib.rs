@@ -27,6 +27,7 @@ use {
         },
     },
     async_proto::Protocol,
+    chrono::prelude::*,
     directories::ProjectDirs,
     libc::c_char,
     semver::Version,
@@ -528,7 +529,11 @@ fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: Str
 /// `room_client` must point at a valid `RoomClient`.
 #[no_mangle] pub unsafe extern "C" fn room_client_num_players(room_client: *const RoomClient) -> u8 {
     let room_client = &*room_client;
-    room_client.players.len().try_into().expect("too many players")
+    if room_client.retrying {
+        0
+    } else {
+        room_client.players.len().try_into().expect("too many players")
+    }
 }
 
 /// # Safety
@@ -545,8 +550,16 @@ fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: Str
 /// `room_client` must point at a valid `RoomClient`.
 #[no_mangle] pub unsafe extern "C" fn room_client_other_state(room_client: *const RoomClient) -> StringHandle {
     let room_client = &*room_client;
-    let (_, other) = format_room_state(&room_client.players, room_client.num_unassigned_clients, room_client.last_world);
-    StringHandle::from_string(other)
+    StringHandle::from_string(if room_client.retrying {
+        if let Ok(retry) = chrono::Duration::from_std(room_client.retry.duration_since(Instant::now())) {
+            format!("Reconnecting at {}", (Local::now() + retry).format("%H:%M:%S"))
+        } else {
+            format!("Reconnecting…")
+        }
+    } else {
+        let (_, other) = format_room_state(&room_client.players, room_client.num_unassigned_clients, room_client.last_world);
+        other
+    })
 }
 
 /// # Safety
