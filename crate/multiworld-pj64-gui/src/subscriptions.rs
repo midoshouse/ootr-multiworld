@@ -34,7 +34,10 @@ use {
             timeout,
         },
     },
-    multiworld::LobbyClientMessage,
+    multiworld::{
+        Filename,
+        LobbyClientMessage,
+    },
     crate::{
         Error,
         MW_PJ64_PROTO_VERSION,
@@ -46,13 +49,13 @@ use {
 pub(crate) enum ServerMessage {
     ItemQueue(Vec<u16>),
     GetItem(u16),
-    PlayerName(NonZeroU8, [u8; 8]),
+    PlayerName(NonZeroU8, Filename),
 }
 
 #[derive(Debug, Clone, Protocol)]
 pub(crate) enum ClientMessage {
     PlayerId(NonZeroU8),
-    PlayerName([u8; 8]),
+    PlayerName(Filename),
     SendItem {
         key: u32,
         kind: u16,

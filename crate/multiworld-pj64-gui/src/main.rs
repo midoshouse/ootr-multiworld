@@ -44,6 +44,7 @@ use {
         },
     },
     multiworld::{
+        Filename,
         IsNetworkError,
         LobbyClientMessage,
         Player,
@@ -158,7 +159,7 @@ struct State {
     retry: Instant,
     wait_time: Duration,
     player_id: Option<NonZeroU8>,
-    player_name: Option<[u8; 8]>,
+    player_name: Option<Filename>,
     updates_checked: bool,
     should_exit: bool,
 }
@@ -259,7 +260,7 @@ impl Application for State {
                     return cmd(async move {
                         let mut writer = writer.lock().await;
                         for player in players {
-                            if player.name != Player::DEFAULT_NAME {
+                            if player.name != Filename::default() {
                                 subscriptions::ServerMessage::PlayerName(player.world, player.name).write(&mut *writer).await?;
                             }
                         }
@@ -370,7 +371,7 @@ impl Application for State {
                         }
                     }
                     for player in players {
-                        if player.name != Player::DEFAULT_NAME {
+                        if player.name != Filename::default() {
                             subscriptions::ServerMessage::PlayerName(player.world, player.name).write(&mut *pj64_writer.lock().await).await?;
                         }
                     }

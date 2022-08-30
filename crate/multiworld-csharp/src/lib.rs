@@ -31,6 +31,7 @@ use {
     libc::c_char,
     semver::Version,
     multiworld::{
+        Filename,
         IsNetworkError as _,
         LobbyClientMessage,
         Player,
@@ -149,7 +150,7 @@ pub struct RoomClient {
     players: Vec<Player>,
     num_unassigned_clients: u8,
     last_world: Option<NonZeroU8>,
-    last_name: [u8; 8],
+    last_name: Filename,
     item_queue: Vec<u16>,
 }
 
@@ -396,7 +397,7 @@ fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: Str
         retry: Instant::now(),
         wait_time: Duration::from_secs(1),
         last_world: None,
-        last_name: Player::DEFAULT_NAME,
+        last_name: Filename::default(),
         item_queue: Vec::default(),
         room_name, room_password, players, num_unassigned_clients,
     })
@@ -460,7 +461,7 @@ fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: Str
     let id = NonZeroU8::new(id).expect("tried to claim world 0");
     HandleOwned::new(if room_client.last_world != Some(id) {
         room_client.last_world = Some(id);
-        room_client.write(&RoomClientMessage::PlayerId(id)).and_then(|()| if room_client.last_name != Player::DEFAULT_NAME {
+        room_client.write(&RoomClientMessage::PlayerId(id)).and_then(|()| if room_client.last_name != Filename::default() {
             room_client.write(&RoomClientMessage::PlayerName(room_client.last_name))
         } else {
             Ok(())
@@ -708,7 +709,7 @@ fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: Str
 #[no_mangle] pub unsafe extern "C" fn message_player_name(msg: *const ServerMessage) -> *const u8 {
     let msg = &*msg;
     if let ServerMessage::PlayerName(_, name) = msg {
-        &name[0]
+        name.0.as_ptr()
     } else {
         panic!("this message variant has no player filename")
     }
@@ -788,8 +789,8 @@ fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: Str
     let room_client = &*room_client;
     let world = NonZeroU8::new(world).expect("tried to get player name for world 0");
     if let Some(player) = room_client.players.iter().find(|p| p.world == world) {
-        &player.name[0]
+        player.name.0.as_ptr()
     } else {
-        &Player::DEFAULT_NAME[0]
+        Filename::DEFAULT.0.as_ptr()
     }
 }

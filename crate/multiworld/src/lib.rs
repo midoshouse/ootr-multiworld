@@ -9,6 +9,7 @@ use {
             HashMap,
             HashSet,
         },
+        fmt,
         mem,
         net::{
             Ipv4Addr,
@@ -86,19 +87,77 @@ impl IsNetworkError for async_proto::WriteError {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Protocol)]
+pub struct Filename(pub [u8; 8]);
+
+impl Filename {
+    pub const DEFAULT: Self = Self([0xdf; 8]);
+    const ENCODING: [char; 256] = [
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'あ', 'い', 'う', 'え', 'お', 'か',
+        'き', 'く', 'け', 'こ', 'さ', 'し', 'す', 'せ', 'そ', 'た', 'ち', 'つ', 'て', 'と', 'な', 'に',
+        'ぬ', 'ね', 'の', 'は', 'ひ', 'ふ', 'へ', 'ほ', 'ま', 'み', 'む', 'め', 'も', 'や', 'ゆ', 'よ',
+        'ら', 'り', 'る', 'れ', 'ろ', 'わ', 'を', 'ん', 'ぁ', 'ぃ', 'ぅ', 'ぇ', 'ぉ', 'っ', 'ゃ', 'ゅ',
+        'ょ', 'が', 'ぎ', 'ぐ', 'げ', 'ご', 'ざ', 'じ', 'ず', 'ぜ', 'ぞ', 'だ', 'ぢ', 'づ', 'で', 'ど',
+        'ば', 'び', 'ぶ', 'べ', 'ぼ', 'ぱ', 'ぴ', 'ぷ', 'ぺ', 'ぽ', 'ア', 'イ', 'ウ', 'エ', 'オ', 'カ',
+        'キ', 'ク', 'ケ', 'コ', 'サ', 'シ', 'ス', 'セ', 'ソ', 'タ', 'チ', 'ツ', 'テ', 'ト', 'ナ', 'ニ',
+        'ヌ', 'ネ', 'ノ', 'ハ', 'ヒ', 'フ', 'ヘ', 'ホ', 'マ', 'ミ', 'ム', 'メ', 'モ', 'ヤ', 'ユ', 'ヨ',
+        'ラ', 'リ', 'ル', 'レ', 'ロ', 'ワ', 'ヲ', 'ン', 'ァ', 'ィ', 'ゥ', 'ェ', 'ォ', 'ッ', 'ャ', 'ュ',
+        'ョ', 'ガ', 'ギ', 'グ', 'ゲ', 'ゴ', 'ザ', 'ジ', 'ズ', 'ゼ', 'ゾ', 'ダ', 'ヂ', 'ヅ', 'デ', 'ド',
+        'バ', 'ビ', 'ブ', 'ベ', 'ボ', 'パ', 'ピ', 'プ', 'ペ', 'ポ', 'ヴ', 'A', 'B', 'C', 'D', 'E',
+        'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U',
+        'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k',
+        'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', ' ',
+        '┬', '?', '!', ':', '-', '(', ')', '゛', '゜', ',', '.', '/', '�', '�', '�', '�',
+        '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�',
+    ];
+}
+
+impl Default for Filename {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for Filename {
+    type Error = <[u8; 8] as TryFrom<&'a [u8]>>::Error;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        value.try_into().map(Self)
+    }
+}
+
+impl fmt::Display for Filename {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for c in self.0 {
+            Self::ENCODING[usize::from(c)].fmt(f)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for Filename {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.to_string())
+    }
+}
+
+impl PartialEq<&[u8]> for Filename {
+    fn eq(&self, other: &&[u8]) -> bool {
+        self.0 == *other
+    }
+}
+
 #[derive(Debug, Clone, Copy, Protocol)]
 pub struct Player {
     pub world: NonZeroU8,
-    pub name: [u8; 8],
+    pub name: Filename,
 }
 
 impl Player {
-    pub const DEFAULT_NAME: [u8; 8] = [0xdf; 8];
-
     pub fn new(world: NonZeroU8) -> Self {
         Self {
             world,
-            name: Self::DEFAULT_NAME,
+            name: Filename::default(),
         }
     }
 }
@@ -197,7 +256,7 @@ impl Room {
         }
     }
 
-    pub async fn set_player_name(&mut self, client_id: SocketId, name: [u8; 8]) -> bool {
+    pub async fn set_player_name(&mut self, client_id: SocketId, name: Filename) -> bool {
         if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").0 {
             let world = player.world;
             player.name = name;
@@ -300,7 +359,7 @@ pub enum RoomClientMessage {
     /// Unloads the previously claimed world.
     ResetPlayerId,
     /// Player names are encoded in the NTSC charset, with trailing spaces (`0xdf`).
-    PlayerName([u8; 8]),
+    PlayerName(Filename),
     SendItem {
         key: u32,
         kind: u16,
@@ -333,7 +392,7 @@ pub enum ServerMessage {
     /// A player has changed their name.
     ///
     /// Player names are encoded in the NTSC charset, with trailing spaces (`0xdf`).
-    PlayerName(NonZeroU8, [u8; 8]),
+    PlayerName(NonZeroU8, Filename),
     /// Your list of received items has changed.
     ItemQueue(Vec<u16>),
     /// You have received a new item, add it to the end of your item queue.
@@ -382,42 +441,20 @@ pub fn handshake_sync(tcp_stream: &mut std::net::TcpStream) -> Result<BTreeSet<S
     Ok(BTreeSet::read_sync(tcp_stream)?)
 }
 
-fn render_filename(name: [u8; 8]) -> String {
-    let filename_encoding = [
-        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'あ', 'い', 'う', 'え', 'お', 'か',
-        'き', 'く', 'け', 'こ', 'さ', 'し', 'す', 'せ', 'そ', 'た', 'ち', 'つ', 'て', 'と', 'な', 'に',
-        'ぬ', 'ね', 'の', 'は', 'ひ', 'ふ', 'へ', 'ほ', 'ま', 'み', 'む', 'め', 'も', 'や', 'ゆ', 'よ',
-        'ら', 'り', 'る', 'れ', 'ろ', 'わ', 'を', 'ん', 'ぁ', 'ぃ', 'ぅ', 'ぇ', 'ぉ', 'っ', 'ゃ', 'ゅ',
-        'ょ', 'が', 'ぎ', 'ぐ', 'げ', 'ご', 'ざ', 'じ', 'ず', 'ぜ', 'ぞ', 'だ', 'ぢ', 'づ', 'で', 'ど',
-        'ば', 'び', 'ぶ', 'べ', 'ぼ', 'ぱ', 'ぴ', 'ぷ', 'ぺ', 'ぽ', 'ア', 'イ', 'ウ', 'エ', 'オ', 'カ',
-        'キ', 'ク', 'ケ', 'コ', 'サ', 'シ', 'ス', 'セ', 'ソ', 'タ', 'チ', 'ツ', 'テ', 'ト', 'ナ', 'ニ',
-        'ヌ', 'ネ', 'ノ', 'ハ', 'ヒ', 'フ', 'ヘ', 'ホ', 'マ', 'ミ', 'ム', 'メ', 'モ', 'ヤ', 'ユ', 'ヨ',
-        'ラ', 'リ', 'ル', 'レ', 'ロ', 'ワ', 'ヲ', 'ン', 'ァ', 'ィ', 'ゥ', 'ェ', 'ォ', 'ッ', 'ャ', 'ュ',
-        'ョ', 'ガ', 'ギ', 'グ', 'ゲ', 'ゴ', 'ザ', 'ジ', 'ズ', 'ゼ', 'ゾ', 'ダ', 'ヂ', 'ヅ', 'デ', 'ド',
-        'バ', 'ビ', 'ブ', 'ベ', 'ボ', 'パ', 'ピ', 'プ', 'ペ', 'ポ', 'ヴ', 'A', 'B', 'C', 'D', 'E',
-        'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U',
-        'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k',
-        'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', ' ',
-        '┬', '?', '!', ':', '-', '(', ')', '゛', '゜', ',', '.', '/', '�', '�', '�', '�',
-        '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�',
-    ];
-    name.into_iter().map(|c| filename_encoding[usize::from(c)]).collect()
-}
-
 pub fn format_room_state(players: &[Player], num_unassigned_clients: u8, my_world: Option<NonZeroU8>) -> (Vec<String>, String) {
     match (players.len(), num_unassigned_clients) {
         (0, 0) => (Vec::default(), format!("this room is empty")), // for admin view
         (0, unassigned) => (Vec::default(), format!("{unassigned} client{} with no world", if unassigned == 1 { "" } else { "s" })),
         (_, unassigned) => {
             (players.iter()
-                .map(|player| if player.name == Player::DEFAULT_NAME {
+                .map(|player| if player.name == Filename::default() {
                     if my_world == Some(player.world) {
                         format!("{}. [create save file 1 to set name]", player.world)
                     } else {
                         format!("{}. [unnamed]", player.world)
                     }
                 } else {
-                    format!("{}. {}", player.world, render_filename(player.name))
+                    format!("{}. {}", player.world, player.name)
                 })
                 .collect(),
             if unassigned > 0 {
