@@ -124,6 +124,7 @@ impl<T> DebugResultExt for DebugResult<T> {
 pub struct LobbyClient {
     tcp_stream: TcpStream,
     buf: Vec<u8>,
+    last_ping: Instant,
     rooms: Vec<String>,
 }
 
@@ -250,6 +251,7 @@ impl RoomClient {
             let rooms = multiworld::handshake_sync(&mut tcp_stream)?;
             Ok(LobbyClient {
                 buf: Vec::default(),
+                last_ping: Instant::now(),
                 rooms: rooms.into_iter().collect(),
                 tcp_stream,
             })
@@ -265,6 +267,7 @@ impl RoomClient {
             let rooms = multiworld::handshake_sync(&mut tcp_stream)?;
             Ok(LobbyClient {
                 buf: Vec::default(),
+                last_ping: Instant::now(),
                 rooms: rooms.into_iter().collect(),
                 tcp_stream,
             })
@@ -338,6 +341,12 @@ impl RoomClient {
 /// `lobby_client` must point at a valid `LobbyClient`.
 #[no_mangle] pub unsafe extern "C" fn lobby_client_try_recv_new_room(lobby_client: *mut LobbyClient) -> HandleOwned<DebugResult<String>> {
     let lobby_client = &mut *lobby_client;
+    if lobby_client.last_ping.elapsed() >= Duration::from_secs(30) {
+        if let Err(e) = lobby_client.write(&LobbyClientMessage::Ping) {
+            return HandleOwned::new(Err(DebugError::from(e)))
+        }
+        lobby_client.last_ping = Instant::now();
+    }
     HandleOwned::new(match lobby_client.try_read() {
         Ok(Some(ServerMessage::OtherError(e))) => Err(DebugError(e)),
         Ok(Some(ServerMessage::WrongPassword)) => Err(DebugError(format!("wrong password"))),
