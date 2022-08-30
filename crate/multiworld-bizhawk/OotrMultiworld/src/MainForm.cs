@@ -31,7 +31,7 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern bool string_result_is_ok(StringResult str_res);
         [DllImport("multiworld")] internal static extern StringHandle string_result_unwrap(IntPtr str_res);
         [DllImport("multiworld")] internal static extern StringHandle string_result_debug_err(IntPtr str_res);
-        [DllImport("multiworld")] internal static extern RoomClientResult lobby_client_room_connect(IntPtr lobby_client, OwnedStringHandle room_name, OwnedStringHandle password);
+        [DllImport("multiworld")] internal static extern RoomClientResult lobby_client_room_connect(IntPtr lobby_client, OwnedStringHandle room_name, OwnedStringHandle room_password);
         [DllImport("multiworld")] internal static extern void room_client_result_free(IntPtr room_client_res);
         [DllImport("multiworld")] internal static extern bool room_client_result_is_ok(RoomClientResult room_client_res);
         [DllImport("multiworld")] internal static extern RoomClient room_client_result_unwrap(IntPtr room_client_res);

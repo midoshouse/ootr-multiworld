@@ -16,6 +16,7 @@ use {
     chrono::prelude::*,
     dark_light::Mode::*,
     directories::ProjectDirs,
+    futures::future,
     iced::{
         Command,
         Settings,
@@ -99,7 +100,8 @@ enum Message {
     Pj64Connected(Arc<Mutex<OwnedWriteHalf>>),
     Pj64SubscriptionError(Arc<Error>),
     Plugin(subscriptions::ClientMessage),
-    Reconnect,
+    ReconnectToLobby,
+    ReconnectToRoom(String, String),
     Rooms(Arc<Mutex<OwnedWriteHalf>>, BTreeSet<String>),
     Server(ServerMessage),
     ServerSubscriptionError(Arc<Error>),
@@ -125,6 +127,10 @@ enum ServerConnectionState {
         auto_retry: bool,
     },
     Init,
+    InitAutoRejoin {
+        room_name: String,
+        room_password: String,
+    },
     Lobby {
         rooms: BTreeSet<String>,
         create_new_room: bool,
@@ -134,6 +140,8 @@ enum ServerConnectionState {
         wrong_password: bool,
     },
     Room {
+        room_name: String,
+        room_password: String,
         players: Vec<Player>,
         num_unassigned_clients: u8,
         item_queue: Vec<u16>,
@@ -307,17 +315,34 @@ impl Application for State {
                     Ok(Message::Nop)
                 })
             }
-            Message::Reconnect => self.server_connection = ServerConnectionState::Init,
+            Message::ReconnectToLobby => self.server_connection = ServerConnectionState::Init,
+            Message::ReconnectToRoom(room_name, room_password) => self.server_connection = ServerConnectionState::InitAutoRejoin { room_name, room_password },
             Message::Rooms(writer, rooms) => {
                 self.server_writer = Some(writer);
-                self.server_connection = ServerConnectionState::Lobby {
-                    create_new_room: rooms.is_empty(),
-                    existing_room_selection: None,
-                    new_room_name: String::default(),
-                    password: String::default(),
-                    wrong_password: false,
-                    rooms,
+                let mut room_still_exists = false;
+                self.server_connection = if let ServerConnectionState::InitAutoRejoin { ref room_name, ref room_password } = self.server_connection {
+                    room_still_exists = rooms.contains(room_name);
+                    ServerConnectionState::Lobby {
+                        create_new_room: !room_still_exists,
+                        existing_room_selection: room_still_exists.then(|| room_name.clone()),
+                        new_room_name: room_name.clone(),
+                        password: room_password.clone(),
+                        wrong_password: false,
+                        rooms,
+                    }
+                } else {
+                    ServerConnectionState::Lobby {
+                        create_new_room: rooms.is_empty(),
+                        existing_room_selection: None,
+                        new_room_name: String::default(),
+                        password: String::default(),
+                        wrong_password: false,
+                        rooms,
+                    }
                 };
+                if room_still_exists {
+                    return cmd(future::ok(Message::JoinRoom))
+                }
             }
             Message::Server(ServerMessage::OtherError(e)) => if !matches!(self.server_connection, ServerConnectionState::Error { .. }) {
                 self.server_connection = ServerConnectionState::Error {
@@ -327,7 +352,12 @@ impl Application for State {
             },
             Message::Server(ServerMessage::NewRoom(name)) => if let ServerConnectionState::Lobby { ref mut rooms, .. } = self.server_connection { rooms.insert(name); },
             Message::Server(ServerMessage::EnterRoom { players, num_unassigned_clients }) => {
-                self.server_connection = ServerConnectionState::Room { players: players.clone(), item_queue: Vec::default(), num_unassigned_clients };
+                let (room_name, room_password) = match self.server_connection {
+                    ServerConnectionState::Lobby { create_new_room: false, ref existing_room_selection, ref password, .. } => (existing_room_selection.clone().unwrap_or_default(), password.clone()),
+                    ServerConnectionState::Lobby { create_new_room: true, ref new_room_name, ref password, .. } => (new_room_name.clone(), password.clone()),
+                    _ => <_>::default(),
+                };
+                self.server_connection = ServerConnectionState::Room { players: players.clone(), item_queue: Vec::default(), room_name, room_password, num_unassigned_clients };
                 let server_writer = self.server_writer.clone().expect("join room button only appears when connected to server");
                 let pj64_writer = self.pj64_writer.clone().expect("join room button only appears when connected to PJ64");
                 let player_id = self.player_id;
@@ -412,14 +442,19 @@ impl Application for State {
                         self.wait_time *= 2; // exponential backoff
                     }
                     self.retry = Instant::now() + self.wait_time;
+                    let retry = self.retry;
+                    let reconnect_msg = if let ServerConnectionState::Room { ref room_name, ref room_password, .. } = self.server_connection {
+                        Message::ReconnectToRoom(room_name.clone(), room_password.clone())
+                    } else {
+                        Message::ReconnectToLobby
+                    };
                     self.server_connection = ServerConnectionState::Error {
                         auto_retry: true,
                         e,
                     };
-                    let retry = self.retry;
                     return cmd(async move {
                         sleep_until(retry).await;
-                        Ok(Message::Reconnect)
+                        Ok(reconnect_msg)
                     })
                 } else {
                     self.server_connection = ServerConnectionState::Error {
@@ -496,6 +531,11 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
+                ServerConnectionState::InitAutoRejoin { .. } => Column::new()
+                    .push(Text::new("Reconnecting to room…").color(text_color))
+                    .spacing(8)
+                    .padding(8)
+                    .into(),
                 ServerConnectionState::Lobby { wrong_password: true, .. } => Column::new()
                     .push(Text::new("wrong password").color(text_color))
                     .push(Button::new(Text::new("OK").color(text_color)).on_press(Message::DismissWrongPassword).style(Style(system_theme)))
@@ -543,7 +583,7 @@ impl Application for State {
                 }
                 ServerConnectionState::Closed => Column::new()
                     .push(Text::new("You have been disconnected.").color(text_color))
-                    .push(Button::new(Text::new("Reconnect").color(text_color)).on_press(Message::Reconnect).style(Style(system_theme)))
+                    .push(Button::new(Text::new("Reconnect").color(text_color)).on_press(Message::ReconnectToLobby).style(Style(system_theme)))
                     .spacing(8)
                     .padding(8)
                     .into(),

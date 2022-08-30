@@ -13,6 +13,7 @@ use {
         },
         fmt,
         fs,
+        mem,
         net::TcpStream,
         num::NonZeroU8,
         process::{
@@ -20,13 +21,17 @@ use {
             Command,
         },
         slice,
-        time::Duration,
+        time::{
+            Duration,
+            Instant,
+        },
     },
     async_proto::Protocol,
     directories::ProjectDirs,
     libc::c_char,
     semver::Version,
     multiworld::{
+        IsNetworkError as _,
         LobbyClientMessage,
         Player,
         RoomClientMessage,
@@ -136,6 +141,11 @@ impl LobbyClient {
 pub struct RoomClient {
     tcp_stream: TcpStream,
     buf: Vec<u8>,
+    retrying: bool,
+    retry: Instant,
+    wait_time: Duration,
+    room_name: String,
+    room_password: String,
     players: Vec<Player>,
     num_unassigned_clients: u8,
     last_world: Option<NonZeroU8>,
@@ -358,17 +368,11 @@ impl RoomClient {
     StringHandle::from_string(str_res.into_box().unwrap_err())
 }
 
-/// # Safety
-///
-/// `lobby_client` must point at a valid `LobbyClient`. This function takes ownership of the `LobbyClient`. `room_name` and `password` must be null-terminated UTF-8 strings.
-#[no_mangle] pub unsafe extern "C" fn lobby_client_room_connect(lobby_client: HandleOwned<LobbyClient>, room_name: *const c_char, password: *const c_char) -> HandleOwned<DebugResult<RoomClient>> {
-    let mut lobby_client = lobby_client.into_box();
-    let name = CStr::from_ptr(room_name).to_str().expect("room name was not valid UTF-8").to_owned();
-    let password = CStr::from_ptr(password).to_str().expect("room name was not valid UTF-8");
-    HandleOwned::new(if lobby_client.rooms.contains(&name) {
-        lobby_client.write(&LobbyClientMessage::JoinRoom { name, password: password.to_owned() })
+fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: String, room_password: String) -> DebugResult<RoomClient> {
+    if lobby_client.rooms.contains(&room_name) {
+        lobby_client.write(&LobbyClientMessage::JoinRoom { name: room_name.clone(), password: room_password.clone() })
     } else {
-        lobby_client.write(&LobbyClientMessage::CreateRoom { name, password: password.to_owned() })
+        lobby_client.write(&LobbyClientMessage::CreateRoom { name: room_name.clone(), password: room_password.clone() })
     }.map_err(DebugError::from)
     .and_then(|()| if lobby_client.buf.is_empty() {
         Ok(())
@@ -386,13 +390,27 @@ impl RoomClient {
         }
     })
     .map(|(players, num_unassigned_clients)| RoomClient {
-        players, num_unassigned_clients,
         tcp_stream: lobby_client.tcp_stream,
         buf: Vec::default(),
+        retrying: false,
+        retry: Instant::now(),
+        wait_time: Duration::from_secs(1),
         last_world: None,
         last_name: Player::DEFAULT_NAME,
         item_queue: Vec::default(),
-    }))
+        room_name, room_password, players, num_unassigned_clients,
+    })
+}
+
+/// # Safety
+///
+/// `lobby_client` must point at a valid `LobbyClient`. This function takes ownership of the `LobbyClient`. `room_name` and `password` must be null-terminated UTF-8 strings.
+#[no_mangle] pub unsafe extern "C" fn lobby_client_room_connect(lobby_client: HandleOwned<LobbyClient>, room_name: *const c_char, room_password: *const c_char) -> HandleOwned<DebugResult<RoomClient>> {
+    HandleOwned::new(lobby_client_room_connect_inner(
+        *lobby_client.into_box(),
+        CStr::from_ptr(room_name).to_str().expect("room name was not valid UTF-8").to_owned(),
+        CStr::from_ptr(room_password).to_str().expect("room name was not valid UTF-8").to_owned(),
+    ))
 }
 
 /// # Safety
@@ -546,12 +564,38 @@ impl RoomClient {
 /// `room_client` must point at a valid `RoomClient`.
 #[no_mangle] pub unsafe extern "C" fn room_client_try_recv_message(room_client: *mut RoomClient) -> HandleOwned<DebugResult<Option<ServerMessage>>> {
     let room_client = &mut *room_client;
-    HandleOwned::new(match room_client.try_read() {
-        Ok(Some(ServerMessage::OtherError(e))) => Err(DebugError(e)),
-        Ok(Some(ServerMessage::WrongPassword)) => Err(DebugError(format!("wrong password"))),
-        Ok(Some(ServerMessage::Ping)) => Ok(None),
-        Ok(opt_msg) => Ok(opt_msg),
-        Err(e) => Err(DebugError::from(e)),
+    HandleOwned::new(if room_client.retrying {
+        if room_client.retry <= Instant::now() {
+            let lobby_client = match connect_ipv6().into_box().or_else(|_| *connect_ipv4().into_box()) {
+                Ok(lobby_client) => lobby_client,
+                Err(e) => return HandleOwned::new(Err(e)),
+            };
+            *room_client = match lobby_client_room_connect_inner(lobby_client, mem::take(&mut room_client.room_name), mem::take(&mut room_client.room_password)) {
+                Ok(new_room_client) => new_room_client,
+                Err(e) => return HandleOwned::new(Err(e)),
+            };
+            Ok(None)
+        } else {
+            Ok(None)
+        }
+    } else {
+        match room_client.try_read() {
+            Ok(Some(ServerMessage::OtherError(e))) => Err(DebugError(e)),
+            Ok(Some(ServerMessage::WrongPassword)) => Err(DebugError(format!("wrong password"))),
+            Ok(Some(ServerMessage::Ping)) => Ok(None),
+            Ok(opt_msg) => Ok(opt_msg),
+            Err(e) if e.is_network_error() => {
+                room_client.retrying = true;
+                if room_client.retry.elapsed() >= Duration::from_secs(60 * 60 * 24) {
+                    room_client.wait_time = Duration::from_secs(1); // reset wait time after no error for a day
+                } else {
+                    room_client.wait_time *= 2; // exponential backoff
+                }
+                room_client.retry = Instant::now() + room_client.wait_time;
+                Ok(None)
+            }
+            Err(e) => Err(DebugError::from(e)),
+        }
     })
 }
 
