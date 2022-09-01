@@ -1,6 +1,6 @@
 [package]
 name = "multiworld-pj64-gui"
-version = "4.0.2"
+version = "4.0.3"
 edition = "2021"
 
 [build-dependencies]
