@@ -122,7 +122,7 @@ impl<T> DebugResultExt for DebugResult<T> {
 
 #[derive(Debug)]
 pub struct LobbyClient {
-    tcp_stream: TcpStream,
+    tcp_stream: Option<TcpStream>,
     buf: Vec<u8>,
     last_ping: Instant,
     rooms: Vec<String>,
@@ -130,13 +130,15 @@ pub struct LobbyClient {
 
 impl LobbyClient {
     fn try_read<T: Protocol>(&mut self) -> Result<Option<T>, async_proto::ReadError> {
-        self.tcp_stream.set_nonblocking(true)?;
-        T::try_read(&mut self.tcp_stream, &mut self.buf)
+        let tcp_stream = self.tcp_stream.as_mut().expect("no longer in lobby");
+        tcp_stream.set_nonblocking(true)?;
+        T::try_read(tcp_stream, &mut self.buf)
     }
 
     fn write(&mut self, msg: &impl Protocol) -> Result<(), async_proto::WriteError> {
-        self.tcp_stream.set_nonblocking(false)?;
-        msg.write_sync(&mut self.tcp_stream)
+        let tcp_stream = self.tcp_stream.as_mut().expect("no longer in lobby");
+        tcp_stream.set_nonblocking(false)?;
+        msg.write_sync(tcp_stream)
     }
 }
 
@@ -254,10 +256,10 @@ impl RoomClient {
             tcp_stream.set_write_timeout(Some(Duration::from_secs(30)))?;
             let rooms = multiworld::handshake_sync(&mut tcp_stream)?;
             Ok(LobbyClient {
+                tcp_stream: Some(tcp_stream),
                 buf: Vec::default(),
                 last_ping: Instant::now(),
                 rooms: rooms.into_iter().collect(),
-                tcp_stream,
             })
         }))
 }
@@ -270,10 +272,10 @@ impl RoomClient {
             tcp_stream.set_write_timeout(Some(Duration::from_secs(30)))?;
             let rooms = multiworld::handshake_sync(&mut tcp_stream)?;
             Ok(LobbyClient {
+                tcp_stream: Some(tcp_stream),
                 buf: Vec::default(),
                 last_ping: Instant::now(),
                 rooms: rooms.into_iter().collect(),
-                tcp_stream,
             })
         }))
 }
@@ -394,7 +396,7 @@ impl RoomClient {
     StringHandle::from_string(str_res.into_box().unwrap_err())
 }
 
-fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: String, room_password: String) -> DebugResult<RoomClient> {
+fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: String, room_password: String) -> DebugResult<RoomClient> {
     if lobby_client.rooms.contains(&room_name) {
         lobby_client.write(&LobbyClientMessage::JoinRoom { name: room_name.clone(), password: room_password.clone() })
     } else {
@@ -406,7 +408,7 @@ fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: Str
         Err(DebugError(format!("residual data in lobby client buffer upon room join"))) //TODO add blocking read with buffer prefix to async-proto?
     })
     .and_then(|()| loop {
-        break match ServerMessage::read_sync(&mut lobby_client.tcp_stream) {
+        break match ServerMessage::read_sync(lobby_client.tcp_stream.as_mut().expect("no longer in lobby")) {
             Ok(ServerMessage::OtherError(e)) => Err(DebugError(e)),
             Ok(ServerMessage::WrongPassword) => Err(DebugError(format!("wrong password"))),
             Ok(ServerMessage::NewRoom(_)) => continue,
@@ -415,26 +417,28 @@ fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: Str
             Err(e) => Err(DebugError::from(e)),
         }
     })
-    .map(|(players, num_unassigned_clients)| RoomClient {
-        tcp_stream: lobby_client.tcp_stream,
-        buf: Vec::default(),
-        retrying: false,
-        retry: Instant::now(),
-        wait_time: Duration::from_secs(1),
-        last_ping: Instant::now(),
-        last_world: None,
-        last_name: Filename::default(),
-        item_queue: Vec::default(),
-        room_name, room_password, players, num_unassigned_clients,
+    .map(|(players, num_unassigned_clients)| {
+        RoomClient {
+            tcp_stream: lobby_client.tcp_stream.take().expect("no longer in lobby"),
+            buf: Vec::default(),
+            retrying: false,
+            retry: Instant::now(),
+            wait_time: Duration::from_secs(1),
+            last_ping: Instant::now(),
+            last_world: None,
+            last_name: Filename::default(),
+            item_queue: Vec::default(),
+            room_name, room_password, players, num_unassigned_clients,
+        }
     })
 }
 
 /// # Safety
 ///
-/// `lobby_client` must point at a valid `LobbyClient`. This function takes ownership of the `LobbyClient`. `room_name` and `password` must be null-terminated UTF-8 strings.
-#[no_mangle] pub unsafe extern "C" fn lobby_client_room_connect(lobby_client: HandleOwned<LobbyClient>, room_name: *const c_char, room_password: *const c_char) -> HandleOwned<DebugResult<RoomClient>> {
+/// `lobby_client` must point at a valid `LobbyClient`. `room_name` and `password` must be null-terminated UTF-8 strings.
+#[no_mangle] pub unsafe extern "C" fn lobby_client_room_connect(lobby_client: *mut LobbyClient, room_name: *const c_char, room_password: *const c_char) -> HandleOwned<DebugResult<RoomClient>> {
     HandleOwned::new(lobby_client_room_connect_inner(
-        *lobby_client.into_box(),
+        &mut *lobby_client,
         CStr::from_ptr(room_name).to_str().expect("room name was not valid UTF-8").to_owned(),
         CStr::from_ptr(room_password).to_str().expect("room name was not valid UTF-8").to_owned(),
     ))
@@ -605,11 +609,11 @@ fn lobby_client_room_connect_inner(mut lobby_client: LobbyClient, room_name: Str
     let room_client = &mut *room_client;
     HandleOwned::new(if room_client.retrying {
         if room_client.retry <= Instant::now() {
-            let lobby_client = match connect_ipv6().into_box().or_else(|_| *connect_ipv4().into_box()) {
+            let mut lobby_client = match connect_ipv6().into_box().or_else(|_| *connect_ipv4().into_box()) {
                 Ok(lobby_client) => lobby_client,
                 Err(e) => return HandleOwned::new(Err(e)),
             };
-            *room_client = match lobby_client_room_connect_inner(lobby_client, mem::take(&mut room_client.room_name), mem::take(&mut room_client.room_password)) {
+            *room_client = match lobby_client_room_connect_inner(&mut lobby_client, mem::take(&mut room_client.room_name), mem::take(&mut room_client.room_password)) {
                 Ok(new_room_client) => new_room_client,
                 Err(e) => return HandleOwned::new(Err(e)),
             };
