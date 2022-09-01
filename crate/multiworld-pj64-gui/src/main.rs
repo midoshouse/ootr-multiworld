@@ -19,6 +19,7 @@ use {
     futures::future,
     iced::{
         Command,
+        Length,
         Settings,
         Subscription,
         pure::{
@@ -556,11 +557,15 @@ impl Application for State {
                         }
                     })
                     .push(TextInput::new("Password", password, Message::SetPassword).password().on_submit(Message::JoinRoom).padding(5).style(Style(system_theme)))
-                    .push({
-                        let mut btn = Button::new(Text::new("Connect").color(text_color)).style(Style(system_theme));
-                        if if create_new_room { !new_room_name.is_empty() } else { existing_room_selection.is_some() } && !password.is_empty() { btn = btn.on_press(Message::JoinRoom) }
-                        btn
-                    })
+                    .push(Row::new()
+                        .push({
+                            let mut btn = Button::new(Text::new("Connect").color(text_color)).style(Style(system_theme));
+                            if if create_new_room { !new_room_name.is_empty() } else { existing_room_selection.is_some() } && !password.is_empty() { btn = btn.on_press(Message::JoinRoom) }
+                            btn
+                        })
+                        .push(Space::with_width(Length::Fill))
+                        .push(Text::new(concat!("v", env!("CARGO_PKG_VERSION"))).color(text_color))
+                    )
                     .spacing(8)
                     .padding(8)
                     .into(),
