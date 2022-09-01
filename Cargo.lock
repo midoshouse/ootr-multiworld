@@ -2774,7 +2774,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld"
-version = "4.0.5"
+version = "5.0.0"
 dependencies = [
  "async-proto",
  "async-recursion 1.0.0",
@@ -2793,7 +2793,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-admin-cli"
-version = "4.0.5"
+version = "5.0.0"
 dependencies = [
  "async-proto",
  "clap",
@@ -2806,7 +2806,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-bizhawk"
-version = "4.0.5"
+version = "5.0.0"
 dependencies = [
  "semver 1.0.13",
  "winver",
@@ -2814,7 +2814,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-csharp"
-version = "4.0.5"
+version = "5.0.0"
 dependencies = [
  "async-proto",
  "chrono",
@@ -2828,7 +2828,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-installer"
-version = "4.0.5"
+version = "5.0.0"
 dependencies = [
  "async_zip",
  "clap",
@@ -2859,7 +2859,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-pj64-gui"
-version = "4.0.5"
+version = "5.0.0"
 dependencies = [
  "async-proto",
  "chrono",
@@ -2882,7 +2882,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-updater"
-version = "4.0.5"
+version = "5.0.0"
 dependencies = [
  "async_zip",
  "bytes",
@@ -2910,7 +2910,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-utils"
-version = "4.0.5"
+version = "5.0.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -3237,7 +3237,7 @@ checksum = "2f7254b99e31cad77da24b08ebf628882739a608578bb1bcdfc1f9c21260d7c0"
 
 [[package]]
 name = "ootrmwd"
-version = "4.0.5"
+version = "5.0.0"
 dependencies = [
  "async-proto",
  "chrono",

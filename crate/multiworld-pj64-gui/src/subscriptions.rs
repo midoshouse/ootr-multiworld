@@ -111,12 +111,12 @@ impl<H: Hasher, I> Recipe<H, I> for Client {
         stream::once(TcpStream::connect((multiworld::ADDRESS_V4, multiworld::PORT)))
             .err_into::<Error>()
             .and_then(|mut tcp_stream| async move {
-                let rooms = multiworld::handshake(&mut tcp_stream).await?;
+                multiworld::handshake(&mut tcp_stream).await?;
                 let (reader, writer) = tcp_stream.into_split();
                 let writer = Arc::new(Mutex::new(writer));
                 let interval = interval(Duration::from_secs(30));
                 Ok(
-                    stream::once(future::ok(Message::Rooms(writer.clone(), rooms)))
+                    stream::once(future::ok(Message::ServerConnected(writer.clone())))
                     .chain(stream::try_unfold((reader, writer, interval), |(reader, writer, mut interval)| async move {
                         pin! {
                             let read = timeout(Duration::from_secs(60), multiworld::ServerMessage::read_owned(reader));

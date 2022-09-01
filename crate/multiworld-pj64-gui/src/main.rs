@@ -51,6 +51,7 @@ use {
         LobbyClientMessage,
         Player,
         RoomClientMessage,
+        ServerError,
         ServerMessage,
         format_room_state,
         github::Repo,
@@ -71,6 +72,8 @@ pub(crate) enum Error {
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Semver(#[from] semver::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error("server error #{0}")]
+    Future(u8),
     #[error("user folder not found")]
     MissingHomeDir,
     #[error("server error: {0}")]
@@ -105,8 +108,8 @@ enum Message {
     Plugin(subscriptions::ClientMessage),
     ReconnectToLobby,
     ReconnectToRoom(String, String),
-    Rooms(Arc<Mutex<OwnedWriteHalf>>, BTreeSet<String>),
     Server(ServerMessage),
+    ServerConnected(Arc<Mutex<OwnedWriteHalf>>),
     ServerSubscriptionError(Arc<Error>),
     SetCreateNewRoom(bool),
     SetExistingRoomSelection(String),
@@ -324,8 +327,24 @@ impl Application for State {
             }
             Message::ReconnectToLobby => self.server_connection = ServerConnectionState::Init,
             Message::ReconnectToRoom(room_name, room_password) => self.server_connection = ServerConnectionState::InitAutoRejoin { room_name, room_password },
-            Message::Rooms(writer, rooms) => {
-                self.server_writer = Some(writer);
+            Message::Server(ServerMessage::Ping) => {}
+            Message::Server(ServerMessage::StructuredError(ServerError::WrongPassword)) => if let ServerConnectionState::Lobby { ref mut password, ref mut wrong_password, .. } = self.server_connection {
+                *wrong_password = true;
+                password.clear();
+            },
+            Message::Server(ServerMessage::StructuredError(ServerError::Future(discrim))) => if !matches!(self.server_connection, ServerConnectionState::Error { .. }) {
+                self.server_connection = ServerConnectionState::Error {
+                    e: Arc::new(Error::Future(discrim)),
+                    auto_retry: false,
+                };
+            },
+            Message::Server(ServerMessage::OtherError(e)) => if !matches!(self.server_connection, ServerConnectionState::Error { .. }) {
+                self.server_connection = ServerConnectionState::Error {
+                    e: Arc::new(Error::Server(e)),
+                    auto_retry: false,
+                };
+            },
+            Message::Server(ServerMessage::EnterLobby { rooms }) => {
                 let mut room_still_exists = false;
                 self.server_connection = if let ServerConnectionState::InitAutoRejoin { ref room_name, ref room_password } = self.server_connection {
                     room_still_exists = rooms.contains(room_name);
@@ -351,12 +370,6 @@ impl Application for State {
                     return cmd(future::ok(Message::JoinRoom))
                 }
             }
-            Message::Server(ServerMessage::OtherError(e)) => if !matches!(self.server_connection, ServerConnectionState::Error { .. }) {
-                self.server_connection = ServerConnectionState::Error {
-                    e: Arc::new(Error::Server(e)),
-                    auto_retry: false,
-                };
-            },
             Message::Server(ServerMessage::NewRoom(name)) => if let ServerConnectionState::Lobby { ref mut rooms, .. } = self.server_connection { rooms.insert(name); },
             Message::Server(ServerMessage::EnterRoom { players, num_unassigned_clients }) => {
                 let (room_name, room_password) = match self.server_connection {
@@ -433,14 +446,10 @@ impl Application for State {
                 }
             }
             Message::Server(ServerMessage::AdminLoginSuccess { .. }) => unreachable!(),
-            Message::Server(ServerMessage::WrongPassword) => if let ServerConnectionState::Lobby { ref mut password, ref mut wrong_password, .. } = self.server_connection {
-                *wrong_password = true;
-                password.clear();
-            },
             Message::Server(ServerMessage::Goodbye) => if !matches!(self.server_connection, ServerConnectionState::Error { .. }) {
                 self.server_connection = ServerConnectionState::Closed;
             },
-            Message::Server(ServerMessage::Ping) => {}
+            Message::ServerConnected(writer) => self.server_writer = Some(writer),
             Message::ServerSubscriptionError(e) => if !matches!(self.server_connection, ServerConnectionState::Error { .. }) {
                 if e.is_network_error() {
                     if self.retry.elapsed() >= Duration::from_secs(60 * 60 * 24) {

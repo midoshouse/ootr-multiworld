@@ -7,7 +7,6 @@ use {
             BTreeMap,
             HashMap,
         },
-        convert::TryFrom as _,
         net::Ipv6Addr,
         pin::Pin,
         process,
@@ -55,6 +54,7 @@ use {
         Player,
         Room,
         RoomClientMessage,
+        ServerError,
         ServerMessage,
     },
 };
@@ -83,13 +83,9 @@ async fn client_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::So
     if client_version != multiworld::proto_version() { return Err::<(), _>(SessionError::VersionMismatch(client_version)) }
     let mut room_stream = {
         // finish handshake by sending room list (treated as a single packet)
-        let mut writer = writer.lock().await;
         let lock = rooms.0.lock().await;
         let stream = lock.1.subscribe();
-        u64::try_from(lock.0.len()).expect("too many rooms").write(&mut *writer).await?;
-        for room_name in lock.0.keys() {
-            room_name.write(&mut *writer).await?;
-        }
+        ServerMessage::EnterLobby { rooms: lock.0.keys().cloned().collect() }.write(&mut *writer.lock().await).await?;
         stream
     };
     let (mut reader, room) = {
@@ -129,7 +125,7 @@ async fn client_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::So
                                 break (reader, Arc::clone(room))
                             } else {
                                 read = next_message(reader);
-                                ServerMessage::WrongPassword.write(&mut *writer.lock().await).await?;
+                                ServerMessage::StructuredError(ServerError::WrongPassword).write(&mut *writer.lock().await).await?;
                             }
                         } else {
                             error!("there is no room named {name:?}")
@@ -270,14 +266,17 @@ async fn main(Args { subcommand }: Args) -> Result<(), Error> {
     match subcommand {
         Some(Subcommand::Stop) => {
             let mut tcp_stream = TcpStream::connect((Ipv6Addr::LOCALHOST, multiworld::PORT)).await?;
-            let _ = multiworld::handshake(&mut tcp_stream).await?;
+            multiworld::handshake(&mut tcp_stream).await?;
             LobbyClientMessage::Login { id: 14571800683221815449, api_key: *include_bytes!("../../../assets/admin-api-key.bin") }.write(&mut tcp_stream).await?;
             loop {
                 match ServerMessage::read(&mut tcp_stream).await? {
                     ServerMessage::OtherError(msg) => return Err(Error::Server(msg)),
-                    ServerMessage::NewRoom(_) |
-                    ServerMessage::Ping => {}
+                    ServerMessage::Ping |
+                    ServerMessage::EnterLobby { .. } |
+                    ServerMessage::NewRoom(_) => {}
                     ServerMessage::AdminLoginSuccess { .. } => break,
+                    ServerMessage::StructuredError(ServerError::Future(_)) |
+                    ServerMessage::StructuredError(ServerError::WrongPassword) |
                     ServerMessage::EnterRoom { .. } |
                     ServerMessage::PlayerId(_) |
                     ServerMessage::ResetPlayerId(_) |
@@ -287,7 +286,6 @@ async fn main(Args { subcommand }: Args) -> Result<(), Error> {
                     ServerMessage::PlayerName(_, _) |
                     ServerMessage::ItemQueue(_) |
                     ServerMessage::GetItem(_) |
-                    ServerMessage::WrongPassword |
                     ServerMessage::Goodbye => unreachable!(),
                 }
             }

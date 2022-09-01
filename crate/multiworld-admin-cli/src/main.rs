@@ -18,6 +18,7 @@ use {
     },
     multiworld::{
         LobbyClientMessage,
+        ServerError,
         ServerMessage,
     },
 };
@@ -61,6 +62,8 @@ enum Error {
     #[error(transparent)] Io(#[from] tokio::io::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error("server error #{0}")]
+    Future(u8),
     #[error("server error: {0}")]
     Server(String),
 }
@@ -68,9 +71,7 @@ enum Error {
 #[wheel::main(debug)]
 async fn main(Args { id, api_key, server_ip }: Args) -> Result<(), Error> {
     let mut tcp_stream = TcpStream::connect((server_ip.unwrap_or(IpAddr::V4(multiworld::ADDRESS_V4)), multiworld::PORT)).await?;
-    for room_name in multiworld::handshake(&mut tcp_stream).await? {
-        println!("initial room: {room_name:?}");
-    }
+    multiworld::handshake(&mut tcp_stream).await?;
     LobbyClientMessage::Login { id, api_key }.write(&mut tcp_stream).await?;
     let (reader, mut writer) = tcp_stream.into_split();
     let mut read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_owned(reader)));
@@ -80,7 +81,11 @@ async fn main(Args { id, api_key, server_ip }: Args) -> Result<(), Error> {
             res = &mut read => {
                 let (reader, msg) = res??;
                 match msg {
+                    ServerMessage::Ping => {}
+                    ServerMessage::StructuredError(ServerError::WrongPassword) => unreachable!(),
+                    ServerMessage::StructuredError(ServerError::Future(discrim)) => return Err(Error::Future(discrim)),
                     ServerMessage::OtherError(msg) => return Err(Error::Server(msg)),
+                    ServerMessage::EnterLobby { rooms } => println!("entered lobby, rooms: {}", rooms.into_iter().format(", ")),
                     ServerMessage::NewRoom(room_name) => println!("new room: {room_name:?}"),
                     ServerMessage::AdminLoginSuccess { active_connections } => {
                         println!("admin login success, active connections:");
@@ -90,7 +95,6 @@ async fn main(Args { id, api_key, server_ip }: Args) -> Result<(), Error> {
                         println!("end active connections");
                     }
                     ServerMessage::Goodbye => break,
-                    ServerMessage::Ping => {}
                     ServerMessage::EnterRoom { .. } |
                     ServerMessage::PlayerId(_) |
                     ServerMessage::ResetPlayerId(_) |
@@ -99,8 +103,7 @@ async fn main(Args { id, api_key, server_ip }: Args) -> Result<(), Error> {
                     ServerMessage::UnregisteredClientDisconnected |
                     ServerMessage::PlayerName(_, _) |
                     ServerMessage::ItemQueue(_) |
-                    ServerMessage::GetItem(_) |
-                    ServerMessage::WrongPassword => unreachable!(),
+                    ServerMessage::GetItem(_) => unreachable!(),
                 }
                 read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_owned(reader)));
             },

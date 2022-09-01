@@ -368,10 +368,59 @@ pub enum RoomClientMessage {
     KickPlayer(NonZeroU8),
 }
 
+macro_rules! server_errors {
+    ($(#[$attr:meta] $variant:ident),* $(,)?) => {
+        /// New unit variants on this enum don't cause a major version bump, since the client interprets them as instances of the `Future` variant.
+        #[derive(Debug, Clone, Copy, Protocol)]
+        #[async_proto(via = u8, clone)]
+        pub enum ServerError {
+            /// The server sent a `ServerError` that the client doesn't know about yet.
+            Future(u8),
+            $(#[$attr] $variant,)*
+        }
+
+        impl From<u8> for ServerError {
+            fn from(discrim: u8) -> Self {
+                let iter_discrim = 1;
+                $(
+                    if discrim == iter_discrim { return Self::$variant }
+                    #[allow(unused)] let iter_discrim = iter_discrim + 1;
+                )*
+                Self::Future(discrim)
+            }
+        }
+
+        impl From<ServerError> for u8 {
+            fn from(e: ServerError) -> Self {
+                if let ServerError::Future(discrim) = e { return discrim }
+                let iter_discrim = 1u8;
+                $(
+                    if let ServerError::$variant = e { return iter_discrim }
+                    #[allow(unused)] let iter_discrim = iter_discrim + 1;
+                )*
+                unreachable!()
+            }
+        }
+    };
+}
+
+server_errors! {
+    /// The client sent the wrong password for the given room.
+    WrongPassword,
+}
+
 #[derive(Debug, Clone, Protocol)]
 pub enum ServerMessage {
-    /// An error has occurred. Contains a human-readable error message.
+    /// Tells the client we're still here. Sent every 30 seconds; clients should consider the connection lost if no message is received for 60 seconds.
+    Ping,
+    /// An error that the client might be able to recover from has occurred.
+    StructuredError(ServerError),
+    /// A fatal error has occurred. Contains a human-readable error message.
     OtherError(String),
+    /// You have just connected or left a room and are now sending [`LobbyClientMessage`]s.
+    EnterLobby {
+        rooms: BTreeSet<String>,
+    },
     /// A new room has been created.
     NewRoom(String),
     /// You have created or joined a room and are now sending [`RoomClientMessage`]s.
@@ -401,12 +450,8 @@ pub enum ServerMessage {
     AdminLoginSuccess {
         active_connections: BTreeMap<String, (Vec<Player>, u8)>,
     },
-    /// The client sent the wrong password for the given room.
-    WrongPassword,
     /// The client will now be disconnected.
     Goodbye,
-    /// Tells the client we're still here. Sent every 30 seconds; clients should consider the connection lost if no message is received for 60 seconds.
-    Ping,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -427,18 +472,18 @@ impl IsNetworkError for ClientError {
     }
 }
 
-pub async fn handshake(tcp_stream: &mut TcpStream) -> Result<BTreeSet<String>, ClientError> {
+pub async fn handshake(tcp_stream: &mut TcpStream) -> Result<(), ClientError> {
     proto_version().write(tcp_stream).await?;
     let server_version = u8::read(tcp_stream).await?;
     if server_version != proto_version() { return Err(ClientError::VersionMismatch(server_version)) }
-    Ok(BTreeSet::read(tcp_stream).await?)
+    Ok(())
 }
 
-pub fn handshake_sync(tcp_stream: &mut std::net::TcpStream) -> Result<BTreeSet<String>, ClientError> {
+pub fn handshake_sync(tcp_stream: &mut std::net::TcpStream) -> Result<(), ClientError> {
     proto_version().write_sync(tcp_stream)?;
     let server_version = u8::read_sync(tcp_stream)?;
     if server_version != proto_version() { return Err(ClientError::VersionMismatch(server_version)) }
-    Ok(BTreeSet::read_sync(tcp_stream)?)
+    Ok(())
 }
 
 pub fn format_room_state(players: &[Player], num_unassigned_clients: u8, my_world: Option<NonZeroU8>) -> (Vec<String>, String) {

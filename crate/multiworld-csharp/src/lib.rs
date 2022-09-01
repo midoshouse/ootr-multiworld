@@ -14,7 +14,10 @@ use {
         fmt,
         fs,
         mem,
-        net::TcpStream,
+        net::{
+            TcpStream,
+            ToSocketAddrs,
+        },
         num::NonZeroU8,
         process::{
             self,
@@ -37,6 +40,7 @@ use {
         LobbyClientMessage,
         Player,
         RoomClientMessage,
+        ServerError,
         ServerMessage,
         format_room_state,
         github::Repo,
@@ -249,36 +253,49 @@ impl RoomClient {
     HandleOwned::new(inner())
 }
 
-#[no_mangle] pub extern "C" fn connect_ipv4() -> HandleOwned<DebugResult<LobbyClient>> {
-    HandleOwned::new(TcpStream::connect((multiworld::ADDRESS_V4, multiworld::PORT))
+fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<LobbyClient> {
+    TcpStream::connect(addr)
         .map_err(DebugError::from)
         .and_then(|mut tcp_stream| {
             tcp_stream.set_read_timeout(Some(Duration::from_secs(30)))?;
             tcp_stream.set_write_timeout(Some(Duration::from_secs(30)))?;
-            let rooms = multiworld::handshake_sync(&mut tcp_stream)?;
+            multiworld::handshake_sync(&mut tcp_stream)?;
+            let rooms = loop {
+                match ServerMessage::read_sync(&mut tcp_stream)? {
+                    ServerMessage::Ping => {}
+                    ServerMessage::StructuredError(ServerError::Future(discrim)) => return Err(DebugError(format!("server error #{discrim}"))),
+                    ServerMessage::OtherError(e) => return Err(DebugError(e)),
+                    ServerMessage::EnterLobby { rooms } => break rooms,
+                    ServerMessage::Goodbye => return Err(DebugError(format!("session ended by server"))),
+                    ServerMessage::StructuredError(ServerError::WrongPassword) |
+                    ServerMessage::NewRoom(_) |
+                    ServerMessage::EnterRoom { .. } |
+                    ServerMessage::PlayerId(_) |
+                    ServerMessage::ResetPlayerId(_) |
+                    ServerMessage::ClientConnected |
+                    ServerMessage::PlayerDisconnected(_) |
+                    ServerMessage::UnregisteredClientDisconnected |
+                    ServerMessage::PlayerName(_, _) |
+                    ServerMessage::ItemQueue(_) |
+                    ServerMessage::GetItem(_) |
+                    ServerMessage::AdminLoginSuccess { .. } => unreachable!(),
+                }
+            };
             Ok(LobbyClient {
                 tcp_stream: Some(tcp_stream),
                 buf: Vec::default(),
                 last_ping: Instant::now(),
                 rooms: rooms.into_iter().collect(),
             })
-        }))
+        })
+}
+
+#[no_mangle] pub extern "C" fn connect_ipv4() -> HandleOwned<DebugResult<LobbyClient>> {
+    HandleOwned::new(connect_inner((multiworld::ADDRESS_V4, multiworld::PORT)))
 }
 
 #[no_mangle] pub extern "C" fn connect_ipv6() -> HandleOwned<DebugResult<LobbyClient>> {
-    HandleOwned::new(TcpStream::connect((multiworld::ADDRESS_V6, multiworld::PORT))
-        .map_err(DebugError::from)
-        .and_then(|mut tcp_stream| {
-            tcp_stream.set_read_timeout(Some(Duration::from_secs(30)))?;
-            tcp_stream.set_write_timeout(Some(Duration::from_secs(30)))?;
-            let rooms = multiworld::handshake_sync(&mut tcp_stream)?;
-            Ok(LobbyClient {
-                tcp_stream: Some(tcp_stream),
-                buf: Vec::default(),
-                last_ping: Instant::now(),
-                rooms: rooms.into_iter().collect(),
-            })
-        }))
+    HandleOwned::new(connect_inner((multiworld::ADDRESS_V6, multiworld::PORT)))
 }
 
 /// # Safety
@@ -355,8 +372,9 @@ impl RoomClient {
         lobby_client.last_ping = Instant::now();
     }
     HandleOwned::new(match lobby_client.try_read() {
+        Ok(Some(ServerMessage::StructuredError(ServerError::WrongPassword))) => Err(DebugError(format!("wrong password"))),
+        Ok(Some(ServerMessage::StructuredError(ServerError::Future(discrim)))) => Err(DebugError(format!("server error #{discrim}"))),
         Ok(Some(ServerMessage::OtherError(e))) => Err(DebugError(e)),
-        Ok(Some(ServerMessage::WrongPassword)) => Err(DebugError(format!("wrong password"))),
         Ok(None | Some(ServerMessage::Ping)) => Ok(String::default()),
         Ok(Some(ServerMessage::NewRoom(name))) => {
             if let Err(idx) = lobby_client.rooms.binary_search(&name) {
@@ -410,8 +428,9 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
     })
     .and_then(|()| loop {
         break match ServerMessage::read_sync(lobby_client.tcp_stream.as_mut().expect("no longer in lobby")) {
+            Ok(ServerMessage::StructuredError(ServerError::WrongPassword)) => Err(DebugError(format!("wrong password"))),
+            Ok(ServerMessage::StructuredError(ServerError::Future(discrim))) => Err(DebugError(format!("server error #{discrim}"))),
             Ok(ServerMessage::OtherError(e)) => Err(DebugError(e)),
-            Ok(ServerMessage::WrongPassword) => Err(DebugError(format!("wrong password"))),
             Ok(ServerMessage::NewRoom(_)) => continue,
             Ok(ServerMessage::EnterRoom { players, num_unassigned_clients }) => Ok((players, num_unassigned_clients)),
             Ok(msg) => Err(DebugError(format!("{msg:?}"))),
@@ -610,7 +629,7 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
     let room_client = &mut *room_client;
     HandleOwned::new(if room_client.retrying {
         if room_client.retry <= Instant::now() {
-            let mut lobby_client = match connect_ipv6().into_box().or_else(|_| *connect_ipv4().into_box()) {
+            let mut lobby_client = match connect_inner((multiworld::ADDRESS_V6, multiworld::PORT)).or_else(|_| connect_inner((multiworld::ADDRESS_V4, multiworld::PORT))) {
                 Ok(lobby_client) => lobby_client,
                 Err(e) => return HandleOwned::new(Err(e)),
             };
@@ -630,8 +649,9 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
             room_client.last_ping = Instant::now();
         }
         match room_client.try_read() {
+            Ok(Some(ServerMessage::StructuredError(ServerError::WrongPassword))) => Err(DebugError(format!("wrong password"))),
+            Ok(Some(ServerMessage::StructuredError(ServerError::Future(discrim)))) => Err(DebugError(format!("server error #{discrim}"))),
             Ok(Some(ServerMessage::OtherError(e))) => Err(DebugError(e)),
-            Ok(Some(ServerMessage::WrongPassword)) => Err(DebugError(format!("wrong password"))),
             Ok(Some(ServerMessage::Ping)) => Ok(None),
             Ok(Some(ServerMessage::Goodbye)) => {
                 room_client.set_retry(); //TODO only automatically reconnect to lobby, not the room from which we were kicked?
@@ -679,7 +699,7 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
 ///
 /// `opt_msg_res` must point at a valid `DebugResult<Option<ServerMessage>>`.
 #[no_mangle] pub unsafe extern "C" fn opt_message_result_is_err(opt_msg_res: *const DebugResult<Option<ServerMessage>>) -> FfiBool {
-    matches!(&*opt_msg_res, Ok(Some(ServerMessage::OtherError(_) | ServerMessage::WrongPassword)) | Err(_)).into()
+    matches!(&*opt_msg_res, Ok(Some(ServerMessage::StructuredError(_) | ServerMessage::OtherError(_))) | Err(_)).into()
 }
 
 /// # Safety
@@ -687,8 +707,9 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
 /// `opt_msg_res` must point at a valid `DebugResult<Option<ServerMessage>>>`. This function takes ownership of the `DebugResult`.
 #[no_mangle] pub unsafe extern "C" fn opt_message_result_debug_err(opt_msg_res: HandleOwned<DebugResult<Option<ServerMessage>>>) -> StringHandle {
     StringHandle::from_string(match *opt_msg_res.into_box() {
+        Ok(Some(ServerMessage::StructuredError(ServerError::WrongPassword))) => format!("wrong password"),
+        Ok(Some(ServerMessage::StructuredError(ServerError::Future(discrim)))) => format!("server error #{discrim}"),
         Ok(Some(ServerMessage::OtherError(e))) => e,
-        Ok(Some(ServerMessage::WrongPassword)) => format!("wrong password"),
         Ok(value) => panic!("tried to debug_err an Ok({value:?})"),
         Err(e) => e.0,
     })
@@ -718,10 +739,11 @@ pub enum MessageEffectType {
 #[no_mangle] pub unsafe extern "C" fn message_effect_type(msg: *const ServerMessage) -> MessageEffectType {
     let msg = &*msg;
     match msg {
+        ServerMessage::StructuredError(_) |
         ServerMessage::OtherError(_) |
+        ServerMessage::EnterLobby { .. } |
         ServerMessage::NewRoom(_) |
         ServerMessage::AdminLoginSuccess { .. } |
-        ServerMessage::WrongPassword |
         ServerMessage::Goodbye |
         ServerMessage::Ping => MessageEffectType::Error,
         ServerMessage::EnterRoom { .. } |
@@ -750,7 +772,9 @@ pub enum MessageEffectType {
         ServerMessage::ResetPlayerId(world) |
         ServerMessage::PlayerDisconnected(world) |
         ServerMessage::PlayerName(world, _) => world.get(),
+        ServerMessage::StructuredError(ServerError::WrongPassword | ServerError::Future(_)) |
         ServerMessage::OtherError(_) |
+        ServerMessage::EnterLobby { .. } |
         ServerMessage::NewRoom(_) |
         ServerMessage::EnterRoom { .. } |
         ServerMessage::ClientConnected |
@@ -758,7 +782,6 @@ pub enum MessageEffectType {
         ServerMessage::ItemQueue(_) |
         ServerMessage::GetItem(_) |
         ServerMessage::AdminLoginSuccess { .. } |
-        ServerMessage::WrongPassword |
         ServerMessage::Goodbye |
         ServerMessage::Ping => panic!("this message variant has no world ID"),
     }
@@ -786,7 +809,7 @@ pub enum MessageEffectType {
 #[no_mangle] pub unsafe extern "C" fn room_client_apply_message(room_client: *mut RoomClient, msg: HandleOwned<ServerMessage>) {
     let room_client = &mut *room_client;
     match *msg.into_box() {
-        ServerMessage::OtherError(_) | ServerMessage::WrongPassword | ServerMessage::NewRoom(_) | ServerMessage::AdminLoginSuccess { .. } => unreachable!(),
+        ServerMessage::StructuredError(_) | ServerMessage::OtherError(_) | ServerMessage::EnterLobby { .. } | ServerMessage::NewRoom(_) | ServerMessage::AdminLoginSuccess { .. } => unreachable!(),
         ServerMessage::EnterRoom { players, num_unassigned_clients } => {
             room_client.players = players;
             room_client.num_unassigned_clients = num_unassigned_clients;
