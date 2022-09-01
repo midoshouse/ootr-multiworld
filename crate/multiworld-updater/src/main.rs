@@ -5,6 +5,7 @@
 use {
     std::{
         cmp::Ordering::*,
+        env,
         ffi::OsString,
         iter,
         os::windows::ffi::{
@@ -49,9 +50,15 @@ use {
         time::sleep,
     },
     tokio_util::io::StreamReader,
-    wheel::fs::{
-        self,
-        File,
+    wheel::{
+        fs::{
+            self,
+            File,
+        },
+        traits::{
+            IoResultExt as _,
+            SyncCommandOutputExt as _,
+        },
     },
     winapi::um::fileapi::GetFullPathNameW,
     multiworld::{
@@ -71,6 +78,7 @@ enum Error {
     #[error(transparent)] Process(#[from] heim::process::ProcessError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] SemVer(#[from] semver::Error),
+    #[error(transparent)] Task(#[from] tokio::task::JoinError),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Zip(#[from] async_zip::error::ZipError),
     #[error("The update requires an older version of BizHawk. Update manually at your own risk, or ask Fenhl to release a new version.")]
@@ -83,6 +91,8 @@ enum Error {
     MissingReadme,
     #[error("there are no released versions")]
     NoReleases,
+    #[error("failed to locate Program Files folder")]
+    ProgramFiles,
     #[error("could not find expected BizHawk version in README.md")]
     ReadmeFormat,
     #[error("unexpected file in zip archive")]
@@ -93,7 +103,7 @@ enum Error {
 enum Message {
     Error(Arc<Error>),
     Exited,
-    MultiworldReleaseAsset(reqwest::Client, ReleaseAsset),
+    MultiworldReleaseAssets(reqwest::Client, ReleaseAsset, Option<ReleaseAsset>),
     MultiworldResponse(reqwest::Client, reqwest::Response),
     WaitDownload(File),
     UpdateBizHawk(reqwest::Client, Version),
@@ -146,17 +156,17 @@ enum State {
 }
 
 struct App {
-    args: Args,
+    args: EmuArgs,
     state: State,
 }
 
 impl Application for App {
     type Executor = iced::executor::Default;
     type Message = Message;
-    type Flags = Args;
+    type Flags = EmuArgs;
 
-    fn new(args: Args) -> (Self, Command<Message>) {
-        let (Args::BizHawk { pid, .. } | Args::Pj64 { pid, .. }) = args;
+    fn new(args: EmuArgs) -> (Self, Command<Message>) {
+        let (EmuArgs::BizHawk { pid, .. } | EmuArgs::Pj64 { pid, .. }) = args;
         (App {
             state: State::WaitExit,
             args,
@@ -183,8 +193,8 @@ impl Application for App {
             Message::Exited => {
                 self.state = State::GetMultiworldRelease;
                 let (asset_name, script_name) = match self.args {
-                    Args::BizHawk { .. } => ("multiworld-bizhawk.zip", None),
-                    Args::Pj64 { .. } => ("multiworld-pj64.exe", Some("ootrmw-pj64.js")),
+                    EmuArgs::BizHawk { .. } => ("multiworld-bizhawk.zip", None),
+                    EmuArgs::Pj64 { .. } => ("multiworld-pj64.exe", Some("ootrmw-pj64.js")),
                 };
                 return cmd(async move {
                     let http_client = reqwest::Client::builder()
@@ -194,26 +204,42 @@ impl Application for App {
                         .http2_prior_knowledge()
                         .build()?;
                     let release = Repo::new("midoshouse", "ootr-multiworld").latest_release(&http_client).await?.ok_or(Error::NoReleases)?;
-                    if let Some(script_name) = script_name {
-                        let (script,) = release.assets.iter()
-                            .filter(|asset| asset.name == script_name)
-                            .collect_tuple().ok_or(Error::MissingAsset)?;
-                        let _ = script; //TODO check if script contents differ from current. If so, ask for elevation and replace script
+                    let mut asset = None;
+                    let mut script = None;
+                    for iter_asset in release.assets {
+                        if iter_asset.name == asset_name {
+                            asset = Some(iter_asset);
+                        } else if Some(&*iter_asset.name) == script_name {
+                            script = Some(iter_asset);
+                        }
                     }
-                    let (asset,) = release.assets.into_iter()
-                        .filter(|asset| asset.name == asset_name)
-                        .collect_tuple().ok_or(Error::MissingAsset)?;
-                    Ok(Message::MultiworldReleaseAsset(http_client, asset))
+                    if script_name.is_some() && script.is_none() { return Err(Error::MissingAsset) }
+                    Ok(Message::MultiworldReleaseAssets(http_client, asset.ok_or(Error::MissingAsset)?, script))
                 })
             }
-            Message::MultiworldReleaseAsset(http_client, asset) => {
+            Message::MultiworldReleaseAssets(http_client, asset, script) => {
                 self.state = State::DownloadMultiworld;
                 return cmd(async move {
+                    if let Some(script) = script {
+                        let program_files = env::var_os("ProgramFiles(x86)").or_else(|| env::var_os("ProgramFiles")).ok_or(Error::ProgramFiles)?;
+                        let script_path = PathBuf::from(program_files).join("Project64 3.0").join("Scripts").join("ootrmw.js");
+                        let old_script = fs::read(&script_path).await?;
+                        let new_script = http_client.get(script.browser_download_url).send().await?.error_for_status()?.bytes().await?;
+                        if old_script != new_script {
+                            let temp_path = tokio::task::spawn_blocking(|| tempfile::Builder::default().prefix("ootrmw-pj64").suffix(".js").tempfile()).await??;
+                            io::copy_buf(&mut &*new_script, &mut tokio::fs::File::from_std(temp_path.reopen()?)).await?;
+                            tokio::task::spawn_blocking(move || {
+                                runas::Command::new(env::current_exe()?).arg("pj64script").arg(temp_path.as_ref()).arg(script_path).gui(true).status().at_command("runas")?.check("runas")?;
+                                drop(temp_path);
+                                Ok::<_, Error>(())
+                            }).await??;
+                        }
+                    }
                     Ok(Message::MultiworldResponse(http_client.clone(), http_client.get(asset.browser_download_url).send().await?.error_for_status()?))
                 })
             }
             Message::MultiworldResponse(http_client, response) => match self.args {
-                Args::BizHawk { ref path, ref local_bizhawk_version, .. } => {
+                EmuArgs::BizHawk { ref path, ref local_bizhawk_version, .. } => {
                     self.state = State::ExtractMultiworld;
                     let path = path.clone();
                     let local_bizhawk_version = local_bizhawk_version.clone();
@@ -253,7 +279,7 @@ impl Application for App {
                         }
                     })
                 }
-                Args::Pj64 { ref path, .. } => {
+                EmuArgs::Pj64 { ref path, .. } => {
                     self.state = State::Replace;
                     let path = path.clone();
                     return cmd(async move {
@@ -298,7 +324,7 @@ impl Application for App {
                     Ok(Message::BizHawkZip(response.bytes().await?))
                 })
             }
-            Message::BizHawkZip(mut response) => if let Args::BizHawk { ref path, .. } = self.args {
+            Message::BizHawkZip(mut response) => if let EmuArgs::BizHawk { ref path, .. } = self.args {
                 self.state = State::ExtractBizHawk;
                 let path = path.clone();
                 return cmd(async move {
@@ -318,7 +344,7 @@ impl Application for App {
                 })
             },
             Message::Launch => match self.args {
-                Args::BizHawk { ref path, .. } => {
+                EmuArgs::BizHawk { ref path, .. } => {
                     self.state = State::Launch;
                     let path = path.clone();
                     let path_wide = path.as_os_str().encode_wide().chain(iter::once(0)).collect_vec();
@@ -349,7 +375,7 @@ impl Application for App {
                         Ok(Message::Done)
                     })
                 }
-                Args::Pj64 { ref path, .. } => {
+                EmuArgs::Pj64 { ref path, .. } => {
                     self.state = State::Launch;
                     let path = path.clone();
                     return cmd(async move {
@@ -381,11 +407,11 @@ impl Application for App {
         };
         match self.state {
             State::WaitExit => match self.args {
-                Args::BizHawk { .. } => Column::new()
+                EmuArgs::BizHawk { .. } => Column::new()
                     .push(Text::new("An update for Mido's House Multiworld for BizHawk is available.").color(text_color))
                     .push(Text::new("Please close BizHawk to start the update.").color(text_color))
                     .into(),
-                Args::Pj64 { .. } => Column::new()
+                EmuArgs::Pj64 { .. } => Column::new()
                     .push(Text::new("An update for Mido's House Multiworld for Project64 is available.").color(text_color))
                     .push(Text::new("Waiting to make sure the old version has exited…").color(text_color))
                     .into(),
@@ -425,9 +451,9 @@ impl Application for App {
     }
 }
 
-#[derive(clap::Parser)]
-#[clap(rename_all = "lower", version)]
-enum Args {
+#[derive(clap::Subcommand)]
+#[clap(rename_all = "lower")]
+enum EmuArgs {
     BizHawk {
         #[clap(parse(from_os_str))]
         path: PathBuf,
@@ -441,22 +467,41 @@ enum Args {
     },
 }
 
+#[derive(clap::Parser)]
+#[clap(rename_all = "lower", version)]
+enum Args {
+    #[clap(flatten)]
+    Emu(EmuArgs),
+    Pj64Script {
+        #[clap(parse(from_os_str))]
+        src: PathBuf,
+        #[clap(parse(from_os_str))]
+        dst: PathBuf,
+    },
+}
+
 #[derive(Debug, thiserror::Error)]
 enum MainError {
     #[error(transparent)] Iced(#[from] iced::Error),
     #[error(transparent)] Icon(#[from] iced::window::icon::Error),
+    #[error(transparent)] Io(#[from] io::Error),
 }
 
 #[wheel::main]
 fn main(args: Args) -> Result<(), MainError> {
-    let icon = ::image::load_from_memory(include_bytes!("../../../assets/icon.ico")).expect("failed to load embedded DynamicImage").to_rgba8();
-    App::run(Settings {
-        window: window::Settings {
-            size: (320, 240),
-            icon: Some(Icon::from_rgba(icon.as_flat_samples().as_slice().to_owned(), icon.width(), icon.height())?),
-            ..window::Settings::default()
-        },
-        ..Settings::with_flags(args)
-    })?;
+    match args {
+        Args::Emu(args) => {
+            let icon = ::image::load_from_memory(include_bytes!("../../../assets/icon.ico")).expect("failed to load embedded DynamicImage").to_rgba8();
+            App::run(Settings {
+                window: window::Settings {
+                    size: (320, 240),
+                    icon: Some(Icon::from_rgba(icon.as_flat_samples().as_slice().to_owned(), icon.width(), icon.height())?),
+                    ..window::Settings::default()
+                },
+                ..Settings::with_flags(args)
+            })?;
+        }
+        Args::Pj64Script { src, dst } => std::fs::rename(src, dst)?,
+    }
     Ok(())
 }
