@@ -506,6 +506,7 @@ namespace MidosHouse.OotrMultiworld {
                             using (var run_updater_res = Native.run_updater()) {
                                 if (!run_updater_res.IsOk()) {
                                     this.state.Text = run_updater_res.DebugErr().AsString();
+                                    return;
                                 }
                             }
                         }
