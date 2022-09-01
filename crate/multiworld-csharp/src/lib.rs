@@ -238,6 +238,7 @@ impl RoomClient {
         #[cfg(target_arch = "x86_64")] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
         fs::write(&updater_path, updater_data)?;
         Command::new(updater_path)
+            .arg("bizhawk")
             .arg(env::current_exe()?.canonicalize()?.parent().ok_or(DebugError(format!("current executable at filesystem root")))?)
             .arg(process::id().to_string())
             .arg(format!("{major}.{minor}.{patch}"))
