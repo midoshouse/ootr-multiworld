@@ -9,6 +9,7 @@ use {
         env,
         future::Future,
         num::NonZeroU8,
+        process,
         sync::Arc,
         time::Duration,
     },
@@ -200,7 +201,11 @@ impl Application for State {
                     let updater_path = cache_dir.join("updater.exe");
                     #[cfg(target_arch = "x86_64")] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
                     fs::write(&updater_path, updater_data).await?;
-                    let _ = std::process::Command::new(updater_path).arg("pj64").arg(env::current_exe()?).spawn()?;
+                    let _ = std::process::Command::new(updater_path)
+                        .arg("pj64")
+                        .arg(env::current_exe()?)
+                        .arg(process::id().to_string())
+                        .spawn()?;
                     return Ok(Message::Exit)
                 }
             }

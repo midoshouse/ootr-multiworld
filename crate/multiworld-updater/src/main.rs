@@ -156,22 +156,16 @@ impl Application for App {
     type Flags = Args;
 
     fn new(args: Args) -> (Self, Command<Message>) {
-        let cmd = match args {
-            Args::BizHawk { pid, .. } => cmd(async move {
-                while pid_exists(pid).await? {
-                    sleep(Duration::from_secs(1)).await;
-                }
-                Ok(Message::Exited)
-            }),
-            Args::Pj64 { .. } => cmd(async {
-                sleep(Duration::from_secs(1)).await;
-                Ok(Message::Exited)
-            }),
-        };
+        let (Args::BizHawk { pid, .. } | Args::Pj64 { pid, .. }) = args;
         (App {
             state: State::WaitExit,
             args,
-        }, cmd)
+        }, cmd(async move {
+            while pid_exists(pid).await? {
+                sleep(Duration::from_secs(1)).await;
+            }
+            Ok(Message::Exited)
+        }))
     }
 
     fn background_color(&self) -> iced::Color {
@@ -259,7 +253,7 @@ impl Application for App {
                         }
                     })
                 }
-                Args::Pj64 { ref path } => {
+                Args::Pj64 { ref path, .. } => {
                     self.state = State::Replace;
                     let path = path.clone();
                     return cmd(async move {
@@ -355,7 +349,7 @@ impl Application for App {
                         Ok(Message::Done)
                     })
                 }
-                Args::Pj64 { ref path } => {
+                Args::Pj64 { ref path, .. } => {
                     self.state = State::Launch;
                     let path = path.clone();
                     return cmd(async move {
@@ -443,6 +437,7 @@ enum Args {
     Pj64 {
         #[clap(parse(from_os_str))]
         path: PathBuf,
+        pid: u32,
     },
 }
 
