@@ -17,38 +17,32 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern bool bool_result_unwrap(IntPtr bool_res);
         [DllImport("multiworld")] internal static extern StringHandle bool_result_debug_err(IntPtr bool_res);
         [DllImport("multiworld")] internal static extern UnitResult run_updater();
-        [DllImport("multiworld")] internal static extern LobbyClientResult connect_ipv4();
-        [DllImport("multiworld")] internal static extern LobbyClientResult connect_ipv6();
-        [DllImport("multiworld")] internal static extern void lobby_client_result_free(IntPtr lobby_client_res);
-        [DllImport("multiworld")] internal static extern bool lobby_client_result_is_ok(LobbyClientResult lobby_client_res);
-        [DllImport("multiworld")] internal static extern LobbyClient lobby_client_result_unwrap(IntPtr lobby_client_res);
-        [DllImport("multiworld")] internal static extern void lobby_client_free(IntPtr lobby_client);
-        [DllImport("multiworld")] internal static extern StringHandle lobby_client_result_debug_err(IntPtr lobby_client_res);
+        [DllImport("multiworld")] internal static extern ClientResult connect_ipv4();
+        [DllImport("multiworld")] internal static extern ClientResult connect_ipv6();
+        [DllImport("multiworld")] internal static extern void client_result_free(IntPtr client_res);
+        [DllImport("multiworld")] internal static extern bool client_result_is_ok(ClientResult client_res);
+        [DllImport("multiworld")] internal static extern Client client_result_unwrap(IntPtr client_res);
+        [DllImport("multiworld")] internal static extern void client_free(IntPtr client);
+        [DllImport("multiworld")] internal static extern StringHandle client_result_debug_err(IntPtr client_res);
         [DllImport("multiworld")] internal static extern void string_free(IntPtr s);
-        [DllImport("multiworld")] internal static extern ulong lobby_client_num_rooms(LobbyClient lobby_client);
-        [DllImport("multiworld")] internal static extern StringHandle lobby_client_room_name(LobbyClient lobby_client, ulong i);
-        [DllImport("multiworld")] internal static extern StringResult lobby_client_try_recv_new_room(LobbyClient lobbyClient);
+        [DllImport("multiworld")] internal static extern ulong client_num_rooms(Client client);
+        [DllImport("multiworld")] internal static extern StringHandle client_room_name(Client client, ulong i);
         [DllImport("multiworld")] internal static extern void string_result_free(IntPtr str_res);
         [DllImport("multiworld")] internal static extern bool string_result_is_ok(StringResult str_res);
         [DllImport("multiworld")] internal static extern StringHandle string_result_unwrap(IntPtr str_res);
         [DllImport("multiworld")] internal static extern StringHandle string_result_debug_err(IntPtr str_res);
-        [DllImport("multiworld")] internal static extern RoomClientResult lobby_client_room_connect(LobbyClient lobby_client, OwnedStringHandle room_name, OwnedStringHandle room_password);
-        [DllImport("multiworld")] internal static extern void room_client_result_free(IntPtr room_client_res);
-        [DllImport("multiworld")] internal static extern bool room_client_result_is_ok(RoomClientResult room_client_res);
-        [DllImport("multiworld")] internal static extern RoomClient room_client_result_unwrap(IntPtr room_client_res);
-        [DllImport("multiworld")] internal static extern void room_client_free(IntPtr room_client);
-        [DllImport("multiworld")] internal static extern StringHandle room_client_result_debug_err(IntPtr room_client_res);
-        [DllImport("multiworld")] internal static extern UnitResult room_client_set_player_id(RoomClient room_client, byte id);
+        [DllImport("multiworld")] internal static extern UnitResult client_room_connect(Client client, OwnedStringHandle room_name, OwnedStringHandle room_password);
+        [DllImport("multiworld")] internal static extern UnitResult client_set_player_id(Client client, byte id);
         [DllImport("multiworld")] internal static extern void unit_result_free(IntPtr unit_res);
         [DllImport("multiworld")] internal static extern bool unit_result_is_ok(UnitResult unit_res);
         [DllImport("multiworld")] internal static extern StringHandle unit_result_debug_err(IntPtr unit_res);
-        [DllImport("multiworld")] internal static extern UnitResult room_client_reset_player_id(RoomClient room_client);
-        [DllImport("multiworld")] internal static extern UnitResult room_client_set_player_name(RoomClient room_client, IntPtr name);
-        [DllImport("multiworld")] internal static extern byte room_client_num_players(RoomClient room_client);
-        [DllImport("multiworld")] internal static extern StringHandle room_client_player_state(RoomClient room_client, byte player_idx);
-        [DllImport("multiworld")] internal static extern StringHandle room_client_other_state(RoomClient room_client);
-        [DllImport("multiworld")] internal static extern UnitResult room_client_kick_player(RoomClient room_client, byte player_idx);
-        [DllImport("multiworld")] internal static extern OptMessageResult room_client_try_recv_message(RoomClient room_client);
+        [DllImport("multiworld")] internal static extern UnitResult client_reset_player_id(Client client);
+        [DllImport("multiworld")] internal static extern UnitResult client_set_player_name(Client client, IntPtr name);
+        [DllImport("multiworld")] internal static extern byte client_num_players(Client client);
+        [DllImport("multiworld")] internal static extern StringHandle client_player_state(Client client, byte player_idx);
+        [DllImport("multiworld")] internal static extern StringHandle client_other_room_state(Client client);
+        [DllImport("multiworld")] internal static extern UnitResult client_kick_player(Client client, byte player_idx);
+        [DllImport("multiworld")] internal static extern OptMessageResult client_try_recv_message(Client client);
         [DllImport("multiworld")] internal static extern void opt_message_result_free(IntPtr opt_msg_res);
         [DllImport("multiworld")] internal static extern bool opt_message_result_is_ok_some(OptMessageResult opt_msg_res);
         [DllImport("multiworld")] internal static extern ServerMessage opt_message_result_unwrap_unwrap(IntPtr opt_msg_res);
@@ -59,11 +53,10 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern byte message_effect_type(ServerMessage msg);
         [DllImport("multiworld")] internal static extern byte message_player_id(ServerMessage msg);
         [DllImport("multiworld")] internal static extern IntPtr message_player_name(ServerMessage msg);
-        [DllImport("multiworld")] internal static extern void room_client_apply_message(RoomClient room_client, IntPtr msg);
-        [DllImport("multiworld")] internal static extern UnitResult room_client_send_item(RoomClient room_client, uint key, ushort kind, byte target_world);
-        [DllImport("multiworld")] internal static extern ushort room_client_item_queue_len(RoomClient room_client);
-        [DllImport("multiworld")] internal static extern ushort room_client_item_kind_at_index(RoomClient room_client, ushort index);
-        [DllImport("multiworld")] internal static extern IntPtr room_client_get_player_name(RoomClient room_client, byte world);
+        [DllImport("multiworld")] internal static extern UnitResult client_send_item(Client client, uint key, ushort kind, byte target_world);
+        [DllImport("multiworld")] internal static extern ushort client_item_queue_len(Client client);
+        [DllImport("multiworld")] internal static extern ushort client_item_kind_at_index(Client client, ushort index);
+        [DllImport("multiworld")] internal static extern IntPtr client_get_player_name(Client client, byte world);
     }
 
     internal class BoolResult : SafeHandle {
@@ -118,8 +111,8 @@ namespace MidosHouse.OotrMultiworld {
         }
     }
 
-    internal class LobbyClient : SafeHandle {
-        internal LobbyClient() : base(IntPtr.Zero, true) {}
+    internal class Client : SafeHandle {
+        internal Client() : base(IntPtr.Zero, true) {}
 
         public override bool IsInvalid {
             get { return this.handle == IntPtr.Zero; }
@@ -127,26 +120,56 @@ namespace MidosHouse.OotrMultiworld {
 
         protected override bool ReleaseHandle() {
             if (!this.IsInvalid) {
-                Native.lobby_client_free(this.handle);
+                Native.client_free(this.handle);
             }
             return true;
         }
 
-        internal ulong NumRooms() => Native.lobby_client_num_rooms(this);
-        internal StringHandle RoomName(ulong i) => Native.lobby_client_room_name(this, i);
-        internal StringResult TryRecvNewRoom() => Native.lobby_client_try_recv_new_room(this);
+        internal ulong NumRooms() => Native.client_num_rooms(this);
+        internal StringHandle RoomName(ulong i) => Native.client_room_name(this, i);
 
-        internal RoomClientResult CreateJoinRoom(string roomName, string password) {
+        internal UnitResult CreateJoinRoom(string roomName, string password) {
             using (var nameHandle = new OwnedStringHandle(roomName)) {
                 using (var passwordHandle = new OwnedStringHandle(password)) {
-                    return Native.lobby_client_room_connect(this, nameHandle, passwordHandle);
+                    return Native.client_room_connect(this, nameHandle, passwordHandle);
                 }
             }
         }
+
+        internal UnitResult SetPlayerID(byte? id) {
+            if (id == null) {
+                return Native.client_reset_player_id(this);
+            } else {
+                return Native.client_set_player_id(this, id.Value);
+            }
+        }
+
+        internal UnitResult SetPlayerName(List<byte> name) {
+            var namePtr = Marshal.AllocHGlobal(8);
+            Marshal.Copy(name.ToArray(), 0, namePtr, 8);
+            var res = Native.client_set_player_name(this, namePtr);
+            Marshal.FreeHGlobal(namePtr);
+            return res;
+        }
+
+        internal List<byte> GetPlayerName(byte world) {
+            var name = new byte[8];
+            Marshal.Copy(Native.client_get_player_name(this, world), name, 0, 8);
+            return name.ToList();
+        }
+
+        internal byte NumPlayers() => Native.client_num_players(this);
+        internal StringHandle PlayerState(byte player_idx) => Native.client_player_state(this, player_idx);
+        internal StringHandle OtherState() => Native.client_other_room_state(this);
+        internal OptMessageResult TryRecv() => Native.client_try_recv_message(this);
+        internal UnitResult SendItem(uint key, ushort kind, byte targetWorld) => Native.client_send_item(this, key, kind, targetWorld);
+        internal ushort ItemQueueLen() => Native.client_item_queue_len(this);
+        internal ushort Item(ushort index) => Native.client_item_kind_at_index(this, index);
+        internal UnitResult KickPlayer(byte player_idx) => Native.client_kick_player(this, player_idx);
     }
 
-    internal class LobbyClientResult : SafeHandle {
-        internal LobbyClientResult() : base(IntPtr.Zero, true) {}
+    internal class ClientResult : SafeHandle {
+        internal ClientResult() : base(IntPtr.Zero, true) {}
 
         public override bool IsInvalid {
             get { return this.handle == IntPtr.Zero; }
@@ -154,22 +177,22 @@ namespace MidosHouse.OotrMultiworld {
 
         protected override bool ReleaseHandle() {
             if (!this.IsInvalid) {
-                Native.lobby_client_result_free(this.handle);
+                Native.client_result_free(this.handle);
             }
             return true;
         }
 
-        internal bool IsOk() => Native.lobby_client_result_is_ok(this);
+        internal bool IsOk() => Native.client_result_is_ok(this);
 
-        internal LobbyClient Unwrap() {
-            var lobbyClient = Native.lobby_client_result_unwrap(this.handle);
-            this.handle = IntPtr.Zero; // lobby_client_result_unwrap takes ownership
-            return lobbyClient;
+        internal Client Unwrap() {
+            var client = Native.client_result_unwrap(this.handle);
+            this.handle = IntPtr.Zero; // client_result_unwrap takes ownership
+            return client;
         }
 
         internal StringHandle DebugErr() {
-            var err = Native.lobby_client_result_debug_err(this.handle);
-            this.handle = IntPtr.Zero; // lobby_client_result_debug_err takes ownership
+            var err = Native.client_result_debug_err(this.handle);
+            this.handle = IntPtr.Zero; // client_result_debug_err takes ownership
             return err;
         }
     }
@@ -204,81 +227,6 @@ namespace MidosHouse.OotrMultiworld {
         }
     }
 
-    internal class RoomClient : SafeHandle {
-        internal RoomClient() : base(IntPtr.Zero, true) {}
-
-        public override bool IsInvalid {
-            get { return this.handle == IntPtr.Zero; }
-        }
-
-        protected override bool ReleaseHandle() {
-            if (!this.IsInvalid) {
-                Native.room_client_free(this.handle);
-            }
-            return true;
-        }
-
-        internal UnitResult SetPlayerID(byte? id) {
-            if (id == null) {
-                return Native.room_client_reset_player_id(this);
-            } else {
-                return Native.room_client_set_player_id(this, id.Value);
-            }
-        }
-
-        internal UnitResult SetPlayerName(List<byte> name) {
-            var namePtr = Marshal.AllocHGlobal(8);
-            Marshal.Copy(name.ToArray(), 0, namePtr, 8);
-            var res = Native.room_client_set_player_name(this, namePtr);
-            Marshal.FreeHGlobal(namePtr);
-            return res;
-        }
-
-        internal List<byte> GetPlayerName(byte world) {
-            var name = new byte[8];
-            Marshal.Copy(Native.room_client_get_player_name(this, world), name, 0, 8);
-            return name.ToList();
-        }
-
-        internal byte NumPlayers() => Native.room_client_num_players(this);
-        internal StringHandle PlayerState(byte player_idx) => Native.room_client_player_state(this, player_idx);
-        internal StringHandle OtherState() => Native.room_client_other_state(this);
-        internal OptMessageResult TryRecv() => Native.room_client_try_recv_message(this);
-        internal UnitResult SendItem(uint key, ushort kind, byte targetWorld) => Native.room_client_send_item(this, key, kind, targetWorld);
-        internal ushort ItemQueueLen() => Native.room_client_item_queue_len(this);
-        internal ushort Item(ushort index) => Native.room_client_item_kind_at_index(this, index);
-        internal UnitResult KickPlayer(byte player_idx) => Native.room_client_kick_player(this, player_idx);
-    }
-
-    internal class RoomClientResult : SafeHandle {
-        internal RoomClientResult() : base(IntPtr.Zero, true) {}
-
-        public override bool IsInvalid {
-            get { return this.handle == IntPtr.Zero; }
-        }
-
-        protected override bool ReleaseHandle() {
-            if (!this.IsInvalid) {
-                Native.room_client_result_free(this.handle);
-            }
-            return true;
-        }
-
-        internal bool IsOk() => Native.room_client_result_is_ok(this);
-
-        internal RoomClient Unwrap() {
-            var roomClient = Native.room_client_result_unwrap(this.handle);
-            this.handle = IntPtr.Zero; // room_client_result_unwrap takes ownership
-            return roomClient;
-        }
-
-        internal StringHandle DebugErr() {
-            var err = Native.room_client_result_debug_err(this.handle);
-            this.handle = IntPtr.Zero; // room_client_result_debug_err takes ownership
-            return err;
-        }
-    }
-
     internal class ServerMessage : SafeHandle {
         internal ServerMessage() : base(IntPtr.Zero, true) {}
 
@@ -301,11 +249,6 @@ namespace MidosHouse.OotrMultiworld {
             var name = new byte[8];
             Marshal.Copy(Native.message_player_name(this), name, 0, 8);
             return name.ToList();
-        }
-
-        internal void Apply(RoomClient roomClient) {
-            Native.room_client_apply_message(roomClient, this.handle);
-            this.handle = IntPtr.Zero; // room_client_apply_message takes ownership of the message
         }
     }
 
@@ -393,8 +336,7 @@ namespace MidosHouse.OotrMultiworld {
         private List<Button> kickButtons = new List<Button>();
         private Label otherState = new Label();
 
-        private LobbyClient? lobbyClient;
-        private RoomClient? roomClient;
+        private Client? client;
         private uint? coopContextAddr;
         private byte? playerID;
         private List<byte> playerName = new List<byte> { 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf };
@@ -426,7 +368,9 @@ namespace MidosHouse.OotrMultiworld {
             this.rooms.AutoCompleteMode = AutoCompleteMode.Append;
             this.rooms.AutoCompleteSource = AutoCompleteSource.ListItems;
             this.rooms.TextChanged += (s, e) => {
-                this.LobbyStateChanged();
+                if (this.client != null) {
+                    this.UpdateLobbyState(this.client);
+                }
             };
             this.Controls.Add(this.rooms);
 
@@ -446,11 +390,9 @@ namespace MidosHouse.OotrMultiworld {
             this.createJoinButton.Text = "Create/Join";
             this.createJoinButton.Enabled = false;
             this.createJoinButton.Click += (s, e) => {
-                if (this.lobbyClient != null) {
-                    using (var res = this.lobbyClient.CreateJoinRoom(this.rooms.Text, this.password.Text)) {
-                        if (res.IsOk()) {
-                            JoinRoom(res.Unwrap());
-                        } else {
+                if (this.client != null) {
+                    using (var res = this.client.CreateJoinRoom(this.rooms.Text, this.password.Text)) {
+                        if (!res.IsOk()) {
                             using (var err = res.DebugErr()) {
                                 var debug = err.AsString();
                                 if (debug == "wrong password") {
@@ -489,15 +431,11 @@ namespace MidosHouse.OotrMultiworld {
             APIs.Memory.SetBigEndian(true);
             if ((APIs.GameInfo.GetGameInfo()?.Name ?? "Null") == "Null") {
                 this.state.Text = "Please open the ROM…";
-                HideUI();
+                HideLobbyUI();
+                HideRoomUI();
                 return;
             }
-            this.playerID = null;
-            if (this.roomClient != null) {
-                ReadPlayerID();
-                SyncPlayerNames();
-                ShowUI();
-            } else if (this.lobbyClient == null) {
+            if (this.client == null) {
                 this.state.Text = "Checking for updates…";
                 using (var update_available_res = Native.update_available()) {
                     if (update_available_res.IsOk()) {
@@ -518,11 +456,11 @@ namespace MidosHouse.OotrMultiworld {
                 this.state.Text = "Loading room list…";
                 using (var res6 = Native.connect_ipv6()) {
                     if (res6.IsOk()) {
-                        OnConnect(res6.Unwrap());
+                        this.client = res6.Unwrap();
                     } else {
                         using (var res4 = Native.connect_ipv4()) {
                             if (res4.IsOk()) {
-                                OnConnect(res4.Unwrap());
+                                this.client = res4.Unwrap();
                             } else {
                                 //TODO TCP connections unavailable, try WebSocket instead. If that fails too, offer self-hosting/direct connections
                                 using (var err = res4.DebugErr()) {
@@ -533,22 +471,12 @@ namespace MidosHouse.OotrMultiworld {
                         }
                     }
                 }
-                ShowUI();
             }
-        }
-
-        private void OnConnect(LobbyClient lobbyClient) {
-            this.lobbyClient = lobbyClient;
-            var numRooms = this.lobbyClient.NumRooms();
-            this.state.Text = "Join or create a room:";
-            SuspendLayout();
-            this.rooms.SelectedItem = null;
-            this.rooms.Items.Clear();
-            for (ulong i = 0; i < numRooms; i++) {
-                this.rooms.Items.Add(this.lobbyClient.RoomName(i).AsString());
+            this.playerID = null;
+            if (this.client != null) {
+                ReadPlayerID();
+                SyncPlayerNames();
             }
-            this.rooms.Enabled = true;
-            ResumeLayout(true);
         }
 
         public override void UpdateValues(ToolFormUpdateType type) {
@@ -558,38 +486,22 @@ namespace MidosHouse.OotrMultiworld {
             if ((APIs.GameInfo.GetGameInfo()?.Name ?? "Null") == "Null") {
                 return;
             }
-            if (this.lobbyClient != null) {
-                using (var res = this.lobbyClient.TryRecvNewRoom()) {
-                    if (res.IsOk()) {
-                        using (var newRoom = res.Unwrap()) {
-                            var name = newRoom.AsString();
-                            if (name.Length > 0) {
-                                this.rooms.Items.Add(newRoom.AsString());
-                                this.LobbyStateChanged();
-                            }
-                        }
-                    } else {
-                        using (var err = res.DebugErr()) {
-                            Error(err.AsString());
-                        }
-                    }
-                }
-            } else if (this.roomClient != null) {
+            if (this.client != null) {
+                ReceiveMessage(this.client);
                 if (this.playerID == null) {
                     ReadPlayerID();
                 } else {
                     SyncPlayerNames();
-                }
-                ReceiveMessage(this.roomClient);
-                if (this.playerID != null && this.coopContextAddr != null) {
-                    SendItem(this.roomClient, this.coopContextAddr.Value);
-                    ReceiveItem(this.roomClient, this.coopContextAddr.Value, this.playerID.Value);
+                    if (this.coopContextAddr != null) {
+                        SendItem(this.client, this.coopContextAddr.Value);
+                        ReceiveItem(this.client, this.coopContextAddr.Value, this.playerID.Value);
+                    }
                 }
             }
         }
 
-        private void ReceiveMessage(RoomClient roomClient) {
-            using (var res = roomClient.TryRecv()) {
+        private void ReceiveMessage(Client client) {
+            using (var res = client.TryRecv()) {
                 if (res.IsOkSome()) {
                     using (var msg = res.UnwrapUnwrap()) {
                         switch (msg.EffectType()) {
@@ -599,17 +511,19 @@ namespace MidosHouse.OotrMultiworld {
                                 }
                                 break;
                             }
-                            case 1: { // changes room state
-                                msg.Apply(roomClient);
-                                this.UpdateRoomState(roomClient);
+                            case 1: { // enters the lobby or changes lobby state
+                                this.UpdateLobbyState(client);
                                 break;
                             }
-                            case 2: { // sets a player name and changes room state
+                            case 2: { // enters a room or changes room state
+                                this.UpdateRoomState(client);
+                                break;
+                            }
+                            case 3: { // sets a player name and changes room state
                                 if (this.coopContextAddr != null) {
                                     APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + msg.World() * 0x8, msg.Filename(), "System Bus");
                                 }
-                                msg.Apply(roomClient);
-                                this.UpdateRoomState(roomClient);
+                                this.UpdateRoomState(client);
                                 break;
                             }
                             default: {
@@ -626,7 +540,7 @@ namespace MidosHouse.OotrMultiworld {
             }
         }
 
-        private void SendItem(RoomClient roomClient, uint coopContextAddr) {
+        private void SendItem(Client client, uint coopContextAddr) {
             var outgoingKey = APIs.Memory.ReadU32(coopContextAddr + 0xc, "System Bus");
             if (outgoingKey != 0) {
                 var kind = (ushort) APIs.Memory.ReadU16(coopContextAddr + 0x10, "System Bus");
@@ -637,7 +551,7 @@ namespace MidosHouse.OotrMultiworld {
                     //Debug($"P{this.playerID}: Found an item {kind} for player {player} sent via network, ignoring");
                 } else {
                     //Debug($"P{this.playerID}: Found {outgoingKey}, an item {kind} for player {player}");
-                    roomClient.SendItem(outgoingKey, kind, player);
+                    client.SendItem(outgoingKey, kind, player);
                 }
                 APIs.Memory.WriteU32(coopContextAddr + 0xc, 0, "System Bus");
                 APIs.Memory.WriteU16(coopContextAddr + 0x10, 0, "System Bus");
@@ -645,16 +559,16 @@ namespace MidosHouse.OotrMultiworld {
             }
         }
 
-        private void ReceiveItem(RoomClient roomClient, uint coopContextAddr, byte playerID) {
+        private void ReceiveItem(Client client, uint coopContextAddr, byte playerID) {
             var stateLogo = APIs.Memory.ReadU32(0x11f200, "RDRAM");
             var stateMain = APIs.Memory.ReadS8(0x11b92f, "RDRAM");
             var stateMenu = APIs.Memory.ReadS8(0x1d8dd5, "RDRAM");
             if (stateLogo != 0x802c_5880 && stateLogo != 0 && stateMain != 1 && stateMain != 2 && stateMenu == 0) {
                 if (APIs.Memory.ReadU16(coopContextAddr + 0x8, "System Bus") == 0) {
                     var internalCount = (ushort) APIs.Memory.ReadU16(0x11a5d0 + 0x90, "RDRAM");
-                    var externalCount = roomClient.ItemQueueLen();
+                    var externalCount = client.ItemQueueLen();
                     if (internalCount < externalCount) {
-                        var item = roomClient.Item((ushort) internalCount);
+                        var item = client.Item((ushort) internalCount);
                         //Debug($"P{playerID}: Received an item {item} from another player");
                         APIs.Memory.WriteU16(coopContextAddr + 0x8, item, "System Bus");
                         APIs.Memory.WriteU16(coopContextAddr + 0x6, item == 0xca ? (playerID == 1 ? 2u : 1) : playerID, "System Bus");
@@ -665,23 +579,38 @@ namespace MidosHouse.OotrMultiworld {
             }
         }
 
-        private void JoinRoom(RoomClient client) {
-            this.lobbyClient?.Dispose();
-            this.lobbyClient = null;
-            this.roomClient = client;
+        private void UpdateLobbyState(Client client) {
+            var numRooms = client.NumRooms();
+            this.state.Text = "Join or create a room:";
             SuspendLayout();
-            this.rooms.Visible = false;
-            this.password.Visible = false;
-            this.createJoinButton.Visible = false;
-            this.version.Visible = false;
-            this.ShowUI();
+            HideRoomUI();
+            this.rooms.Visible = true;
+            this.password.Visible = true;
+            this.createJoinButton.Visible = true;
+            this.version.Visible = true;
+            this.rooms.SelectedItem = null;
+            this.rooms.Items.Clear();
+            for (ulong i = 0; i < numRooms; i++) {
+                this.rooms.Items.Add(client.RoomName(i).AsString());
+            }
+            this.rooms.Enabled = true;
+            if (this.rooms.Enabled && this.rooms.Text.Length > 0) {
+                this.createJoinButton.Enabled = this.password.Text.Length > 0;
+                if (this.rooms.Items.Contains(this.rooms.Text)) {
+                    this.createJoinButton.Text = "Join";
+                } else {
+                    this.createJoinButton.Text = "Create";
+                }
+            } else {
+                this.createJoinButton.Enabled = false;
+                this.createJoinButton.Text = "Create/Join";
+            }
             ResumeLayout(true);
-            ReadPlayerID();
-            SyncPlayerNames();
         }
 
-        private void UpdateRoomState(RoomClient client) {
+        private void UpdateRoomState(Client client) {
             SuspendLayout();
+            HideLobbyUI();
             var num_players = client.NumPlayers();
             for (byte player_idx = 0; player_idx < num_players; player_idx++) {
                 if (player_idx >= this.playerStates.Count) {
@@ -759,8 +688,8 @@ namespace MidosHouse.OotrMultiworld {
                     ResumeLayout();
                 }
             }
-            if (this.roomClient != null) {
-                using (var res = this.roomClient.SetPlayerID(this.playerID)) {
+            if (this.client != null) {
+                using (var res = this.client.SetPlayerID(this.playerID)) {
                     if (!res.IsOk()) {
                         using (var err = res.DebugErr()) {
                             Error(err.AsString());
@@ -778,9 +707,9 @@ namespace MidosHouse.OotrMultiworld {
                     // get own player name from save file
                     this.playerName = APIs.Memory.ReadByteRange(0x0020 + 0x0024, 8, "SRAM");
                     // always fill player names in co-op context (some player names may go missing seemingly at random while others stay intact, so this has to run every frame)
-                    if (this.roomClient != null && this.coopContextAddr != null) {
+                    if (this.client != null && this.coopContextAddr != null) {
                         for (var world = 1; world < 256; world++) {
-                            APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + world * 0x8, this.roomClient.GetPlayerName((byte) world), "System Bus");
+                            APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + world * 0x8, this.client.GetPlayerName((byte) world), "System Bus");
                         }
                     }
                 } else {
@@ -788,8 +717,8 @@ namespace MidosHouse.OotrMultiworld {
                     this.playerName = new List<byte> { 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf };
                 }
             }
-            if (this.roomClient != null) {
-                using (var res = this.roomClient.SetPlayerName(this.playerName)) {
+            if (this.client != null) {
+                using (var res = this.client.SetPlayerName(this.playerName)) {
                     if (!res.IsOk()) {
                         using (var err = res.DebugErr()) {
                             Error(err.AsString());
@@ -799,59 +728,29 @@ namespace MidosHouse.OotrMultiworld {
             }
         }
 
-        private void LobbyStateChanged() {
-            if (this.rooms.Enabled && this.rooms.Text.Length > 0) {
-                this.createJoinButton.Enabled = this.password.Text.Length > 0;
-                if (this.rooms.Items.Contains(this.rooms.Text)) {
-                    this.createJoinButton.Text = "Join";
-                } else {
-                    this.createJoinButton.Text = "Create";
-                }
-            } else {
-                this.createJoinButton.Enabled = false;
-                this.createJoinButton.Text = "Create/Join";
-            }
-        }
-
         private void Error(string msg) {
             this.state.Text = $"error: {msg}";
-            if (this.lobbyClient != null) {
-                this.lobbyClient.Dispose();
-                this.lobbyClient = null;
+            if (this.client != null) {
+                this.client.Dispose();
+                this.client = null;
             }
-            if (this.roomClient != null) {
-                this.roomClient.Dispose();
-                this.roomClient = null;
-            }
-            HideUI();
+            HideLobbyUI();
+            HideRoomUI();
         }
 
-        private void HideUI() {
+        private void HideLobbyUI() {
             this.rooms.Visible = false;
             this.password.Visible = false;
             this.createJoinButton.Visible = false;
             this.version.Visible = false;
+        }
+
+        private void HideRoomUI() {
             for (var player_idx = 0; player_idx < this.playerStates.Count; player_idx++) {
                 this.playerStates[player_idx].Visible = false;
                 this.kickButtons[player_idx].Visible = false;
             }
             this.otherState.Visible = false;
-        }
-
-        private void ShowUI() {
-            if (this.lobbyClient != null) {
-                this.rooms.Visible = true;
-                this.password.Visible = true;
-                this.createJoinButton.Visible = true;
-                this.version.Visible = true;
-            }
-            if (this.roomClient != null) {
-                for (var player_idx = 0; player_idx < this.playerStates.Count; player_idx++) {
-                    this.playerStates[player_idx].Visible = true;
-                    this.kickButtons[player_idx].Visible = true;
-                }
-                this.otherState.Visible = true;
-            }
         }
     }
 }

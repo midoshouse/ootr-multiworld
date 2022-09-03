@@ -5,7 +5,6 @@
 
 use {
     std::{
-        collections::BTreeSet,
         env,
         future::Future,
         num::NonZeroU8,
@@ -49,9 +48,9 @@ use {
         ClientMessage,
         Filename,
         IsNetworkError,
-        Player,
-        ServerError,
         ServerMessage,
+        SessionState,
+        SessionStateError,
         format_room_state,
         github::Repo,
         style::Style,
@@ -71,12 +70,8 @@ pub(crate) enum Error {
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Semver(#[from] semver::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
-    #[error("server error #{0}")]
-    Future(u8),
     #[error("user folder not found")]
     MissingHomeDir,
-    #[error("server error: {0}")]
-    Server(String),
     #[error("protocol version mismatch: Project64 script is version {0} but we're version {}", MW_PJ64_PROTO_VERSION)]
     VersionMismatch(u8),
 }
@@ -126,44 +121,16 @@ fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) ->
     })))
 }
 
-enum ServerConnectionState {
-    Error {
-        e: Arc<Error>,
-        auto_retry: bool,
-    },
-    Init,
-    InitAutoRejoin {
-        room_name: String,
-        room_password: String,
-    },
-    Lobby {
-        rooms: BTreeSet<String>,
-        create_new_room: bool,
-        existing_room_selection: Option<String>,
-        new_room_name: String,
-        password: String,
-        wrong_password: bool,
-    },
-    Room {
-        room_name: String,
-        room_password: String,
-        players: Vec<Player>,
-        num_unassigned_clients: u8,
-        item_queue: Vec<u16>,
-    },
-    Closed,
-}
-
 struct State {
     command_error: Option<Arc<Error>>,
     pj64_subscription_error: Option<Arc<Error>>,
     pj64_writer: Option<Arc<Mutex<OwnedWriteHalf>>>,
-    server_connection: ServerConnectionState,
+    server_connection: SessionState<Arc<Error>>,
     server_writer: Option<Arc<Mutex<OwnedWriteHalf>>>,
     retry: Instant,
     wait_time: Duration,
-    player_id: Option<NonZeroU8>,
-    player_name: Option<Filename>,
+    last_world: Option<NonZeroU8>,
+    last_name: Filename,
     updates_checked: bool,
     should_exit: bool,
 }
@@ -178,12 +145,12 @@ impl Application for State {
             command_error: None,
             pj64_subscription_error: None,
             pj64_writer: None,
-            server_connection: ServerConnectionState::Init,
+            server_connection: SessionState::Init,
             server_writer: None,
             retry: Instant::now(),
             wait_time: Duration::from_secs(1),
-            player_id: None,
-            player_name: None,
+            last_world: None,
+            last_name: Filename::default(),
             updates_checked: false,
             should_exit: false,
         }, cmd(async move {
@@ -229,11 +196,11 @@ impl Application for State {
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
             Message::CommandError(e) => { self.command_error.get_or_insert(e); }
-            Message::DismissWrongPassword => if let ServerConnectionState::Lobby { ref mut wrong_password, .. } = self.server_connection {
+            Message::DismissWrongPassword => if let SessionState::Lobby { ref mut wrong_password, .. } = self.server_connection {
                 *wrong_password = false;
             },
             Message::Exit => self.should_exit = true,
-            Message::JoinRoom => if let ServerConnectionState::Lobby { create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } = self.server_connection {
+            Message::JoinRoom => if let SessionState::Lobby { create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } = self.server_connection {
                 if !password.is_empty() {
                     let existing_room_selection = existing_room_selection.clone();
                     let new_room_name = new_room_name.clone();
@@ -262,7 +229,7 @@ impl Application for State {
             Message::Nop => {}
             Message::Pj64Connected(writer) => {
                 self.pj64_writer = Some(Arc::clone(&writer));
-                if let ServerConnectionState::Room { ref players, ref item_queue, .. } = self.server_connection {
+                if let SessionState::Room { ref players, ref item_queue, .. } = self.server_connection {
                     let players = players.clone();
                     let item_queue = item_queue.clone();
                     return cmd(async move {
@@ -289,9 +256,9 @@ impl Application for State {
                 self.pj64_subscription_error.get_or_insert(e);
             }
             Message::Plugin(subscriptions::ClientMessage::PlayerId(new_player_id)) => {
-                let new_player_name = self.player_id.replace(new_player_id).is_none().then_some(self.player_name).flatten();
+                let new_player_name = (self.last_world.replace(new_player_id).is_none() && self.last_name != Filename::default()).then_some(self.last_name);
                 if let Some(ref writer) = self.server_writer {
-                    if let ServerConnectionState::Room { .. } = self.server_connection {
+                    if let SessionState::Room { .. } = self.server_connection {
                         let writer = writer.clone();
                         return cmd(async move {
                             ClientMessage::PlayerId(new_player_id).write(&mut *writer.lock().await).await?;
@@ -304,10 +271,10 @@ impl Application for State {
                 }
             }
             Message::Plugin(subscriptions::ClientMessage::PlayerName(new_player_name)) => {
-                self.player_name = Some(new_player_name);
-                if self.player_id.is_some() {
+                self.last_name = new_player_name;
+                if self.last_world.is_some() {
                     if let Some(ref writer) = self.server_writer {
-                        if let ServerConnectionState::Room { .. } = self.server_connection {
+                        if let SessionState::Room { .. } = self.server_connection {
                             let writer = writer.clone();
                             return cmd(async move {
                                 ClientMessage::PlayerName(new_player_name).write(&mut *writer.lock().await).await?;
@@ -324,132 +291,66 @@ impl Application for State {
                     Ok(Message::Nop)
                 })
             }
-            Message::ReconnectToLobby => self.server_connection = ServerConnectionState::Init,
-            Message::ReconnectToRoom(room_name, room_password) => self.server_connection = ServerConnectionState::InitAutoRejoin { room_name, room_password },
-            Message::Server(ServerMessage::Ping) => {}
-            Message::Server(ServerMessage::StructuredError(ServerError::WrongPassword)) => if let ServerConnectionState::Lobby { ref mut password, ref mut wrong_password, .. } = self.server_connection {
-                *wrong_password = true;
-                password.clear();
-            },
-            Message::Server(ServerMessage::StructuredError(ServerError::Future(discrim))) => if !matches!(self.server_connection, ServerConnectionState::Error { .. }) {
-                self.server_connection = ServerConnectionState::Error {
-                    e: Arc::new(Error::Future(discrim)),
-                    auto_retry: false,
-                };
-            },
-            Message::Server(ServerMessage::OtherError(e)) => if !matches!(self.server_connection, ServerConnectionState::Error { .. }) {
-                self.server_connection = ServerConnectionState::Error {
-                    e: Arc::new(Error::Server(e)),
-                    auto_retry: false,
-                };
-            },
-            Message::Server(ServerMessage::EnterLobby { rooms }) => {
-                let mut room_still_exists = false;
-                self.server_connection = if let ServerConnectionState::InitAutoRejoin { ref room_name, ref room_password } = self.server_connection {
-                    room_still_exists = rooms.contains(room_name);
-                    ServerConnectionState::Lobby {
-                        create_new_room: !room_still_exists,
-                        existing_room_selection: room_still_exists.then(|| room_name.clone()),
-                        new_room_name: room_name.clone(),
-                        password: room_password.clone(),
-                        wrong_password: false,
-                        rooms,
+            Message::ReconnectToLobby => self.server_connection = SessionState::Init,
+            Message::ReconnectToRoom(room_name, room_password) => self.server_connection = SessionState::InitAutoRejoin { room_name, room_password },
+            Message::Server(msg) => {
+                let room_still_exists = if let ServerMessage::EnterLobby { ref rooms } = msg {
+                    if let SessionState::InitAutoRejoin { ref room_name, .. } = self.server_connection {
+                        rooms.contains(room_name)
+                    } else {
+                        false
                     }
                 } else {
-                    ServerConnectionState::Lobby {
-                        create_new_room: rooms.is_empty(),
-                        existing_room_selection: None,
-                        new_room_name: String::default(),
-                        password: String::default(),
-                        wrong_password: false,
-                        rooms,
-                    }
+                    false
                 };
-                if room_still_exists {
-                    return cmd(future::ok(Message::JoinRoom))
-                }
-            }
-            Message::Server(ServerMessage::NewRoom(name)) => if let ServerConnectionState::Lobby { ref mut rooms, .. } = self.server_connection { rooms.insert(name); },
-            Message::Server(ServerMessage::EnterRoom { players, num_unassigned_clients }) => {
-                let (room_name, room_password) = match self.server_connection {
-                    ServerConnectionState::Lobby { create_new_room: false, ref existing_room_selection, ref password, .. } => (existing_room_selection.clone().unwrap_or_default(), password.clone()),
-                    ServerConnectionState::Lobby { create_new_room: true, ref new_room_name, ref password, .. } => (new_room_name.clone(), password.clone()),
-                    _ => <_>::default(),
-                };
-                self.server_connection = ServerConnectionState::Room { players: players.clone(), item_queue: Vec::default(), room_name, room_password, num_unassigned_clients };
-                let server_writer = self.server_writer.clone().expect("join room button only appears when connected to server");
-                let pj64_writer = self.pj64_writer.clone().expect("join room button only appears when connected to PJ64");
-                let player_id = self.player_id;
-                let player_name = self.player_name;
-                return cmd(async move {
-                    if let Some(player_id) = player_id {
-                        ClientMessage::PlayerId(player_id).write(&mut *server_writer.lock().await).await?;
-                        if let Some(player_name) = player_name {
-                            ClientMessage::PlayerName(player_name).write(&mut *server_writer.lock().await).await?;
-                        }
+                self.server_connection.apply(msg.clone());
+                match msg {
+                    ServerMessage::EnterLobby { .. } => if room_still_exists {
+                        return cmd(future::ok(Message::JoinRoom))
+                    },
+                    ServerMessage::EnterRoom { players, .. } => {
+                        let server_writer = self.server_writer.clone().expect("join room button only appears when connected to server");
+                        let pj64_writer = self.pj64_writer.clone().expect("join room button only appears when connected to PJ64");
+                        let player_id = self.last_world;
+                        let player_name = self.last_name;
+                        return cmd(async move {
+                            if let Some(player_id) = player_id {
+                                ClientMessage::PlayerId(player_id).write(&mut *server_writer.lock().await).await?;
+                                if player_name != Filename::default() {
+                                    ClientMessage::PlayerName(player_name).write(&mut *server_writer.lock().await).await?;
+                                }
+                            }
+                            for player in players {
+                                if player.name != Filename::default() {
+                                    subscriptions::ServerMessage::PlayerName(player.world, player.name).write(&mut *pj64_writer.lock().await).await?;
+                                }
+                            }
+                            Ok(Message::Nop)
+                        })
                     }
-                    for player in players {
-                        if player.name != Filename::default() {
-                            subscriptions::ServerMessage::PlayerName(player.world, player.name).write(&mut *pj64_writer.lock().await).await?;
-                        }
-                    }
-                    Ok(Message::Nop)
-                })
-            }
-            Message::Server(ServerMessage::PlayerId(world)) => if let ServerConnectionState::Room { ref mut players, ref mut num_unassigned_clients, .. } = self.server_connection {
-                if let Err(idx) = players.binary_search_by_key(&world, |p| p.world) {
-                    players.insert(idx, Player::new(world));
-                    *num_unassigned_clients -= 1;
-                }
-            },
-            Message::Server(ServerMessage::ResetPlayerId(world)) => if let ServerConnectionState::Room { ref mut players, ref mut num_unassigned_clients, .. } = self.server_connection {
-                if let Ok(idx) = players.binary_search_by_key(&world, |p| p.world) {
-                    players.remove(idx);
-                    *num_unassigned_clients += 1;
-                }
-            },
-            Message::Server(ServerMessage::ClientConnected) => if let ServerConnectionState::Room { ref mut num_unassigned_clients, .. } = self.server_connection { *num_unassigned_clients += 1 },
-            Message::Server(ServerMessage::PlayerDisconnected(world)) => if let ServerConnectionState::Room { ref mut players, .. } = self.server_connection {
-                if let Ok(idx) = players.binary_search_by_key(&world, |p| p.world) {
-                    players.remove(idx);
-                }
-            },
-            Message::Server(ServerMessage::UnregisteredClientDisconnected) => if let ServerConnectionState::Room { ref mut num_unassigned_clients, .. } = self.server_connection { *num_unassigned_clients -= 1 },
-            Message::Server(ServerMessage::PlayerName(world, name)) => if let ServerConnectionState::Room { ref mut players, .. } = self.server_connection {
-                if let Ok(idx) = players.binary_search_by_key(&world, |p| p.world) {
-                    players[idx].name = name;
-                }
-                if let Some(writer) = self.pj64_writer.clone() {
-                    return cmd(async move {
-                        subscriptions::ServerMessage::PlayerName(world, name).write(&mut *writer.lock().await).await?;
-                        Ok(Message::Nop)
-                    })
-                }
-            },
-            Message::Server(ServerMessage::ItemQueue(queue)) => if let ServerConnectionState::Room { ref mut item_queue, .. } = self.server_connection {
-                *item_queue = queue.clone();
-                if let Some(writer) = self.pj64_writer.clone() {
-                    return cmd(async move {
-                        subscriptions::ServerMessage::ItemQueue(queue).write(&mut *writer.lock().await).await?;
-                        Ok(Message::Nop)
-                    })
+                    ServerMessage::PlayerName(world, name) => if let Some(writer) = self.pj64_writer.clone() {
+                        return cmd(async move {
+                            subscriptions::ServerMessage::PlayerName(world, name).write(&mut *writer.lock().await).await?;
+                            Ok(Message::Nop)
+                        })
+                    },
+                    ServerMessage::ItemQueue(queue) => if let Some(writer) = self.pj64_writer.clone() {
+                        return cmd(async move {
+                            subscriptions::ServerMessage::ItemQueue(queue).write(&mut *writer.lock().await).await?;
+                            Ok(Message::Nop)
+                        })
+                    },
+                    ServerMessage::GetItem(item) => if let Some(writer) = self.pj64_writer.clone() {
+                        return cmd(async move {
+                            subscriptions::ServerMessage::GetItem(item).write(&mut *writer.lock().await).await?;
+                            Ok(Message::Nop)
+                        })
+                    },
+                    _ => {}
                 }
             }
-            Message::Server(ServerMessage::GetItem(item)) => if let ServerConnectionState::Room { ref mut item_queue, .. } = self.server_connection {
-                item_queue.push(item);
-                if let Some(writer) = self.pj64_writer.clone() {
-                    return cmd(async move {
-                        subscriptions::ServerMessage::GetItem(item).write(&mut *writer.lock().await).await?;
-                        Ok(Message::Nop)
-                    })
-                }
-            }
-            Message::Server(ServerMessage::AdminLoginSuccess { .. }) => unreachable!(),
-            Message::Server(ServerMessage::Goodbye) => if !matches!(self.server_connection, ServerConnectionState::Error { .. }) {
-                self.server_connection = ServerConnectionState::Closed;
-            },
             Message::ServerConnected(writer) => self.server_writer = Some(writer),
-            Message::ServerSubscriptionError(e) => if !matches!(self.server_connection, ServerConnectionState::Error { .. }) {
+            Message::ServerSubscriptionError(e) => if !matches!(self.server_connection, SessionState::Error { .. }) {
                 if e.is_network_error() {
                     if self.retry.elapsed() >= Duration::from_secs(60 * 60 * 24) {
                         self.wait_time = Duration::from_secs(1); // reset wait time after no error for a day
@@ -458,30 +359,30 @@ impl Application for State {
                     }
                     self.retry = Instant::now() + self.wait_time;
                     let retry = self.retry;
-                    let reconnect_msg = if let ServerConnectionState::Room { ref room_name, ref room_password, .. } = self.server_connection {
+                    let reconnect_msg = if let SessionState::Room { ref room_name, ref room_password, .. } = self.server_connection {
                         Message::ReconnectToRoom(room_name.clone(), room_password.clone())
                     } else {
                         Message::ReconnectToLobby
                     };
-                    self.server_connection = ServerConnectionState::Error {
+                    self.server_connection = SessionState::Error {
+                        e: SessionStateError::Connection(e),
                         auto_retry: true,
-                        e,
                     };
                     return cmd(async move {
                         sleep_until(retry).await;
                         Ok(reconnect_msg)
                     })
                 } else {
-                    self.server_connection = ServerConnectionState::Error {
+                    self.server_connection = SessionState::Error {
+                        e: SessionStateError::Connection(e),
                         auto_retry: false,
-                        e,
                     };
                 }
             },
-            Message::SetCreateNewRoom(new_val) => if let ServerConnectionState::Lobby { ref mut create_new_room, .. } = self.server_connection { *create_new_room = new_val },
-            Message::SetExistingRoomSelection(name) => if let ServerConnectionState::Lobby { ref mut existing_room_selection, .. } = self.server_connection { *existing_room_selection = Some(name) },
-            Message::SetNewRoomName(name) => if let ServerConnectionState::Lobby { ref mut new_room_name, .. } = self.server_connection { *new_room_name = name },
-            Message::SetPassword(new_password) => if let ServerConnectionState::Lobby { ref mut password, .. } = self.server_connection { *password = new_password },
+            Message::SetCreateNewRoom(new_val) => if let SessionState::Lobby { ref mut create_new_room, .. } = self.server_connection { *create_new_room = new_val },
+            Message::SetExistingRoomSelection(name) => if let SessionState::Lobby { ref mut existing_room_selection, .. } = self.server_connection { *existing_room_selection = Some(name) },
+            Message::SetNewRoomName(name) => if let SessionState::Lobby { ref mut new_room_name, .. } = self.server_connection { *new_room_name = name },
+            Message::SetPassword(new_password) => if let SessionState::Lobby { ref mut password, .. } = self.server_connection { *password = new_password },
             Message::UpToDate => self.updates_checked = true,
         }
         Command::none()
@@ -523,14 +424,14 @@ impl Application for State {
                 .into()
         } else {
             match self.server_connection {
-                ServerConnectionState::Error { auto_retry: false, ref e } => Column::new()
+                SessionState::Error { auto_retry: false, ref e } => Column::new()
                     .push(Text::new("An error occurred during communication with the server:").color(text_color))
                     .push(Text::new(e.to_string()).color(text_color))
                     .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")).color(text_color))
                     .spacing(8)
                     .padding(8)
                     .into(),
-                ServerConnectionState::Error { auto_retry: true, ref e } => Column::new()
+                SessionState::Error { auto_retry: true, ref e } => Column::new()
                     .push(Text::new("A network error occurred:").color(text_color))
                     .push(Text::new(e.to_string()).color(text_color))
                     .push(Text::new(if let Ok(retry) = chrono::Duration::from_std(self.retry.duration_since(Instant::now())) {
@@ -541,23 +442,23 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                ServerConnectionState::Init => Column::new()
+                SessionState::Init => Column::new()
                     .push(Text::new("Connecting to server…").color(text_color))
                     .spacing(8)
                     .padding(8)
                     .into(),
-                ServerConnectionState::InitAutoRejoin { .. } => Column::new()
+                SessionState::InitAutoRejoin { .. } => Column::new()
                     .push(Text::new("Reconnecting to room…").color(text_color))
                     .spacing(8)
                     .padding(8)
                     .into(),
-                ServerConnectionState::Lobby { wrong_password: true, .. } => Column::new()
+                SessionState::Lobby { wrong_password: true, .. } => Column::new()
                     .push(Text::new("wrong password").color(text_color))
                     .push(Button::new(Text::new("OK").color(text_color)).on_press(Message::DismissWrongPassword).style(Style(system_theme)))
                     .spacing(8)
                     .padding(8)
                     .into(),
-                ServerConnectionState::Lobby { wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password } => Column::new()
+                SessionState::Lobby { wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password } => Column::new()
                     .push(Radio::new(false, "Connect to existing room", Some(create_new_room), Message::SetCreateNewRoom).style(Style(system_theme)))
                     .push(Radio::new(true, "Create new room", Some(create_new_room), Message::SetCreateNewRoom).style(Style(system_theme)))
                     .push(if create_new_room {
@@ -582,14 +483,14 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                ServerConnectionState::Room { ref players, num_unassigned_clients, .. } => {
+                SessionState::Room { ref players, num_unassigned_clients, .. } => {
                     let mut col = Column::new();
-                    let (players, other) = format_room_state(players, num_unassigned_clients, self.player_id);
+                    let (players, other) = format_room_state(players, num_unassigned_clients, self.last_world);
                     for (player_idx, player) in players.into_iter().enumerate() {
                         let player_id = NonZeroU8::new(u8::try_from(player_idx + 1).expect("too many players")).expect("iterator index + 1 was 0");
                         let mut row = Row::new();
                         row = row.push(Text::new(player).color(text_color));
-                        if self.player_id.map_or(true, |my_id| my_id != player_id) {
+                        if self.last_world.map_or(true, |my_id| my_id != player_id) {
                             row = row.push(Button::new(Text::new("Kick").color(text_color)).on_press(Message::Kick(player_id)).style(Style(system_theme)));
                         }
                         col = col.push(row);
@@ -600,7 +501,7 @@ impl Application for State {
                         .padding(8)
                         .into()
                 }
-                ServerConnectionState::Closed => Column::new()
+                SessionState::Closed => Column::new()
                     .push(Text::new("You have been disconnected.").color(text_color))
                     .push(Button::new(Text::new("Reconnect").color(text_color)).on_press(Message::ReconnectToLobby).style(Style(system_theme)))
                     .spacing(8)
@@ -614,7 +515,7 @@ impl Application for State {
         let mut subscriptions = Vec::with_capacity(2);
         if self.updates_checked {
             subscriptions.push(Subscription::from_recipe(subscriptions::Pj64Listener));
-            if !matches!(self.server_connection, ServerConnectionState::Error { .. } | ServerConnectionState::Closed) {
+            if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
                 subscriptions.push(Subscription::from_recipe(subscriptions::Client));
             }
         }

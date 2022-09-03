@@ -2,10 +2,7 @@
 
 use {
     std::{
-        convert::{
-            TryFrom as _,
-            TryInto as _,
-        },
+        convert::TryInto as _,
         env,
         ffi::{
             CStr,
@@ -13,7 +10,6 @@ use {
         },
         fmt,
         fs,
-        mem,
         net::{
             TcpStream,
             ToSocketAddrs,
@@ -30,7 +26,6 @@ use {
         },
     },
     async_proto::Protocol,
-    chrono::prelude::*,
     directories::ProjectDirs,
     libc::c_char,
     semver::Version,
@@ -38,9 +33,10 @@ use {
         ClientMessage,
         Filename,
         IsNetworkError as _,
-        Player,
         ServerError,
         ServerMessage,
+        SessionState,
+        SessionStateError,
         format_room_state,
         github::Repo,
     },
@@ -124,63 +120,27 @@ impl<T> DebugResultExt for DebugResult<T> {
 }
 
 #[derive(Debug)]
-pub struct LobbyClient {
-    tcp_stream: Option<TcpStream>,
-    buf: Vec<u8>,
-    last_ping: Instant,
-    rooms: Vec<String>,
-}
-
-impl LobbyClient {
-    fn try_read<T: Protocol>(&mut self) -> Result<Option<T>, async_proto::ReadError> {
-        let tcp_stream = self.tcp_stream.as_mut().expect("no longer in lobby");
-        tcp_stream.set_nonblocking(true)?;
-        T::try_read(tcp_stream, &mut self.buf)
-    }
-
-    fn write(&mut self, msg: &impl Protocol) -> Result<(), async_proto::WriteError> {
-        let tcp_stream = self.tcp_stream.as_mut().expect("no longer in lobby");
-        tcp_stream.set_nonblocking(false)?;
-        msg.write_sync(tcp_stream)
-    }
-}
-
-#[derive(Debug)]
-pub struct RoomClient {
+pub struct Client {
+    session_state: SessionState<String>,
     tcp_stream: TcpStream,
     buf: Vec<u8>,
-    retrying: bool,
     retry: Instant,
     wait_time: Duration,
-    room_name: String,
-    room_password: String,
+    reconnect: Option<(String, String)>,
     last_ping: Instant,
-    players: Vec<Player>,
-    num_unassigned_clients: u8,
     last_world: Option<NonZeroU8>,
     last_name: Filename,
-    item_queue: Vec<u16>,
 }
 
-impl RoomClient {
-    fn try_read<T: Protocol>(&mut self) -> Result<Option<T>, async_proto::ReadError> {
+impl Client {
+    fn try_read(&mut self) -> Result<Option<ServerMessage>, async_proto::ReadError> {
         self.tcp_stream.set_nonblocking(true)?;
-        T::try_read(&mut self.tcp_stream, &mut self.buf)
+        ServerMessage::try_read(&mut self.tcp_stream, &mut self.buf)
     }
 
-    fn write(&mut self, msg: &impl Protocol) -> Result<(), async_proto::WriteError> {
+    fn write(&mut self, msg: &ClientMessage) -> Result<(), async_proto::WriteError> {
         self.tcp_stream.set_nonblocking(false)?;
         msg.write_sync(&mut self.tcp_stream)
-    }
-
-    fn set_retry(&mut self) {
-        self.retrying = true;
-        if self.retry.elapsed() >= Duration::from_secs(60 * 60 * 24) {
-            self.wait_time = Duration::from_secs(1); // reset wait time after no error for a day
-        } else {
-            self.wait_time *= 2; // exponential backoff
-        }
-        self.retry = Instant::now() + self.wait_time;
     }
 }
 
@@ -252,84 +212,43 @@ impl RoomClient {
     HandleOwned::new(inner())
 }
 
-fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<LobbyClient> {
+fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<TcpStream> {
     TcpStream::connect(addr)
         .map_err(DebugError::from)
         .and_then(|mut tcp_stream| {
             tcp_stream.set_read_timeout(Some(Duration::from_secs(30)))?;
             tcp_stream.set_write_timeout(Some(Duration::from_secs(30)))?;
             multiworld::handshake_sync(&mut tcp_stream)?;
-            let rooms = loop {
-                match ServerMessage::read_sync(&mut tcp_stream)? {
-                    ServerMessage::Ping => {}
-                    ServerMessage::StructuredError(ServerError::Future(discrim)) => return Err(DebugError(format!("server error #{discrim}"))),
-                    ServerMessage::OtherError(e) => return Err(DebugError(e)),
-                    ServerMessage::EnterLobby { rooms } => break rooms,
-                    ServerMessage::Goodbye => return Err(DebugError(format!("session ended by server"))),
-                    ServerMessage::StructuredError(ServerError::WrongPassword) |
-                    ServerMessage::NewRoom(_) |
-                    ServerMessage::EnterRoom { .. } |
-                    ServerMessage::PlayerId(_) |
-                    ServerMessage::ResetPlayerId(_) |
-                    ServerMessage::ClientConnected |
-                    ServerMessage::PlayerDisconnected(_) |
-                    ServerMessage::UnregisteredClientDisconnected |
-                    ServerMessage::PlayerName(_, _) |
-                    ServerMessage::ItemQueue(_) |
-                    ServerMessage::GetItem(_) |
-                    ServerMessage::AdminLoginSuccess { .. } => unreachable!(),
-                }
-            };
-            Ok(LobbyClient {
-                tcp_stream: Some(tcp_stream),
-                buf: Vec::default(),
-                last_ping: Instant::now(),
-                rooms: rooms.into_iter().collect(),
-            })
+            Ok(tcp_stream)
         })
 }
 
-#[no_mangle] pub extern "C" fn connect_ipv4() -> HandleOwned<DebugResult<LobbyClient>> {
-    HandleOwned::new(connect_inner((multiworld::ADDRESS_V4, multiworld::PORT)))
+#[no_mangle] pub extern "C" fn connect_ipv4() -> HandleOwned<DebugResult<Client>> {
+    HandleOwned::new(connect_inner((multiworld::ADDRESS_V4, multiworld::PORT)).map(|tcp_stream| Client {
+        session_state: SessionState::Init,
+        buf: Vec::default(),
+        retry: Instant::now(),
+        wait_time: Duration::from_secs(1),
+        reconnect: None,
+        last_ping: Instant::now(),
+        last_world: None,
+        last_name: Filename::default(),
+        tcp_stream,
+    }))
 }
 
-#[no_mangle] pub extern "C" fn connect_ipv6() -> HandleOwned<DebugResult<LobbyClient>> {
-    HandleOwned::new(connect_inner((multiworld::ADDRESS_V6, multiworld::PORT)))
-}
-
-/// # Safety
-///
-/// `lobby_client_res` must point at a valid `DebugResult<LobbyClient>`. This function takes ownership of the `DebugResult`.
-#[no_mangle] pub unsafe extern "C" fn lobby_client_result_free(lobby_client_res: HandleOwned<DebugResult<LobbyClient>>) {
-    let _ = lobby_client_res.into_box();
-}
-
-/// # Safety
-///
-/// `lobby_client_res` must point at a valid `DebugResult<LobbyClient>`.
-#[no_mangle] pub unsafe extern "C" fn lobby_client_result_is_ok(lobby_client_res: *const DebugResult<LobbyClient>) -> FfiBool {
-    (&*lobby_client_res).is_ok().into()
-}
-
-/// # Safety
-///
-/// `lobby_client_res` must point at a valid `DebugResult<LobbyClient>`. This function takes ownership of the `DebugResult`.
-#[no_mangle] pub unsafe extern "C" fn lobby_client_result_unwrap(lobby_client_res: HandleOwned<DebugResult<LobbyClient>>) -> HandleOwned<LobbyClient> {
-    HandleOwned::new(lobby_client_res.into_box().debug_unwrap())
-}
-
-/// # Safety
-///
-/// `lobby_client` must point at a valid `LobbyClient`. This function takes ownership of the `LobbyClient`.
-#[no_mangle] pub unsafe extern "C" fn lobby_client_free(lobby_client: HandleOwned<LobbyClient>) {
-    let _ = lobby_client.into_box();
-}
-
-/// # Safety
-///
-/// `lobby_client_res` must point at a valid `DebugResult<LobbyClient>`. This function takes ownership of the `DebugResult`.
-#[no_mangle] pub unsafe extern "C" fn lobby_client_result_debug_err(lobby_client_res: HandleOwned<DebugResult<LobbyClient>>) -> StringHandle {
-    StringHandle::from_string(lobby_client_res.into_box().unwrap_err())
+#[no_mangle] pub extern "C" fn connect_ipv6() -> HandleOwned<DebugResult<Client>> {
+    HandleOwned::new(connect_inner((multiworld::ADDRESS_V6, multiworld::PORT)).map(|tcp_stream| Client {
+        session_state: SessionState::Init,
+        buf: Vec::default(),
+        retry: Instant::now(),
+        wait_time: Duration::from_secs(1),
+        reconnect: None,
+        last_ping: Instant::now(),
+        last_world: None,
+        last_name: Filename::default(),
+        tcp_stream,
+    }))
 }
 
 /// # Safety
@@ -341,49 +260,34 @@ fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<LobbyClient> {
 
 /// # Safety
 ///
-/// `lobby_client` must point at a valid `LobbyClient`.
-#[no_mangle] pub unsafe extern "C" fn lobby_client_num_rooms(lobby_client: *const LobbyClient) -> u64 {
-    (&*lobby_client).rooms.len().try_into().expect("too many rooms")
-}
-
-/// # Safety
-///
-/// `lobby_client` must point at a valid `LobbyClient`.
+/// `client` must point at a valid `Client`.
 ///
 /// # Panics
 ///
-/// If `i` is out of range.
-#[no_mangle] pub unsafe extern "C" fn lobby_client_room_name(lobby_client: *const LobbyClient, i: u64) -> StringHandle {
-    StringHandle::from_string(&(&*lobby_client).rooms[usize::try_from(i).expect("index out of range")])
+/// If `client` is not in the lobby.
+#[no_mangle] pub unsafe extern "C" fn client_num_rooms(client: *const Client) -> u64 {
+    let client = &*client;
+    if let SessionState::Lobby { ref rooms, .. } = client.session_state {
+        rooms.len().try_into().expect("too many rooms")
+    } else {
+        panic!("client is not in the lobby")
+    }
 }
 
-/// Attempts to read a message from the server if one is available, without blocking if there is not. Returns the name of the newly opened room, or an empty string if none was opened.
-///
 /// # Safety
 ///
-/// `lobby_client` must point at a valid `LobbyClient`.
-#[no_mangle] pub unsafe extern "C" fn lobby_client_try_recv_new_room(lobby_client: *mut LobbyClient) -> HandleOwned<DebugResult<String>> {
-    let lobby_client = &mut *lobby_client;
-    if lobby_client.last_ping.elapsed() >= Duration::from_secs(30) {
-        if let Err(e) = lobby_client.write(&ClientMessage::Ping) {
-            return HandleOwned::new(Err(DebugError::from(e)))
-        }
-        lobby_client.last_ping = Instant::now();
+/// `client` must point at a valid `Client`.
+///
+/// # Panics
+///
+/// If `client` is not in the lobby or `i` is out of range.
+#[no_mangle] pub unsafe extern "C" fn client_room_name(client: *const Client, i: u64) -> StringHandle {
+    let client = &*client;
+    if let SessionState::Lobby { ref rooms, .. } = client.session_state {
+        StringHandle::from_string(rooms.iter().nth(i.try_into().expect("index out of range")).expect("index out of range"))
+    } else {
+        panic!("client is not in the lobby")
     }
-    HandleOwned::new(match lobby_client.try_read() {
-        Ok(Some(ServerMessage::StructuredError(ServerError::WrongPassword))) => Err(DebugError(format!("wrong password"))),
-        Ok(Some(ServerMessage::StructuredError(ServerError::Future(discrim)))) => Err(DebugError(format!("server error #{discrim}"))),
-        Ok(Some(ServerMessage::OtherError(e))) => Err(DebugError(e)),
-        Ok(None | Some(ServerMessage::Ping)) => Ok(String::default()),
-        Ok(Some(ServerMessage::NewRoom(name))) => {
-            if let Err(idx) = lobby_client.rooms.binary_search(&name) {
-                lobby_client.rooms.insert(idx, name.clone());
-            }
-            Ok(name)
-        }
-        Ok(Some(msg)) => Err(DebugError(format!("{msg:?}"))),
-        Err(e) => Err(DebugError::from(e)),
-    })
 }
 
 /// # Safety
@@ -414,50 +318,25 @@ fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<LobbyClient> {
     StringHandle::from_string(str_res.into_box().unwrap_err())
 }
 
-fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: String, room_password: String) -> DebugResult<RoomClient> {
-    if lobby_client.rooms.contains(&room_name) {
-        lobby_client.write(&ClientMessage::JoinRoom { name: room_name.clone(), password: room_password.clone() })
-    } else {
-        lobby_client.write(&ClientMessage::CreateRoom { name: room_name.clone(), password: room_password.clone() })
-    }.map_err(DebugError::from)
-    .and_then(|()| if lobby_client.buf.is_empty() {
-        Ok(())
-    } else {
-        Err(DebugError(format!("residual data in lobby client buffer upon room join"))) //TODO add blocking read with buffer prefix to async-proto?
-    })
-    .and_then(|()| loop {
-        break match ServerMessage::read_sync(lobby_client.tcp_stream.as_mut().expect("no longer in lobby")) {
-            Ok(ServerMessage::StructuredError(ServerError::WrongPassword)) => Err(DebugError(format!("wrong password"))),
-            Ok(ServerMessage::StructuredError(ServerError::Future(discrim))) => Err(DebugError(format!("server error #{discrim}"))),
-            Ok(ServerMessage::OtherError(e)) => Err(DebugError(e)),
-            Ok(ServerMessage::NewRoom(_)) => continue,
-            Ok(ServerMessage::EnterRoom { players, num_unassigned_clients }) => Ok((players, num_unassigned_clients)),
-            Ok(msg) => Err(DebugError(format!("{msg:?}"))),
-            Err(e) => Err(DebugError::from(e)),
+fn client_room_connect_inner(client: &mut Client, room_name: String, room_password: String) -> DebugResult<()> {
+    if let SessionState::Lobby { ref rooms, .. } = client.session_state {
+        if rooms.contains(&room_name) {
+            client.write(&ClientMessage::JoinRoom { name: room_name.clone(), password: room_password.clone() })?;
+        } else {
+            client.write(&ClientMessage::CreateRoom { name: room_name.clone(), password: room_password.clone() })?;
         }
-    })
-    .map(|(players, num_unassigned_clients)| {
-        RoomClient {
-            tcp_stream: lobby_client.tcp_stream.take().expect("no longer in lobby"),
-            buf: Vec::default(),
-            retrying: false,
-            retry: Instant::now(),
-            wait_time: Duration::from_secs(1),
-            last_ping: Instant::now(),
-            last_world: None,
-            last_name: Filename::default(),
-            item_queue: Vec::default(),
-            room_name, room_password, players, num_unassigned_clients,
-        }
-    })
+    } else {
+        return Err(DebugError(format!("tried to connect to a room while not in lobby")))
+    }
+    Ok(())
 }
 
 /// # Safety
 ///
-/// `lobby_client` must point at a valid `LobbyClient`. `room_name` and `password` must be null-terminated UTF-8 strings.
-#[no_mangle] pub unsafe extern "C" fn lobby_client_room_connect(lobby_client: *mut LobbyClient, room_name: *const c_char, room_password: *const c_char) -> HandleOwned<DebugResult<RoomClient>> {
-    HandleOwned::new(lobby_client_room_connect_inner(
-        &mut *lobby_client,
+/// `client` must point at a valid `Client`. `room_name` and `password` must be null-terminated UTF-8 strings.
+#[no_mangle] pub unsafe extern "C" fn client_room_connect(client: *mut Client, room_name: *const c_char, room_password: *const c_char) -> HandleOwned<DebugResult<()>> {
+    HandleOwned::new(client_room_connect_inner(
+        &mut *client,
         CStr::from_ptr(room_name).to_str().expect("room name was not valid UTF-8").to_owned(),
         CStr::from_ptr(room_password).to_str().expect("room name was not valid UTF-8").to_owned(),
     ))
@@ -465,59 +344,62 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
 
 /// # Safety
 ///
-/// `room_client_res` must point at a valid `DebugResult<RoomClient>`. This function takes ownership of the `DebugResult`.
-#[no_mangle] pub unsafe extern "C" fn room_client_result_free(room_client_res: HandleOwned<DebugResult<RoomClient>>) {
-    let _ = room_client_res.into_box();
+/// `client_res` must point at a valid `DebugResult<Client>`. This function takes ownership of the `DebugResult`.
+#[no_mangle] pub unsafe extern "C" fn client_result_free(client_res: HandleOwned<DebugResult<Client>>) {
+    let _ = client_res.into_box();
 }
 
 /// # Safety
 ///
-/// `room_client_res` must point at a valid `DebugResult<RoomClient>`.
-#[no_mangle] pub unsafe extern "C" fn room_client_result_is_ok(room_client_res: *const DebugResult<RoomClient>) -> FfiBool {
-    (&*room_client_res).is_ok().into()
+/// `client_res` must point at a valid `DebugResult<Client>`.
+#[no_mangle] pub unsafe extern "C" fn client_result_is_ok(client_res: *const DebugResult<Client>) -> FfiBool {
+    (&*client_res).is_ok().into()
 }
 
 /// # Safety
 ///
-/// `room_client_res` must point at a valid `DebugResult<RoomClient>`. This function takes ownership of the `DebugResult`.
-#[no_mangle] pub unsafe extern "C" fn room_client_result_unwrap(room_client_res: HandleOwned<DebugResult<RoomClient>>) -> HandleOwned<RoomClient> {
-    HandleOwned::new(room_client_res.into_box().debug_unwrap())
+/// `client_res` must point at a valid `DebugResult<Client>`. This function takes ownership of the `DebugResult`.
+#[no_mangle] pub unsafe extern "C" fn client_result_unwrap(client_res: HandleOwned<DebugResult<Client>>) -> HandleOwned<Client> {
+    HandleOwned::new(client_res.into_box().debug_unwrap())
 }
 
 /// # Safety
 ///
-/// `room_client` must point at a valid `RoomClient`. This function takes ownership of the `RoomClient`.
-#[no_mangle] pub unsafe extern "C" fn room_client_free(room_client: HandleOwned<RoomClient>) {
-    let _ = room_client.into_box();
+/// `client` must point at a valid `Client`. This function takes ownership of the `Client`.
+#[no_mangle] pub unsafe extern "C" fn client_free(client: HandleOwned<Client>) {
+    let _ = client.into_box();
 }
 
 /// # Safety
 ///
-/// `room_client_res` must point at a valid `DebugResult<RoomClient>`. This function takes ownership of the `DebugResult`.
-#[no_mangle] pub unsafe extern "C" fn room_client_result_debug_err(room_client_res: HandleOwned<DebugResult<RoomClient>>) -> StringHandle {
-    StringHandle::from_string(room_client_res.into_box().unwrap_err())
+/// `client_res` must point at a valid `DebugResult<Client>`. This function takes ownership of the `DebugResult`.
+#[no_mangle] pub unsafe extern "C" fn client_result_debug_err(client_res: HandleOwned<DebugResult<Client>>) -> StringHandle {
+    StringHandle::from_string(client_res.into_box().unwrap_err())
 }
 
 /// # Safety
 ///
-/// `room_client` must point at a valid `RoomClient`.
+/// `client` must point at a valid `Client`.
 ///
 /// # Panics
 ///
 /// If `id` is `0`.
-#[no_mangle] pub unsafe extern "C" fn room_client_set_player_id(room_client: *mut RoomClient, id: u8) -> HandleOwned<DebugResult<()>> {
-    let room_client = &mut *room_client;
+#[no_mangle] pub unsafe extern "C" fn client_set_player_id(client: *mut Client, id: u8) -> HandleOwned<DebugResult<()>> {
+    let client = &mut *client;
     let id = NonZeroU8::new(id).expect("tried to claim world 0");
-    HandleOwned::new(if room_client.last_world != Some(id) {
-        room_client.last_world = Some(id);
-        room_client.write(&ClientMessage::PlayerId(id)).and_then(|()| if room_client.last_name != Filename::default() {
-            room_client.write(&ClientMessage::PlayerName(room_client.last_name))
-        } else {
-            Ok(())
-        }).map_err(DebugError::from)
-    } else {
-        Ok(())
-    })
+
+    let new_player_name = (client.last_world.replace(id).is_none() && client.last_name != Filename::default()).then_some(client.last_name);
+    if let SessionState::Room { .. } = client.session_state {
+        if let Err(e) = client.write(&ClientMessage::PlayerId(id)) {
+            return HandleOwned::new(Err(e.into()))
+        }
+        if let Some(new_player_name) = new_player_name {
+            if let Err(e) = client.write(&ClientMessage::PlayerName(new_player_name)) {
+                return HandleOwned::new(Err(e.into()))
+            }
+        }
+    }
+    HandleOwned::new(Ok(()))
 }
 
 /// # Safety
@@ -543,12 +425,12 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
 
 /// # Safety
 ///
-/// `room_client` must point at a valid `RoomClient`.
-#[no_mangle] pub unsafe extern "C" fn room_client_reset_player_id(room_client: *mut RoomClient) -> HandleOwned<DebugResult<()>> {
-    let room_client = &mut *room_client;
-    HandleOwned::new(if room_client.last_world != None {
-        room_client.last_world = None;
-        room_client.write(&ClientMessage::ResetPlayerId).map_err(DebugError::from)
+/// `client` must point at a valid `Client`.
+#[no_mangle] pub unsafe extern "C" fn client_reset_player_id(client: *mut Client) -> HandleOwned<DebugResult<()>> {
+    let client = &mut *client;
+    HandleOwned::new(if client.last_world != None {
+        client.last_world = None;
+        client.write(&ClientMessage::ResetPlayerId).map_err(DebugError::from)
     } else {
         Ok(())
     })
@@ -556,84 +438,105 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
 
 /// # Safety
 ///
-/// `room_client` must point at a valid `RoomClient`. `name` must point at a byte slice of length 8.
-#[no_mangle] pub unsafe extern "C" fn room_client_set_player_name(room_client: *mut RoomClient, name: *const u8) -> HandleOwned<DebugResult<()>> {
-    let room_client = &mut *room_client;
+/// `client` must point at a valid `Client`. `name` must point at a byte slice of length 8.
+#[no_mangle] pub unsafe extern "C" fn client_set_player_name(client: *mut Client, name: *const u8) -> HandleOwned<DebugResult<()>> {
+    let client = &mut *client;
     let name = slice::from_raw_parts(name, 8);
-    HandleOwned::new(if room_client.last_name != name {
-        room_client.last_name = name.try_into().expect("player names are 8 bytes");
-        if room_client.last_world.is_some() {
-            room_client.write(&ClientMessage::PlayerName(room_client.last_name)).map_err(DebugError::from)
-        } else {
-            Ok(())
+
+    if client.last_name != name {
+        client.last_name = name.try_into().expect("player names are 8 bytes");
+        if client.last_world.is_some() {
+            if let SessionState::Room { .. } = client.session_state {
+                if let Err(e) = client.write(&ClientMessage::PlayerName(client.last_name)) {
+                    return HandleOwned::new(Err(e.into()))
+                }
+            }
         }
-    } else {
-        Ok(())
-    })
+    }
+    HandleOwned::new(Ok(()))
 }
 
 /// # Safety
 ///
-/// `room_client` must point at a valid `RoomClient`.
-#[no_mangle] pub unsafe extern "C" fn room_client_num_players(room_client: *const RoomClient) -> u8 {
-    let room_client = &*room_client;
-    if room_client.retrying {
-        0
+/// `client` must point at a valid `Client`.
+#[no_mangle] pub unsafe extern "C" fn client_num_players(client: *const Client) -> u8 {
+    let client = &*client;
+    if let SessionState::Room { ref players, .. } = client.session_state {
+        players.len().try_into().expect("too many players")
     } else {
-        room_client.players.len().try_into().expect("too many players")
+        0
     }
 }
 
 /// # Safety
 ///
-/// `room_client` must point at a valid `RoomClient`.
-#[no_mangle] pub unsafe extern "C" fn room_client_player_state(room_client: *const RoomClient, player_idx: u8) -> StringHandle {
-    let room_client = &*room_client;
-    let (mut players, _) = format_room_state(&room_client.players, room_client.num_unassigned_clients, room_client.last_world);
-    StringHandle::from_string(players.remove(usize::from(player_idx)))
-}
-
-/// # Safety
+/// `client` must point at a valid `Client`.
 ///
-/// `room_client` must point at a valid `RoomClient`.
-#[no_mangle] pub unsafe extern "C" fn room_client_other_state(room_client: *const RoomClient) -> StringHandle {
-    let room_client = &*room_client;
-    StringHandle::from_string(if room_client.retrying {
-        if let Ok(retry) = chrono::Duration::from_std(room_client.retry.duration_since(Instant::now())) {
-            format!("Reconnecting at {}", (Local::now() + retry).format("%H:%M:%S"))
-        } else {
-            format!("Reconnecting…")
-        }
+/// # Panics
+///
+/// If `client` is not in a room or `player_idx` is out of range.
+#[no_mangle] pub unsafe extern "C" fn client_player_state(client: *const Client, player_idx: u8) -> StringHandle {
+    let client = &*client;
+    if let SessionState::Room { ref players, num_unassigned_clients, .. } = client.session_state {
+        let (mut players, _) = format_room_state(players, num_unassigned_clients, client.last_world);
+        StringHandle::from_string(players.remove(usize::from(player_idx)))
     } else {
-        let (_, other) = format_room_state(&room_client.players, room_client.num_unassigned_clients, room_client.last_world);
-        other
-    })
+        panic!("client is not in a room")
+    }
 }
 
 /// # Safety
 ///
-/// `room_client` must point at a valid `RoomClient`.
-#[no_mangle] pub unsafe extern "C" fn room_client_kick_player(room_client: *mut RoomClient, player_idx: u8) -> HandleOwned<DebugResult<()>> {
-    let room_client = &mut *room_client;
-    let target_world = room_client.players[usize::from(player_idx)].world;
-    HandleOwned::new(room_client.write(&ClientMessage::KickPlayer(target_world)).map_err(DebugError::from))
+/// `client` must point at a valid `Client`.
+///
+/// # Panics
+///
+/// If `client` is not in a room.
+#[no_mangle] pub unsafe extern "C" fn client_other_room_state(client: *const Client) -> StringHandle {
+    let client = &*client;
+    if let SessionState::Room { ref players, num_unassigned_clients, .. } = client.session_state {
+        let (_, other) = format_room_state(players, num_unassigned_clients, client.last_world);
+        StringHandle::from_string(other)
+    } else {
+        panic!("client is not in a room")
+    }
+}
+
+/// # Safety
+///
+/// `client` must point at a valid `Client`.
+///
+/// # Panics
+///
+/// If `client` is not in a room.
+#[no_mangle] pub unsafe extern "C" fn client_kick_player(client: *mut Client, player_idx: u8) -> HandleOwned<DebugResult<()>> {
+    let client = &mut *client;
+    if let SessionState::Room { ref players, .. } = client.session_state {
+        let target_world = players[usize::from(player_idx)].world;
+        HandleOwned::new(client.write(&ClientMessage::KickPlayer(target_world)).map_err(DebugError::from))
+    } else {
+        panic!("client is not in a room")
+    }
 }
 
 /// Attempts to read a message from the server if one is available, without blocking if there is not.
 ///
 /// # Safety
 ///
-/// `room_client` must point at a valid `RoomClient`.
-#[no_mangle] pub unsafe extern "C" fn room_client_try_recv_message(room_client: *mut RoomClient) -> HandleOwned<DebugResult<Option<ServerMessage>>> {
-    let room_client = &mut *room_client;
-    HandleOwned::new(if room_client.retrying {
-        if room_client.retry <= Instant::now() {
-            let mut lobby_client = match connect_inner((multiworld::ADDRESS_V6, multiworld::PORT)).or_else(|_| connect_inner((multiworld::ADDRESS_V4, multiworld::PORT))) {
-                Ok(lobby_client) => lobby_client,
-                Err(e) => return HandleOwned::new(Err(e)),
-            };
-            *room_client = match lobby_client_room_connect_inner(&mut lobby_client, mem::take(&mut room_client.room_name), mem::take(&mut room_client.room_password)) {
-                Ok(new_room_client) => new_room_client,
+/// `client` must point at a valid `Client`.
+#[no_mangle] pub unsafe extern "C" fn client_try_recv_message(client: *mut Client) -> HandleOwned<DebugResult<Option<ServerMessage>>> {
+    let client = &mut *client;
+    HandleOwned::new(if let SessionState::Error { auto_retry: true, .. } = client.session_state {
+        if client.retry <= Instant::now() {
+            match connect_inner((multiworld::ADDRESS_V6, multiworld::PORT)).or_else(|_| connect_inner((multiworld::ADDRESS_V4, multiworld::PORT))) {
+                Ok(tcp_stream) => {
+                    client.tcp_stream = tcp_stream;
+                    if let Some((room_name, room_password)) = client.reconnect.take() {
+                        if let Err(e) = client_room_connect_inner(client, room_name, room_password) {
+                            return HandleOwned::new(Err(e))
+                        }
+                    }
+                }
                 Err(e) => return HandleOwned::new(Err(e)),
             };
             Ok(None)
@@ -641,24 +544,59 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
             Ok(None)
         }
     } else {
-        if room_client.last_ping.elapsed() >= Duration::from_secs(30) {
-            if let Err(e) = room_client.write(&ClientMessage::Ping) {
+        if client.last_ping.elapsed() >= Duration::from_secs(30) {
+            if let Err(e) = client.write(&ClientMessage::Ping) {
                 return HandleOwned::new(Err(DebugError::from(e)))
             }
-            room_client.last_ping = Instant::now();
+            client.last_ping = Instant::now();
         }
-        match room_client.try_read() {
-            Ok(Some(ServerMessage::StructuredError(ServerError::WrongPassword))) => Err(DebugError(format!("wrong password"))),
-            Ok(Some(ServerMessage::StructuredError(ServerError::Future(discrim)))) => Err(DebugError(format!("server error #{discrim}"))),
+        match client.try_read() {
+            Ok(Some(ServerMessage::StructuredError(e))) => match e {
+                ServerError::WrongPassword => Err(DebugError(format!("wrong password"))),
+                ServerError::Future(discrim) => Err(DebugError(format!("server error #{discrim}"))),
+            },
             Ok(Some(ServerMessage::OtherError(e))) => Err(DebugError(e)),
-            Ok(Some(ServerMessage::Ping)) => Ok(None),
-            Ok(Some(ServerMessage::Goodbye)) => {
-                room_client.set_retry(); //TODO only automatically reconnect to lobby, not the room from which we were kicked?
-                Ok(None)
+            Ok(None | Some(ServerMessage::Ping)) => Ok(None),
+            Ok(Some(msg)) => {
+                client.session_state.apply(msg.clone());
+                match msg {
+                    ServerMessage::EnterLobby { .. } => if let SessionState::Lobby { existing_room_selection: Some(ref room_name), ref password, .. } = client.session_state {
+                        if let Err(e) = client_room_connect_inner(client, room_name.clone(), password.clone()) {
+                            return HandleOwned::new(Err(e))
+                        }
+                    },
+                    ServerMessage::EnterRoom { .. } => if let Some(last_world) = client.last_world {
+                        if let Err(e) = client.write(&ClientMessage::PlayerId(last_world)) {
+                            return HandleOwned::new(Err(DebugError::from(e)))
+                        }
+                        if client.last_name != Filename::default() {
+                            if let Err(e) = client.write(&ClientMessage::PlayerName(client.last_name)) {
+                                return HandleOwned::new(Err(DebugError::from(e)))
+                            }
+                        }
+                    },
+                    ServerMessage::Goodbye => {
+                        let _ = client.tcp_stream.shutdown(std::net::Shutdown::Both);
+                        client.session_state = SessionState::Closed;
+                    }
+                    _ => {}
+                }
+                Ok(Some(msg))
             }
-            Ok(opt_msg) => Ok(opt_msg),
             Err(e) if e.is_network_error() => {
-                room_client.set_retry();
+                if client.retry.elapsed() >= Duration::from_secs(60 * 60 * 24) {
+                    client.wait_time = Duration::from_secs(1); // reset wait time after no error for a day
+                } else {
+                    client.wait_time *= 2; // exponential backoff
+                }
+                client.retry = Instant::now() + client.wait_time;
+                if let SessionState::Room { ref room_name, ref room_password, .. } = client.session_state {
+                    client.reconnect = Some((room_name.clone(), room_password.clone()));
+                }
+                client.session_state = SessionState::Error {
+                    e: SessionStateError::Connection(e.to_string()),
+                    auto_retry: true,
+                };
                 Ok(None)
             }
             Err(e) => Err(DebugError::from(e)),
@@ -683,8 +621,8 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
 /// # Safety
 ///
 /// `opt_msg_res` must point at a valid `DebugResult<Option<ServerMessage>>>`. This function takes ownership of the `DebugResult`.
-#[no_mangle] pub unsafe extern "C" fn opt_message_result_unwrap_unwrap(room_client_res: HandleOwned<DebugResult<Option<ServerMessage>>>) -> HandleOwned<ServerMessage> {
-    HandleOwned::new(room_client_res.into_box().debug_unwrap().unwrap())
+#[no_mangle] pub unsafe extern "C" fn opt_message_result_unwrap_unwrap(opt_msg_res: HandleOwned<DebugResult<Option<ServerMessage>>>) -> HandleOwned<ServerMessage> {
+    HandleOwned::new(opt_msg_res.into_box().debug_unwrap().unwrap())
 }
 
 /// # Safety
@@ -724,12 +662,14 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
 
 #[repr(u8)]
 pub enum MessageEffectType {
-    /// This message should never be received by the room client.
+    /// This message should never be received by the BizHawk client.
     Error = 0,
-    /// This message changes the room state.
-    ChangeRoomState = 1,
+    /// This message enters the lobby or changes the lobby state.
+    ChangeLobbyState = 1,
+    /// This message enters a room or changes the room state.
+    ChangeRoomState = 2,
     /// This message sets the player name for a world and changes the room state.
-    SetPlayerNameChangeRoomState = 2,
+    SetPlayerNameChangeRoomState = 3,
 }
 
 /// # Safety
@@ -740,11 +680,11 @@ pub enum MessageEffectType {
     match msg {
         ServerMessage::StructuredError(_) |
         ServerMessage::OtherError(_) |
-        ServerMessage::EnterLobby { .. } | //TODO
-        ServerMessage::NewRoom(_) |
         ServerMessage::AdminLoginSuccess { .. } |
         ServerMessage::Goodbye |
         ServerMessage::Ping => MessageEffectType::Error,
+        ServerMessage::EnterLobby { .. } |
+        ServerMessage::NewRoom(_) => MessageEffectType::ChangeLobbyState,
         ServerMessage::EnterRoom { .. } |
         ServerMessage::PlayerId(_) |
         ServerMessage::ResetPlayerId(_) |
@@ -804,80 +744,62 @@ pub enum MessageEffectType {
 
 /// # Safety
 ///
-/// `room_client` must point at a valid `RoomClient`, and `msg` must point at a valid `ServerMessage`. This function takes ownership of the `ServerMessage`.
-#[no_mangle] pub unsafe extern "C" fn room_client_apply_message(room_client: *mut RoomClient, msg: HandleOwned<ServerMessage>) {
-    let room_client = &mut *room_client;
-    match *msg.into_box() {
-        ServerMessage::StructuredError(_) | ServerMessage::OtherError(_) | ServerMessage::EnterLobby { .. } | ServerMessage::NewRoom(_) | ServerMessage::AdminLoginSuccess { .. } => unreachable!(),
-        ServerMessage::EnterRoom { players, num_unassigned_clients } => {
-            room_client.players = players;
-            room_client.num_unassigned_clients = num_unassigned_clients;
-        }
-        ServerMessage::PlayerId(world) => if let Err(idx) = room_client.players.binary_search_by_key(&world, |p| p.world) {
-            room_client.players.insert(idx, Player::new(world));
-            room_client.num_unassigned_clients -= 1;
-        },
-        ServerMessage::ResetPlayerId(world) => if let Ok(idx) = room_client.players.binary_search_by_key(&world, |p| p.world) {
-            room_client.players.remove(idx);
-            room_client.num_unassigned_clients += 1;
-        },
-        ServerMessage::ClientConnected => room_client.num_unassigned_clients += 1,
-        ServerMessage::PlayerDisconnected(world) => if let Ok(idx) = room_client.players.binary_search_by_key(&world, |p| p.world) {
-            room_client.players.remove(idx);
-        },
-        ServerMessage::UnregisteredClientDisconnected => room_client.num_unassigned_clients -= 1,
-        ServerMessage::PlayerName(world, name) => if let Ok(idx) = room_client.players.binary_search_by_key(&world, |p| p.world) {
-            room_client.players[idx].name = name;
-        },
-        ServerMessage::ItemQueue(queue) => room_client.item_queue = queue,
-        ServerMessage::GetItem(item) => room_client.item_queue.push(item),
-        ServerMessage::Goodbye => { let _ = room_client.tcp_stream.shutdown(std::net::Shutdown::Both); }
-        ServerMessage::Ping => {}
+/// `client` must point at a valid `Client`.
+#[no_mangle] pub unsafe extern "C" fn client_send_item(client: *mut Client, key: u32, kind: u16, target_world: u8) -> HandleOwned<DebugResult<()>> {
+    let client = &mut *client;
+    let target_world = NonZeroU8::new(target_world).expect("tried to send an item to world 0");
+    HandleOwned::new(client.write(&ClientMessage::SendItem { key, kind, target_world }).map_err(DebugError::from))
+}
+
+/// # Safety
+///
+/// `client` must point at a valid `Client`.
+///
+/// # Panics
+///
+/// If `client` is not in a room.
+#[no_mangle] pub unsafe extern "C" fn client_item_queue_len(client: *const Client) -> u16 {
+    let client = &*client;
+    if let SessionState::Room { ref item_queue, .. } = client.session_state {
+        item_queue.len() as u16
+    } else {
+        panic!("client is not in a room")
     }
 }
 
 /// # Safety
 ///
-/// `room_client` must point at a valid `RoomClient`.
-#[no_mangle] pub unsafe extern "C" fn room_client_send_item(room_client: *mut RoomClient, key: u32, kind: u16, target_world: u8) -> HandleOwned<DebugResult<()>> {
-    let room_client = &mut *room_client;
-    let target_world = NonZeroU8::new(target_world).expect("tried to send an item to world 0");
-    HandleOwned::new(room_client.write(&ClientMessage::SendItem { key, kind, target_world }).map_err(DebugError::from))
-}
-
-/// # Safety
-///
-/// `room_client` must point at a valid `RoomClient`.
-#[no_mangle] pub unsafe extern "C" fn room_client_item_queue_len(room_client: *const RoomClient) -> u16 {
-    let room_client = &*room_client;
-    room_client.item_queue.len() as u16
-}
-
-/// # Safety
-///
-/// `room_client` must point at a valid `RoomClient`.
+/// `client` must point at a valid `Client`.
 ///
 /// # Panics
 ///
-/// If `index` is out of range.
-#[no_mangle] pub unsafe extern "C" fn room_client_item_kind_at_index(room_client: *const RoomClient, index: u16) -> u16 {
-    let room_client = &*room_client;
-    room_client.item_queue[usize::from(index)]
-}
-
-/// # Safety
-///
-/// `room_client` must point at a valid `RoomClient`.
-///
-/// # Panics
-///
-/// If `world` is `0`.
-#[no_mangle] pub unsafe extern "C" fn room_client_get_player_name(room_client: *const RoomClient, world: u8) -> *const u8 {
-    let room_client = &*room_client;
-    let world = NonZeroU8::new(world).expect("tried to get player name for world 0");
-    if let Some(player) = room_client.players.iter().find(|p| p.world == world) {
-        player.name.0.as_ptr()
+/// If `client` is not in a room or `index` is out of range.
+#[no_mangle] pub unsafe extern "C" fn client_item_kind_at_index(client: *const Client, index: u16) -> u16 {
+    let client = &*client;
+    if let SessionState::Room { ref item_queue, .. } = client.session_state {
+        item_queue[usize::from(index)]
     } else {
-        Filename::DEFAULT.0.as_ptr()
+        panic!("client is not in a room")
+    }
+}
+
+/// # Safety
+///
+/// `client` must point at a valid `Client`.
+///
+/// # Panics
+///
+/// If `client` is not in a room or `world` is `0`.
+#[no_mangle] pub unsafe extern "C" fn client_get_player_name(client: *const Client, world: u8) -> *const u8 {
+    let client = &*client;
+    let world = NonZeroU8::new(world).expect("tried to get player name for world 0");
+    if let SessionState::Room { ref players, .. } = client.session_state {
+        if let Some(player) = players.iter().find(|p| p.world == world) {
+            player.name.0.as_ptr()
+        } else {
+            Filename::DEFAULT.0.as_ptr()
+        }
+    } else {
+        panic!("client is not in a room")
     }
 }

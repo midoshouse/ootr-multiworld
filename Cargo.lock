@@ -2817,7 +2817,6 @@ name = "multiworld-csharp"
 version = "5.0.0"
 dependencies = [
  "async-proto",
- "chrono",
  "directories",
  "libc",
  "multiworld",

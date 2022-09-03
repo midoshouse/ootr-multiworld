@@ -488,6 +488,189 @@ pub fn handshake_sync(tcp_stream: &mut std::net::TcpStream) -> Result<(), Client
     Ok(())
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum SessionStateError<E> {
+    #[error(transparent)] Connection(#[from] E),
+    #[error("server error #{0}")]
+    Future(u8),
+    #[error("received an unexpected message from the server given the current connection state")]
+    Mismatch,
+    #[error("server error: {0}")]
+    Server(String),
+}
+
+#[derive(Debug)]
+pub enum SessionState<E> {
+    Error {
+        e: SessionStateError<E>,
+        auto_retry: bool,
+    },
+    Init,
+    InitAutoRejoin {
+        room_name: String,
+        room_password: String,
+    },
+    Lobby {
+        rooms: BTreeSet<String>,
+        create_new_room: bool,
+        existing_room_selection: Option<String>,
+        new_room_name: String,
+        password: String,
+        wrong_password: bool,
+    },
+    Room {
+        room_name: String,
+        room_password: String,
+        players: Vec<Player>,
+        num_unassigned_clients: u8,
+        item_queue: Vec<u16>,
+    },
+    Closed,
+}
+
+impl<E> SessionState<E> {
+    pub fn apply(&mut self, msg: ServerMessage) {
+        match msg {
+            ServerMessage::Ping => {}
+            ServerMessage::StructuredError(ServerError::WrongPassword) => if let SessionState::Lobby { password, wrong_password, .. } = self {
+                *wrong_password = true;
+                password.clear();
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::StructuredError(ServerError::Future(discrim)) => if !matches!(self, SessionState::Error { .. }) {
+                *self = SessionState::Error {
+                    e: SessionStateError::Future(discrim),
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::OtherError(e) => if !matches!(self, SessionState::Error { .. }) {
+                *self = SessionState::Error {
+                    e: SessionStateError::Server(e),
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::EnterLobby { rooms } => *self = if let SessionState::InitAutoRejoin { room_name, room_password } = self {
+                let room_still_exists = rooms.contains(room_name);
+                SessionState::Lobby {
+                    create_new_room: !room_still_exists,
+                    existing_room_selection: room_still_exists.then(|| room_name.clone()),
+                    new_room_name: room_name.clone(),
+                    password: room_password.clone(),
+                    wrong_password: false,
+                    rooms,
+                }
+            } else {
+                SessionState::Lobby {
+                    create_new_room: rooms.is_empty(),
+                    existing_room_selection: None,
+                    new_room_name: String::default(),
+                    password: String::default(),
+                    wrong_password: false,
+                    rooms,
+                }
+            },
+            ServerMessage::NewRoom(name) => if let SessionState::Lobby { rooms, .. } = self {
+                rooms.insert(name);
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::EnterRoom { players, num_unassigned_clients } => {
+                let (room_name, room_password) = match self {
+                    SessionState::Lobby { create_new_room: false, existing_room_selection, password, .. } => (existing_room_selection.clone().unwrap_or_default(), password.clone()),
+                    SessionState::Lobby { create_new_room: true, new_room_name, password, .. } => (new_room_name.clone(), password.clone()),
+                    _ => <_>::default(),
+                };
+                *self = SessionState::Room { item_queue: Vec::default(), room_name, room_password, players, num_unassigned_clients };
+            }
+            ServerMessage::PlayerId(world) => if let SessionState::Room { players, num_unassigned_clients, .. } = self {
+                if let Err(idx) = players.binary_search_by_key(&world, |p| p.world) {
+                    players.insert(idx, Player::new(world));
+                    *num_unassigned_clients -= 1;
+                }
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::ResetPlayerId(world) => if let SessionState::Room { players, num_unassigned_clients, .. } = self {
+                if let Ok(idx) = players.binary_search_by_key(&world, |p| p.world) {
+                    players.remove(idx);
+                    *num_unassigned_clients += 1;
+                }
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::ClientConnected => if let SessionState::Room { num_unassigned_clients, .. } = self {
+                *num_unassigned_clients += 1;
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::PlayerDisconnected(world) => if let SessionState::Room { players, .. } = self {
+                if let Ok(idx) = players.binary_search_by_key(&world, |p| p.world) {
+                    players.remove(idx);
+                }
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::UnregisteredClientDisconnected => if let SessionState::Room { num_unassigned_clients, .. } = self {
+                *num_unassigned_clients -= 1;
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::PlayerName(world, name) => if let SessionState::Room { players, .. } = self {
+                if let Ok(idx) = players.binary_search_by_key(&world, |p| p.world) {
+                    players[idx].name = name;
+                }
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::ItemQueue(queue) => if let SessionState::Room { item_queue, .. } = self {
+                *item_queue = queue.clone();
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::GetItem(item) => if let SessionState::Room { item_queue, .. } = self {
+                item_queue.push(item);
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::AdminLoginSuccess { .. } => unreachable!(), //TODO use SessionState for the CLI?
+            ServerMessage::Goodbye => if !matches!(self, SessionState::Error { .. }) {
+                *self = SessionState::Closed;
+            },
+        }
+    }
+}
+
 pub fn format_room_state(players: &[Player], num_unassigned_clients: u8, my_world: Option<NonZeroU8>) -> (Vec<String>, String) {
     match (players.len(), num_unassigned_clients) {
         (0, 0) => (Vec::default(), format!("this room is empty")), // for admin view
