@@ -17,7 +17,7 @@ use {
         },
     },
     multiworld::{
-        LobbyClientMessage,
+        ClientMessage,
         ServerError,
         ServerMessage,
     },
@@ -72,7 +72,7 @@ enum Error {
 async fn main(Args { id, api_key, server_ip }: Args) -> Result<(), Error> {
     let mut tcp_stream = TcpStream::connect((server_ip.unwrap_or(IpAddr::V4(multiworld::ADDRESS_V4)), multiworld::PORT)).await?;
     multiworld::handshake(&mut tcp_stream).await?;
-    LobbyClientMessage::Login { id, api_key }.write(&mut tcp_stream).await?;
+    ClientMessage::Login { id, api_key }.write(&mut tcp_stream).await?;
     let (reader, mut writer) = tcp_stream.into_split();
     let mut read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_owned(reader)));
     let mut interval = interval(Duration::from_secs(30));
@@ -107,7 +107,7 @@ async fn main(Args { id, api_key, server_ip }: Args) -> Result<(), Error> {
                 }
                 read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_owned(reader)));
             },
-            _ = interval.tick() => LobbyClientMessage::Ping.write(&mut writer).await?, // can also function as Ping in other connection states
+            _ = interval.tick() => ClientMessage::Ping.write(&mut writer).await?,
         }
     }
     Ok(())

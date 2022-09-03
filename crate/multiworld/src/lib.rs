@@ -29,7 +29,10 @@ use {
             TcpStream,
             tcp::OwnedWriteHalf,
         },
-        sync::Mutex,
+        sync::{
+            Mutex,
+            oneshot,
+        },
     },
 };
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
@@ -170,10 +173,16 @@ pub struct Item {
 }
 
 #[derive(Debug)]
+pub enum EndRoomSession {
+    ToLobby,
+    Disconnect,
+}
+
+#[derive(Debug)]
 pub struct Room {
     pub name: String,
     pub password: String,
-    pub clients: HashMap<SocketId, (Option<Player>, Arc<Mutex<OwnedWriteHalf>>)>,
+    pub clients: HashMap<SocketId, (Option<Player>, Arc<Mutex<OwnedWriteHalf>>, oneshot::Sender<EndRoomSession>)>,
     pub base_queue: Vec<Item>,
     pub player_queues: HashMap<NonZeroU8, Vec<Item>>,
     pub last_saved: Instant,
@@ -183,33 +192,33 @@ pub struct Room {
 
 impl Room {
     async fn write(&mut self, client_id: SocketId, msg: &ServerMessage) {
-        if let Some((_, writer)) = self.clients.get(&client_id) {
+        if let Some((_, writer, _)) = self.clients.get(&client_id) {
             let mut writer = writer.lock().await;
             if let Err(e) = msg.write(&mut *writer).await {
                 eprintln!("{} error sending message: {:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), e);
                 drop(writer);
-                self.remove_client(client_id).await;
+                self.remove_client(client_id, EndRoomSession::Disconnect).await;
             }
         }
     }
 
     async fn write_all(&mut self, msg: &ServerMessage) {
         let mut notified = HashSet::new();
-        while let Some((&client_id, (_, writer))) = self.clients.iter().find(|&(client_id, _)| !notified.contains(client_id)) {
+        while let Some((&client_id, (_, writer, _))) = self.clients.iter().find(|&(client_id, _)| !notified.contains(client_id)) {
             let mut writer = writer.lock().await;
             if let Err(e) = msg.write(&mut *writer).await {
                 eprintln!("{} error sending message: {:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), e);
                 drop(writer);
-                self.remove_client(client_id).await;
+                self.remove_client(client_id, EndRoomSession::Disconnect).await;
             }
             notified.insert(client_id);
         }
     }
 
-    pub async fn add_client(&mut self, client_id: SocketId, writer: Arc<Mutex<OwnedWriteHalf>>) {
+    pub async fn add_client(&mut self, client_id: SocketId, writer: Arc<Mutex<OwnedWriteHalf>>, end_tx: oneshot::Sender<EndRoomSession>) {
         // the client doesn't need to be told that it has connected, so notify everyone *before* adding it
         self.write_all(&ServerMessage::ClientConnected).await;
-        self.clients.insert(client_id, (None, writer));
+        self.clients.insert(client_id, (None, writer, end_tx));
     }
 
     pub fn has_client(&self, client_id: SocketId) -> bool {
@@ -217,9 +226,9 @@ impl Room {
     }
 
     #[async_recursion]
-    pub async fn remove_client(&mut self, client_id: SocketId) {
-        if let Some((player, writer)) = self.clients.remove(&client_id) {
-            let _ = ServerMessage::Goodbye.write(&mut *writer.lock().await).await;
+    pub async fn remove_client(&mut self, client_id: SocketId, to: EndRoomSession) {
+        if let Some((player, _, end_tx)) = self.clients.remove(&client_id) {
+            let _ = end_tx.send(to);
             let msg = if let Some(Player { world, .. }) = player {
                 ServerMessage::PlayerDisconnected(world)
             } else {
@@ -231,7 +240,7 @@ impl Room {
 
     /// Moves a player from unloaded (no world assigned) to the given `world`.
     pub async fn load_player(&mut self, client_id: SocketId, world: NonZeroU8) -> bool {
-        if self.clients.iter().any(|(&iter_client_id, (iter_player, _))| iter_player.as_ref().map_or(false, |p| p.world == world) && iter_client_id != client_id) {
+        if self.clients.iter().any(|(&iter_client_id, (iter_player, _, _))| iter_player.as_ref().map_or(false, |p| p.world == world) && iter_client_id != client_id) {
             return false
         }
         let prev_player = &mut self.clients.get_mut(&client_id).expect("no such client").0;
@@ -279,7 +288,7 @@ impl Room {
                     }
                     let msg = ServerMessage::GetItem(kind);
                     let player_clients = self.clients.iter()
-                        .filter_map(|(&target_client, (p, _))| if p.map_or(false, |p| p.world != source) { Some(target_client) } else { None })
+                        .filter_map(|(&target_client, (p, _, _))| if p.map_or(false, |p| p.world != source) { Some(target_client) } else { None })
                         .collect::<Vec<_>>();
                     for target_client in player_clients {
                         self.write(target_client, &msg).await;
@@ -288,7 +297,7 @@ impl Room {
             } else {
                 if !self.player_queues.get(&target_world).map_or(false, |queue| queue.iter().any(|item| item.source == source && item.key == key)) {
                     self.player_queues.entry(target_world).or_insert_with(|| self.base_queue.clone()).push(Item { source, key, kind });
-                    if let Some((&target_client, _)) = self.clients.iter().find(|(_, (p, _))| p.map_or(false, |p| p.world == target_world)) {
+                    if let Some((&target_client, _)) = self.clients.iter().find(|(_, (p, _, _))| p.map_or(false, |p| p.world == target_world)) {
                         self.write(target_client, &ServerMessage::GetItem(kind)).await;
                     }
                 }
@@ -325,46 +334,39 @@ impl Room {
 }
 
 #[derive(Protocol)]
-pub enum LobbyClientMessage {
+pub enum ClientMessage {
     /// Tells the server we're still here. Should be sent every 30 seconds; the server will consider the connection lost if no message is received for 60 seconds.
     Ping,
+    /// Only works after [`ServerMessage::EnterLobby`].
     JoinRoom {
         name: String,
         password: String,
     },
+    /// Only works after [`ServerMessage::EnterLobby`].
     CreateRoom {
         name: String,
         password: String,
     },
+    /// Sign in with a Mido's House API key. Currently only available for Mido's House admins. Only works after [`ServerMessage::EnterLobby`].
     Login {
         id: u64,
         api_key: [u8; 32],
     },
-}
-
-#[derive(Protocol)]
-pub enum AdminClientMessage {
-    /// Tells the server we're still here. Should be sent every 30 seconds; the server will consider the connection lost if no message is received for 60 seconds.
-    Ping,
-    /// Stops the server.
+    /// Stops the server. Only works after [`ServerMessage::AdminLoginSuccess`].
     Stop,
-}
-
-#[derive(Protocol)]
-pub enum RoomClientMessage {
-    /// Tells the server we're still here. Should be sent every 30 seconds; the server will consider the connection lost if no message is received for 60 seconds.
-    Ping,
-    /// Claims a world.
+    /// Claims a world. Only works after [`ServerMessage::EnterRoom`].
     PlayerId(NonZeroU8),
-    /// Unloads the previously claimed world.
+    /// Unloads the previously claimed world. Only works after [`ServerMessage::EnterRoom`].
     ResetPlayerId,
-    /// Player names are encoded in the NTSC charset, with trailing spaces (`0xdf`).
+    /// Player names are encoded in the NTSC charset, with trailing spaces (`0xdf`). Only works after [`ServerMessage::EnterRoom`].
     PlayerName(Filename),
+    /// Only works after [`ServerMessage::EnterRoom`].
     SendItem {
         key: u32,
         kind: u16,
         target_world: NonZeroU8,
     },
+    /// Only works after [`ServerMessage::EnterRoom`].
     KickPlayer(NonZeroU8),
 }
 
@@ -417,13 +419,13 @@ pub enum ServerMessage {
     StructuredError(ServerError),
     /// A fatal error has occurred. Contains a human-readable error message.
     OtherError(String),
-    /// You have just connected or left a room and are now sending [`LobbyClientMessage`]s.
+    /// You have just connected or left a room.
     EnterLobby {
         rooms: BTreeSet<String>,
     },
     /// A new room has been created.
     NewRoom(String),
-    /// You have created or joined a room and are now sending [`RoomClientMessage`]s.
+    /// You have created or joined a room.
     EnterRoom {
         players: Vec<Player>,
         num_unassigned_clients: u8,
@@ -446,7 +448,7 @@ pub enum ServerMessage {
     ItemQueue(Vec<u16>),
     /// You have received a new item, add it to the end of your item queue.
     GetItem(u16),
-    /// You have logged in as an admin and are now sending [`AdminClientMessage`]s.
+    /// You have logged in as an admin.
     AdminLoginSuccess {
         active_connections: BTreeMap<String, (Vec<Player>, u8)>,
     },

@@ -34,10 +34,7 @@ use {
             timeout,
         },
     },
-    multiworld::{
-        Filename,
-        LobbyClientMessage,
-    },
+    multiworld::Filename,
     crate::{
         Error,
         MW_PJ64_PROTO_VERSION,
@@ -127,7 +124,7 @@ impl<H: Hasher, I> Recipe<H, I> for Client {
                                     let (reader, msg) = res??;
                                     break Some((Message::Server(msg), (reader, writer, interval)))
                                 },
-                                _ = interval.tick() => LobbyClientMessage::Ping.write(&mut *writer.lock().await).await?, // can also function as Ping in other connection states
+                                _ = interval.tick() => multiworld::ClientMessage::Ping.write(&mut *writer.lock().await).await?,
                             }
                         })
                     }))

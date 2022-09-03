@@ -46,11 +46,10 @@ use {
         },
     },
     multiworld::{
+        ClientMessage,
         Filename,
         IsNetworkError,
-        LobbyClientMessage,
         Player,
-        RoomClientMessage,
         ServerError,
         ServerMessage,
         format_room_state,
@@ -243,11 +242,11 @@ impl Application for State {
                     return cmd(async move {
                         if create_new_room {
                             if !new_room_name.is_empty() {
-                                LobbyClientMessage::CreateRoom { name: new_room_name, password }.write(&mut *writer.lock().await).await?;
+                                ClientMessage::CreateRoom { name: new_room_name, password }.write(&mut *writer.lock().await).await?;
                             }
                         } else {
                             if let Some(name) = existing_room_selection {
-                                LobbyClientMessage::JoinRoom { name, password }.write(&mut *writer.lock().await).await?;
+                                ClientMessage::JoinRoom { name, password }.write(&mut *writer.lock().await).await?;
                             }
                         }
                         Ok(Message::Nop)
@@ -256,7 +255,7 @@ impl Application for State {
             }
             Message::Kick(player_id) => if let Some(writer) = self.server_writer.clone() {
                 return cmd(async move {
-                    RoomClientMessage::KickPlayer(player_id).write(&mut *writer.lock().await).await?;
+                    ClientMessage::KickPlayer(player_id).write(&mut *writer.lock().await).await?;
                     Ok(Message::Nop)
                 })
             },
@@ -295,9 +294,9 @@ impl Application for State {
                     if let ServerConnectionState::Room { .. } = self.server_connection {
                         let writer = writer.clone();
                         return cmd(async move {
-                            RoomClientMessage::PlayerId(new_player_id).write(&mut *writer.lock().await).await?;
+                            ClientMessage::PlayerId(new_player_id).write(&mut *writer.lock().await).await?;
                             if let Some(new_player_name) = new_player_name {
-                                RoomClientMessage::PlayerName(new_player_name).write(&mut *writer.lock().await).await?;
+                                ClientMessage::PlayerName(new_player_name).write(&mut *writer.lock().await).await?;
                             }
                             Ok(Message::Nop)
                         })
@@ -311,7 +310,7 @@ impl Application for State {
                         if let ServerConnectionState::Room { .. } = self.server_connection {
                             let writer = writer.clone();
                             return cmd(async move {
-                                RoomClientMessage::PlayerName(new_player_name).write(&mut *writer.lock().await).await?;
+                                ClientMessage::PlayerName(new_player_name).write(&mut *writer.lock().await).await?;
                                 Ok(Message::Nop)
                             })
                         }
@@ -321,7 +320,7 @@ impl Application for State {
             Message::Plugin(subscriptions::ClientMessage::SendItem { key, kind, target_world }) => {
                 let writer = self.server_writer.clone().expect("trying to send an item but not connected to server");
                 return cmd(async move {
-                    RoomClientMessage::SendItem { key, kind, target_world }.write(&mut *writer.lock().await).await?;
+                    ClientMessage::SendItem { key, kind, target_world }.write(&mut *writer.lock().await).await?;
                     Ok(Message::Nop)
                 })
             }
@@ -384,9 +383,9 @@ impl Application for State {
                 let player_name = self.player_name;
                 return cmd(async move {
                     if let Some(player_id) = player_id {
-                        RoomClientMessage::PlayerId(player_id).write(&mut *server_writer.lock().await).await?;
+                        ClientMessage::PlayerId(player_id).write(&mut *server_writer.lock().await).await?;
                         if let Some(player_name) = player_name {
-                            RoomClientMessage::PlayerName(player_name).write(&mut *server_writer.lock().await).await?;
+                            ClientMessage::PlayerName(player_name).write(&mut *server_writer.lock().await).await?;
                         }
                     }
                     for player in players {

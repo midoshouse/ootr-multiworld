@@ -35,11 +35,10 @@ use {
     libc::c_char,
     semver::Version,
     multiworld::{
+        ClientMessage,
         Filename,
         IsNetworkError as _,
-        LobbyClientMessage,
         Player,
-        RoomClientMessage,
         ServerError,
         ServerMessage,
         format_room_state,
@@ -366,7 +365,7 @@ fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<LobbyClient> {
 #[no_mangle] pub unsafe extern "C" fn lobby_client_try_recv_new_room(lobby_client: *mut LobbyClient) -> HandleOwned<DebugResult<String>> {
     let lobby_client = &mut *lobby_client;
     if lobby_client.last_ping.elapsed() >= Duration::from_secs(30) {
-        if let Err(e) = lobby_client.write(&LobbyClientMessage::Ping) {
+        if let Err(e) = lobby_client.write(&ClientMessage::Ping) {
             return HandleOwned::new(Err(DebugError::from(e)))
         }
         lobby_client.last_ping = Instant::now();
@@ -417,9 +416,9 @@ fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<LobbyClient> {
 
 fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: String, room_password: String) -> DebugResult<RoomClient> {
     if lobby_client.rooms.contains(&room_name) {
-        lobby_client.write(&LobbyClientMessage::JoinRoom { name: room_name.clone(), password: room_password.clone() })
+        lobby_client.write(&ClientMessage::JoinRoom { name: room_name.clone(), password: room_password.clone() })
     } else {
-        lobby_client.write(&LobbyClientMessage::CreateRoom { name: room_name.clone(), password: room_password.clone() })
+        lobby_client.write(&ClientMessage::CreateRoom { name: room_name.clone(), password: room_password.clone() })
     }.map_err(DebugError::from)
     .and_then(|()| if lobby_client.buf.is_empty() {
         Ok(())
@@ -511,8 +510,8 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
     let id = NonZeroU8::new(id).expect("tried to claim world 0");
     HandleOwned::new(if room_client.last_world != Some(id) {
         room_client.last_world = Some(id);
-        room_client.write(&RoomClientMessage::PlayerId(id)).and_then(|()| if room_client.last_name != Filename::default() {
-            room_client.write(&RoomClientMessage::PlayerName(room_client.last_name))
+        room_client.write(&ClientMessage::PlayerId(id)).and_then(|()| if room_client.last_name != Filename::default() {
+            room_client.write(&ClientMessage::PlayerName(room_client.last_name))
         } else {
             Ok(())
         }).map_err(DebugError::from)
@@ -549,7 +548,7 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
     let room_client = &mut *room_client;
     HandleOwned::new(if room_client.last_world != None {
         room_client.last_world = None;
-        room_client.write(&RoomClientMessage::ResetPlayerId).map_err(DebugError::from)
+        room_client.write(&ClientMessage::ResetPlayerId).map_err(DebugError::from)
     } else {
         Ok(())
     })
@@ -564,7 +563,7 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
     HandleOwned::new(if room_client.last_name != name {
         room_client.last_name = name.try_into().expect("player names are 8 bytes");
         if room_client.last_world.is_some() {
-            room_client.write(&RoomClientMessage::PlayerName(room_client.last_name)).map_err(DebugError::from)
+            room_client.write(&ClientMessage::PlayerName(room_client.last_name)).map_err(DebugError::from)
         } else {
             Ok(())
         }
@@ -617,7 +616,7 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
 #[no_mangle] pub unsafe extern "C" fn room_client_kick_player(room_client: *mut RoomClient, player_idx: u8) -> HandleOwned<DebugResult<()>> {
     let room_client = &mut *room_client;
     let target_world = room_client.players[usize::from(player_idx)].world;
-    HandleOwned::new(room_client.write(&RoomClientMessage::KickPlayer(target_world)).map_err(DebugError::from))
+    HandleOwned::new(room_client.write(&ClientMessage::KickPlayer(target_world)).map_err(DebugError::from))
 }
 
 /// Attempts to read a message from the server if one is available, without blocking if there is not.
@@ -643,7 +642,7 @@ fn lobby_client_room_connect_inner(lobby_client: &mut LobbyClient, room_name: St
         }
     } else {
         if room_client.last_ping.elapsed() >= Duration::from_secs(30) {
-            if let Err(e) = room_client.write(&RoomClientMessage::Ping) {
+            if let Err(e) = room_client.write(&ClientMessage::Ping) {
                 return HandleOwned::new(Err(DebugError::from(e)))
             }
             room_client.last_ping = Instant::now();
@@ -741,7 +740,7 @@ pub enum MessageEffectType {
     match msg {
         ServerMessage::StructuredError(_) |
         ServerMessage::OtherError(_) |
-        ServerMessage::EnterLobby { .. } |
+        ServerMessage::EnterLobby { .. } | //TODO
         ServerMessage::NewRoom(_) |
         ServerMessage::AdminLoginSuccess { .. } |
         ServerMessage::Goodbye |
@@ -843,7 +842,7 @@ pub enum MessageEffectType {
 #[no_mangle] pub unsafe extern "C" fn room_client_send_item(room_client: *mut RoomClient, key: u32, kind: u16, target_world: u8) -> HandleOwned<DebugResult<()>> {
     let room_client = &mut *room_client;
     let target_world = NonZeroU8::new(target_world).expect("tried to send an item to world 0");
-    HandleOwned::new(room_client.write(&RoomClientMessage::SendItem { key, kind, target_world }).map_err(DebugError::from))
+    HandleOwned::new(room_client.write(&ClientMessage::SendItem { key, kind, target_world }).map_err(DebugError::from))
 }
 
 /// # Safety

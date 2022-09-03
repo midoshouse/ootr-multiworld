@@ -42,6 +42,7 @@ use {
             Mutex,
             RwLock,
             broadcast,
+            oneshot,
         },
         time::{
             interval,
@@ -49,11 +50,10 @@ use {
         },
     },
     multiworld::{
-        AdminClientMessage,
-        LobbyClientMessage,
+        ClientMessage,
+        EndRoomSession,
         Player,
         Room,
-        RoomClientMessage,
         ServerError,
         ServerMessage,
     },
@@ -63,161 +63,205 @@ use {
 enum SessionError {
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
+    #[error(transparent)] OneshotRecv(#[from] oneshot::error::RecvError),
     #[error(transparent)] Sql(#[from] sqlx::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error("{0}")]
+    Server(String),
     #[error("protocol version mismatch: client is version {0} but we're version {}", multiworld::proto_version())]
     VersionMismatch(u8),
 }
 
 async fn client_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::SocketId, mut reader: OwnedReadHalf, writer: Arc<Mutex<OwnedWriteHalf>>) -> Result<(), SessionError> {
-    macro_rules! error {
-        ($($msg:tt)*) => {{
-            let msg = format!($($msg)*);
-            ServerMessage::OtherError(msg).write(&mut *writer.lock().await).await?;
-            return Ok(())
-        }};
-    }
-
     multiworld::proto_version().write(&mut *writer.lock().await).await?;
     let client_version = u8::read(&mut reader).await?;
     if client_version != multiworld::proto_version() { return Err::<(), _>(SessionError::VersionMismatch(client_version)) }
+    let mut read = next_message(reader);
+    Ok(loop {
+        let (room_reader, room, end_rx) = lobby_session(db_pool.clone(), rooms.clone(), socket_id, read, writer.clone()).await?;
+        let (lobby_reader, end) = room_session(room, socket_id, room_reader, writer.clone(), end_rx).await?;
+        match end {
+            EndRoomSession::ToLobby => read = lobby_reader,
+            EndRoomSession::Disconnect => {
+                ServerMessage::Goodbye.write(&mut *writer.lock().await).await?;
+                break
+            }
+        }
+    })
+}
+
+type NextMessage = Pin<Box<dyn Future<Output = Result<Result<(OwnedReadHalf, ClientMessage), async_proto::ReadError>, tokio::time::error::Elapsed>> + Send>>;
+
+fn next_message(reader: OwnedReadHalf) -> NextMessage {
+    Box::pin(timeout(Duration::from_secs(60), ClientMessage::read_owned(reader)))
+}
+
+async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::SocketId, mut read: NextMessage, writer: Arc<Mutex<OwnedWriteHalf>>) -> Result<(OwnedReadHalf, Arc<RwLock<Room>>, oneshot::Receiver<EndRoomSession>), SessionError> {
+    macro_rules! error {
+        ($($msg:tt)*) => {{
+            let msg = format!($($msg)*);
+            ServerMessage::OtherError(msg.clone()).write(&mut *writer.lock().await).await?;
+            return Err(SessionError::Server(msg))
+        }};
+    }
+
+    let mut logged_in_as_admin = false;
     let mut room_stream = {
-        // finish handshake by sending room list (treated as a single packet)
         let lock = rooms.0.lock().await;
         let stream = lock.1.subscribe();
         ServerMessage::EnterLobby { rooms: lock.0.keys().cloned().collect() }.write(&mut *writer.lock().await).await?;
         stream
     };
-    let (mut reader, room) = {
-        fn next_message(reader: OwnedReadHalf) -> Pin<Box<dyn Future<Output = Result<Result<(OwnedReadHalf, LobbyClientMessage), async_proto::ReadError>, tokio::time::error::Elapsed>> + Send>> {
-            Box::pin(timeout(Duration::from_secs(60), LobbyClientMessage::read_owned(reader)))
-        }
-
-        let mut read = next_message(reader);
-        loop {
-            select! {
-                new_room = room_stream.recv() => match new_room {
-                    Ok(room) => ServerMessage::NewRoom(room.read().await.name.clone()).write(&mut *writer.lock().await).await?,
-                    Err(broadcast::error::RecvError::Closed) => unreachable!("room list should be maintained indefinitely"),
-                    Err(broadcast::error::RecvError::Lagged(_)) => room_stream = rooms.0.lock().await.1.subscribe(),
-                },
-                res = &mut read => {
-                    let (mut reader, msg) = res??;
-                    match msg {
-                        LobbyClientMessage::Ping => read = next_message(reader),
-                        LobbyClientMessage::JoinRoom { name, password } => if let Some(room) = rooms.0.lock().await.0.get(&name) {
-                            if room.read().await.password == password {
-                                if room.read().await.clients.len() >= u8::MAX.into() { error!("room {name:?} is full") }
-                                {
-                                    let mut room = room.write().await;
-                                    room.add_client(socket_id, Arc::clone(&writer)).await;
-                                    let mut players = Vec::<Player>::default();
-                                    let mut num_unassigned_clients = 0;
-                                    for &(player, _) in room.clients.values() {
-                                        if let Some(player) = player {
-                                            players.insert(players.binary_search_by_key(&player.world, |p| p.world).expect_err("duplicate world number"), player);
-                                        } else {
-                                            num_unassigned_clients += 1;
-                                        }
-                                    }
-                                    ServerMessage::EnterRoom { players, num_unassigned_clients }.write(&mut *writer.lock().await).await?;
-                                }
-                                break (reader, Arc::clone(room))
-                            } else {
-                                read = next_message(reader);
-                                ServerMessage::StructuredError(ServerError::WrongPassword).write(&mut *writer.lock().await).await?;
-                            }
-                        } else {
-                            error!("there is no room named {name:?}")
-                        },
-                        LobbyClientMessage::CreateRoom { name, password } => {
-                            //TODO disallow creating new rooms if preparing for reboot? (or at least warn)
-                            if name.is_empty() { error!("room name must not be empty") }
-                            if name.chars().count() > 64 { error!("room name too long (maximum 64 characters)") }
-                            if name.contains('\0') { error!("room name must not contain null characters") }
-                            if password.chars().count() > 64 { error!("room password too long (maximum 64 characters)") }
-                            if password.contains('\0') { error!("room password must not contain null characters") }
-                            let mut clients = HashMap::default();
-                            clients.insert(socket_id, (None, Arc::clone(&writer)));
-                            let room = Arc::new(RwLock::new(Room {
-                                name: name.clone(),
-                                base_queue: Vec::default(),
-                                player_queues: HashMap::default(),
-                                last_saved: Instant::now(),
-                                db_pool: db_pool.clone(),
-                                password, clients,
-                            }));
-                            if !rooms.add(room.clone()).await { error!("a room with this name already exists") }
-                            //TODO automatically delete rooms after 7 days of inactivity
-                            ServerMessage::EnterRoom {
-                                players: Vec::default(),
-                                num_unassigned_clients: 1,
-                            }.write(&mut *writer.lock().await).await?;
-                            break (reader, room)
-                        }
-                        LobbyClientMessage::Login { id, api_key } => if id == 14571800683221815449 && api_key == *include_bytes!("../../../assets/admin-api-key.bin") { //TODO allow any Mido's House user to log in but give them different permissions
-                            drop(read);
-                            let mut active_connections = BTreeMap::default();
-                            for (room_name, room) in &rooms.0.lock().await.0 {
-                                let room = room.read().await;
+    Ok(loop {
+        select! {
+            new_room = room_stream.recv() => match new_room {
+                Ok(room) => ServerMessage::NewRoom(room.read().await.name.clone()).write(&mut *writer.lock().await).await?,
+                Err(broadcast::error::RecvError::Closed) => unreachable!("room list should be maintained indefinitely"),
+                Err(broadcast::error::RecvError::Lagged(_)) => room_stream = rooms.0.lock().await.1.subscribe(),
+            },
+            res = &mut read => {
+                let (reader, msg) = res??;
+                match msg {
+                    ClientMessage::Ping => {}
+                    ClientMessage::JoinRoom { name, password } => if let Some(room) = rooms.0.lock().await.0.get(&name) {
+                        if room.read().await.password == password {
+                            if room.read().await.clients.len() >= u8::MAX.into() { error!("room {name:?} is full") }
+                            let (end_tx, end_rx) = oneshot::channel();
+                            {
+                                let mut room = room.write().await;
+                                room.add_client(socket_id, Arc::clone(&writer), end_tx).await;
                                 let mut players = Vec::<Player>::default();
                                 let mut num_unassigned_clients = 0;
-                                for &(player, _) in room.clients.values() {
+                                for &(player, _, _) in room.clients.values() {
                                     if let Some(player) = player {
                                         players.insert(players.binary_search_by_key(&player.world, |p| p.world).expect_err("duplicate world number"), player);
                                     } else {
                                         num_unassigned_clients += 1;
                                     }
                                 }
-                                active_connections.insert(room_name.clone(), (players, num_unassigned_clients));
+                                ServerMessage::EnterRoom { players, num_unassigned_clients }.write(&mut *writer.lock().await).await?;
                             }
-                            ServerMessage::AdminLoginSuccess { active_connections }.write(&mut *writer.lock().await).await?;
-                            loop {
-                                match timeout(Duration::from_secs(60), AdminClientMessage::read(&mut reader)).await?? {
-                                    AdminClientMessage::Ping => {}
-                                    AdminClientMessage::Stop => {
-                                        //TODO close TCP connections and listener
-                                        for room in rooms.0.lock().await.0.values() {
-                                            room.write().await.force_save().await?;
-                                        }
-                                        process::exit(0)
-                                    }
+                            break (reader, Arc::clone(room), end_rx)
+                        } else {
+                            ServerMessage::StructuredError(ServerError::WrongPassword).write(&mut *writer.lock().await).await?;
+                        }
+                    } else {
+                        error!("there is no room named {name:?}")
+                    },
+                    ClientMessage::CreateRoom { name, password } => {
+                        //TODO disallow creating new rooms if preparing for reboot? (or at least warn)
+                        if name.is_empty() { error!("room name must not be empty") }
+                        if name.chars().count() > 64 { error!("room name too long (maximum 64 characters)") }
+                        if name.contains('\0') { error!("room name must not contain null characters") }
+                        if password.chars().count() > 64 { error!("room password too long (maximum 64 characters)") }
+                        if password.contains('\0') { error!("room password must not contain null characters") }
+                        let mut clients = HashMap::default();
+                        let (end_tx, end_rx) = oneshot::channel();
+                        clients.insert(socket_id, (None, Arc::clone(&writer), end_tx));
+                        let room = Arc::new(RwLock::new(Room {
+                            name: name.clone(),
+                            base_queue: Vec::default(),
+                            player_queues: HashMap::default(),
+                            last_saved: Instant::now(),
+                            db_pool: db_pool.clone(),
+                            password, clients,
+                        }));
+                        if !rooms.add(room.clone()).await { error!("a room with this name already exists") }
+                        //TODO automatically delete rooms after 7 days of inactivity
+                        ServerMessage::EnterRoom {
+                            players: Vec::default(),
+                            num_unassigned_clients: 1,
+                        }.write(&mut *writer.lock().await).await?;
+                        break (reader, room, end_rx)
+                    }
+                    ClientMessage::Login { id, api_key } => if id == 14571800683221815449 && api_key == *include_bytes!("../../../assets/admin-api-key.bin") { //TODO allow any Mido's House user to log in but give them different permissions
+                        let mut active_connections = BTreeMap::default();
+                        for (room_name, room) in &rooms.0.lock().await.0 {
+                            let room = room.read().await;
+                            let mut players = Vec::<Player>::default();
+                            let mut num_unassigned_clients = 0;
+                            for &(player, _, _) in room.clients.values() {
+                                if let Some(player) = player {
+                                    players.insert(players.binary_search_by_key(&player.world, |p| p.world).expect_err("duplicate world number"), player);
+                                } else {
+                                    num_unassigned_clients += 1;
                                 }
                             }
-                        } else {
-                            error!("wrong user ID or API key")
-                        },
-                    }
+                            active_connections.insert(room_name.clone(), (players, num_unassigned_clients));
+                        }
+                        ServerMessage::AdminLoginSuccess { active_connections }.write(&mut *writer.lock().await).await?;
+                        logged_in_as_admin = true;
+                    } else {
+                        error!("wrong user ID or API key")
+                    },
+                    ClientMessage::Stop => if logged_in_as_admin {
+                        //TODO close TCP connections and listener
+                        for room in rooms.0.lock().await.0.values() {
+                            room.write().await.force_save().await?;
+                        }
+                        process::exit(0)
+                    } else {
+                        error!("Stop command requires admin login")
+                    },
+                    ClientMessage::PlayerId(_) |
+                    ClientMessage::ResetPlayerId |
+                    ClientMessage::PlayerName(_) |
+                    ClientMessage::SendItem { .. } |
+                    ClientMessage::KickPlayer(_) => error!("received a message that only works in a room, but you're in the lobby"),
                 }
+                read = next_message(reader);
             }
         }
-    };
-    loop {
-        match timeout(Duration::from_secs(60), RoomClientMessage::read(&mut reader)).await?? {
-            RoomClientMessage::Ping => {}
-            RoomClientMessage::PlayerId(id) => if !room.write().await.load_player(socket_id, id).await {
-                error!("world {id} is already taken")
-            },
-            RoomClientMessage::ResetPlayerId => room.write().await.unload_player(socket_id).await,
-            RoomClientMessage::PlayerName(name) => if !room.write().await.set_player_name(socket_id, name).await {
-                error!("please claim a world before setting your player name")
-            },
-            RoomClientMessage::SendItem { key, kind, target_world } => if !room.write().await.queue_item(socket_id, key, kind, target_world).await {
-                error!("please claim a world before sending items")
-            },
-            RoomClientMessage::KickPlayer(id) => {
-                let mut room = room.write().await;
-                for (&socket_id, &(player, _)) in &room.clients {
-                    if let Some(Player { world, .. }) = player {
-                        if world == id {
-                            room.remove_client(socket_id).await;
-                            break
+    })
+}
+
+async fn room_session(room: Arc<RwLock<Room>>, socket_id: multiworld::SocketId, reader: OwnedReadHalf, writer: Arc<Mutex<OwnedWriteHalf>>, mut end_rx: oneshot::Receiver<EndRoomSession>) -> Result<(NextMessage, EndRoomSession), SessionError> {
+    macro_rules! error {
+        ($($msg:tt)*) => {{
+            let msg = format!($($msg)*);
+            ServerMessage::OtherError(msg.clone()).write(&mut *writer.lock().await).await?;
+            return Err(SessionError::Server(msg))
+        }};
+    }
+
+    let mut read = next_message(reader);
+    Ok(loop {
+        select! {
+            end_res = &mut end_rx => break (read, end_res?),
+            res = &mut read => {
+                let (reader, msg) = res??;
+                match msg {
+                    ClientMessage::Ping => {}
+                    ClientMessage::JoinRoom { .. } |
+                    ClientMessage::CreateRoom { .. } |
+                    ClientMessage::Login { .. } |
+                    ClientMessage::Stop => error!("received a message that only works in the lobby, but you're in a room"),
+                    ClientMessage::PlayerId(id) => if !room.write().await.load_player(socket_id, id).await {
+                        error!("world {id} is already taken")
+                    },
+                    ClientMessage::ResetPlayerId => room.write().await.unload_player(socket_id).await,
+                    ClientMessage::PlayerName(name) => if !room.write().await.set_player_name(socket_id, name).await {
+                        error!("please claim a world before setting your player name")
+                    },
+                    ClientMessage::SendItem { key, kind, target_world } => if !room.write().await.queue_item(socket_id, key, kind, target_world).await {
+                        error!("please claim a world before sending items")
+                    },
+                    ClientMessage::KickPlayer(id) => {
+                        let mut room = room.write().await;
+                        for (&socket_id, &(player, _, _)) in &room.clients {
+                            if let Some(Player { world, .. }) = player {
+                                if world == id {
+                                    room.remove_client(socket_id, EndRoomSession::ToLobby).await;
+                                    break
+                                }
+                            }
                         }
                     }
                 }
-            }
+                read = next_message(reader);
+            },
         }
-    }
+    })
 }
 
 #[derive(Clone)]
@@ -267,7 +311,7 @@ async fn main(Args { subcommand }: Args) -> Result<(), Error> {
         Some(Subcommand::Stop) => {
             let mut tcp_stream = TcpStream::connect((Ipv6Addr::LOCALHOST, multiworld::PORT)).await?;
             multiworld::handshake(&mut tcp_stream).await?;
-            LobbyClientMessage::Login { id: 14571800683221815449, api_key: *include_bytes!("../../../assets/admin-api-key.bin") }.write(&mut tcp_stream).await?;
+            ClientMessage::Login { id: 14571800683221815449, api_key: *include_bytes!("../../../assets/admin-api-key.bin") }.write(&mut tcp_stream).await?;
             loop {
                 match ServerMessage::read(&mut tcp_stream).await? {
                     ServerMessage::OtherError(msg) => return Err(Error::Server(msg)),
@@ -289,7 +333,7 @@ async fn main(Args { subcommand }: Args) -> Result<(), Error> {
                     ServerMessage::Goodbye => unreachable!(),
                 }
             }
-            AdminClientMessage::Stop.write(&mut tcp_stream).await?;
+            ClientMessage::Stop.write(&mut tcp_stream).await?;
         }
         None => {
             let listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, multiworld::PORT)).await?;
@@ -334,7 +378,7 @@ async fn main(Args { subcommand }: Args) -> Result<(), Error> {
                     }
                     for room in rooms.0.lock().await.0.values() {
                         if room.read().await.has_client(socket_id) {
-                            room.write().await.remove_client(socket_id).await;
+                            room.write().await.remove_client(socket_id, EndRoomSession::Disconnect).await;
                         }
                     }
                 });
