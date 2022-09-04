@@ -48,6 +48,8 @@ fn parse_api_key(s: &str) -> Result<[u8; 32], ParseApiKeyError> {
 #[derive(clap::Parser)]
 #[clap(version)]
 struct Args {
+    #[clap(short, long, default_value_t = multiworld::PORT)]
+    port: u16,
     id: u64,
     #[clap(parse(try_from_str = parse_api_key))]
     api_key: [u8; 32],
@@ -69,8 +71,8 @@ enum Error {
 }
 
 #[wheel::main(debug)]
-async fn main(Args { id, api_key, server_ip }: Args) -> Result<(), Error> {
-    let mut tcp_stream = TcpStream::connect((server_ip.unwrap_or(IpAddr::V4(multiworld::ADDRESS_V4)), multiworld::PORT)).await?;
+async fn main(Args { port, id, api_key, server_ip }: Args) -> Result<(), Error> {
+    let mut tcp_stream = TcpStream::connect((server_ip.unwrap_or(IpAddr::V4(multiworld::ADDRESS_V4)), port)).await?;
     multiworld::handshake(&mut tcp_stream).await?;
     ClientMessage::Login { id, api_key }.write(&mut tcp_stream).await?;
     let (reader, mut writer) = tcp_stream.into_split();

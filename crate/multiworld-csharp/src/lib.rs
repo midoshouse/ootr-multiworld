@@ -29,6 +29,7 @@ use {
     directories::ProjectDirs,
     libc::c_char,
     semver::Version,
+    serde::Deserialize,
     multiworld::{
         ClientMessage,
         Filename,
@@ -212,6 +213,25 @@ impl Client {
     HandleOwned::new(inner())
 }
 
+#[no_mangle] pub extern "C" fn default_port() -> u16 {
+    fn make_default_port() -> u16 { multiworld::PORT }
+
+    #[derive(Deserialize)]
+    struct Config {
+        #[serde(default = "make_default_port")]
+        port: u16,
+    }
+
+    if let Some(project_dirs) = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld") {
+        if let Ok(config) = fs::read_to_string(project_dirs.config_dir().join("config.json")) {
+            if let Ok(config) = serde_json::from_str::<Config>(&config) {
+                return config.port
+            }
+        }
+    }
+    multiworld::PORT
+}
+
 fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<TcpStream> {
     TcpStream::connect(addr)
         .map_err(DebugError::from)
@@ -223,8 +243,8 @@ fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<TcpStream> {
         })
 }
 
-#[no_mangle] pub extern "C" fn connect_ipv4() -> HandleOwned<DebugResult<Client>> {
-    HandleOwned::new(connect_inner((multiworld::ADDRESS_V4, multiworld::PORT)).map(|tcp_stream| Client {
+#[no_mangle] pub extern "C" fn connect_ipv4(port: u16) -> HandleOwned<DebugResult<Client>> {
+    HandleOwned::new(connect_inner((multiworld::ADDRESS_V4, port)).map(|tcp_stream| Client {
         session_state: SessionState::Init,
         buf: Vec::default(),
         retry: Instant::now(),
@@ -237,8 +257,8 @@ fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<TcpStream> {
     }))
 }
 
-#[no_mangle] pub extern "C" fn connect_ipv6() -> HandleOwned<DebugResult<Client>> {
-    HandleOwned::new(connect_inner((multiworld::ADDRESS_V6, multiworld::PORT)).map(|tcp_stream| Client {
+#[no_mangle] pub extern "C" fn connect_ipv6(port: u16) -> HandleOwned<DebugResult<Client>> {
+    HandleOwned::new(connect_inner((multiworld::ADDRESS_V6, port)).map(|tcp_stream| Client {
         session_state: SessionState::Init,
         buf: Vec::default(),
         retry: Instant::now(),
@@ -524,11 +544,11 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 /// # Safety
 ///
 /// `client` must point at a valid `Client`.
-#[no_mangle] pub unsafe extern "C" fn client_try_recv_message(client: *mut Client) -> HandleOwned<DebugResult<Option<ServerMessage>>> {
+#[no_mangle] pub unsafe extern "C" fn client_try_recv_message(client: *mut Client, port: u16) -> HandleOwned<DebugResult<Option<ServerMessage>>> {
     let client = &mut *client;
     HandleOwned::new(if let SessionState::Error { auto_retry: true, .. } = client.session_state {
         if client.retry <= Instant::now() {
-            match connect_inner((multiworld::ADDRESS_V6, multiworld::PORT)).or_else(|_| connect_inner((multiworld::ADDRESS_V4, multiworld::PORT))) {
+            match connect_inner((multiworld::ADDRESS_V6, port)).or_else(|_| connect_inner((multiworld::ADDRESS_V4, port))) {
                 Ok(tcp_stream) => {
                     client.tcp_stream = tcp_stream;
                     if let Some((room_name, room_password)) = client.reconnect.take() {

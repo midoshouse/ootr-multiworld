@@ -125,6 +125,7 @@ struct State {
     command_error: Option<Arc<Error>>,
     pj64_subscription_error: Option<Arc<Error>>,
     pj64_writer: Option<Arc<Mutex<OwnedWriteHalf>>>,
+    port: u16,
     server_connection: SessionState<Arc<Error>>,
     server_writer: Option<Arc<Mutex<OwnedWriteHalf>>>,
     retry: Instant,
@@ -138,9 +139,9 @@ struct State {
 impl Application for State {
     type Executor = iced::executor::Default;
     type Message = Message;
-    type Flags = ();
+    type Flags = u16;
 
-    fn new((): ()) -> (Self, Command<Message>) {
+    fn new(port: u16) -> (Self, Command<Message>) {
         (Self {
             command_error: None,
             pj64_subscription_error: None,
@@ -153,6 +154,7 @@ impl Application for State {
             last_name: Filename::default(),
             updates_checked: false,
             should_exit: false,
+            port,
         }, cmd(async move {
             let http_client = reqwest::Client::builder()
                 .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
@@ -516,11 +518,18 @@ impl Application for State {
         if self.updates_checked {
             subscriptions.push(Subscription::from_recipe(subscriptions::Pj64Listener));
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
-                subscriptions.push(Subscription::from_recipe(subscriptions::Client));
+                subscriptions.push(Subscription::from_recipe(subscriptions::Client(self.port)));
             }
         }
         Subscription::batch(subscriptions)
     }
+}
+
+#[derive(clap::Parser)]
+#[clap(version)]
+struct Args {
+    #[clap(short, long, default_value_t = multiworld::PORT)]
+    port: u16,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -530,7 +539,7 @@ enum MainError {
 }
 
 #[wheel::main]
-fn main() -> Result<(), MainError> {
+fn main(Args { port }: Args) -> Result<(), MainError> {
     let icon = ::image::load_from_memory(include_bytes!("../../../assets/icon.ico")).expect("failed to load embedded DynamicImage").to_rgba8();
     State::run(Settings {
         window: window::Settings {
@@ -538,7 +547,7 @@ fn main() -> Result<(), MainError> {
             icon: Some(Icon::from_rgba(icon.as_flat_samples().as_slice().to_owned(), icon.width(), icon.height())?),
             ..window::Settings::default()
         },
-        ..Settings::default()
+        ..Settings::with_flags(port)
     })?;
     Ok(())
 }

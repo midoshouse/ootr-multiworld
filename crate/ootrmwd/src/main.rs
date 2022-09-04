@@ -285,6 +285,8 @@ impl Default for Rooms {
 #[derive(clap::Parser)]
 #[clap(version)]
 struct Args {
+    #[clap(short, long, default_value_t = multiworld::PORT)]
+    port: u16,
     #[clap(subcommand)]
     subcommand: Option<Subcommand>,
 }
@@ -306,10 +308,10 @@ enum Error {
 }
 
 #[wheel::main]
-async fn main(Args { subcommand }: Args) -> Result<(), Error> {
+async fn main(Args { port, subcommand }: Args) -> Result<(), Error> {
     match subcommand {
         Some(Subcommand::Stop) => {
-            let mut tcp_stream = TcpStream::connect((Ipv6Addr::LOCALHOST, multiworld::PORT)).await?;
+            let mut tcp_stream = TcpStream::connect((Ipv6Addr::LOCALHOST, port)).await?;
             multiworld::handshake(&mut tcp_stream).await?;
             ClientMessage::Login { id: 14571800683221815449, api_key: *include_bytes!("../../../assets/admin-api-key.bin") }.write(&mut tcp_stream).await?;
             loop {
@@ -336,7 +338,7 @@ async fn main(Args { subcommand }: Args) -> Result<(), Error> {
             ClientMessage::Stop.write(&mut tcp_stream).await?;
         }
         None => {
-            let listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, multiworld::PORT)).await?;
+            let listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, port)).await?;
             let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database("ootr_multiworld").application_name("ootrmwd")).await?;
             let rooms = Rooms::default();
             {

@@ -95,7 +95,7 @@ impl<H: Hasher, I> Recipe<H, I> for Pj64Listener {
     }
 }
 
-pub(crate) struct Client;
+pub(crate) struct Client(pub(crate) u16);
 
 impl<H: Hasher, I> Recipe<H, I> for Client {
     type Output = Message;
@@ -105,7 +105,7 @@ impl<H: Hasher, I> Recipe<H, I> for Client {
     }
 
     fn stream(self: Box<Self>, _: BoxStream<'_, I>) -> BoxStream<'_, Message> {
-        stream::once(TcpStream::connect((multiworld::ADDRESS_V4, multiworld::PORT)))
+        stream::once(TcpStream::connect((multiworld::ADDRESS_V4, self.0)))
             .err_into::<Error>()
             .and_then(|mut tcp_stream| async move {
                 multiworld::handshake(&mut tcp_stream).await?;

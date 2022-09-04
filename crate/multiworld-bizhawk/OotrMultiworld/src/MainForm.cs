@@ -17,8 +17,9 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern bool bool_result_unwrap(IntPtr bool_res);
         [DllImport("multiworld")] internal static extern StringHandle bool_result_debug_err(IntPtr bool_res);
         [DllImport("multiworld")] internal static extern UnitResult run_updater();
-        [DllImport("multiworld")] internal static extern ClientResult connect_ipv4();
-        [DllImport("multiworld")] internal static extern ClientResult connect_ipv6();
+        [DllImport("multiworld")] internal static extern ushort default_port();
+        [DllImport("multiworld")] internal static extern ClientResult connect_ipv4(ushort port);
+        [DllImport("multiworld")] internal static extern ClientResult connect_ipv6(ushort port);
         [DllImport("multiworld")] internal static extern void client_result_free(IntPtr client_res);
         [DllImport("multiworld")] internal static extern bool client_result_is_ok(ClientResult client_res);
         [DllImport("multiworld")] internal static extern Client client_result_unwrap(IntPtr client_res);
@@ -42,7 +43,7 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern StringHandle client_player_state(Client client, byte player_idx);
         [DllImport("multiworld")] internal static extern StringHandle client_other_room_state(Client client);
         [DllImport("multiworld")] internal static extern UnitResult client_kick_player(Client client, byte player_idx);
-        [DllImport("multiworld")] internal static extern OptMessageResult client_try_recv_message(Client client);
+        [DllImport("multiworld")] internal static extern OptMessageResult client_try_recv_message(Client client, ushort port);
         [DllImport("multiworld")] internal static extern void opt_message_result_free(IntPtr opt_msg_res);
         [DllImport("multiworld")] internal static extern bool opt_message_result_is_ok_some(OptMessageResult opt_msg_res);
         [DllImport("multiworld")] internal static extern ServerMessage opt_message_result_unwrap_unwrap(IntPtr opt_msg_res);
@@ -161,7 +162,7 @@ namespace MidosHouse.OotrMultiworld {
         internal byte NumPlayers() => Native.client_num_players(this);
         internal StringHandle PlayerState(byte player_idx) => Native.client_player_state(this, player_idx);
         internal StringHandle OtherState() => Native.client_other_room_state(this);
-        internal OptMessageResult TryRecv() => Native.client_try_recv_message(this);
+        internal OptMessageResult TryRecv(ushort port) => Native.client_try_recv_message(this, port);
         internal UnitResult SendItem(uint key, ushort kind, byte targetWorld) => Native.client_send_item(this, key, kind, targetWorld);
         internal ushort ItemQueueLen() => Native.client_item_queue_len(this);
         internal ushort Item(ushort index) => Native.client_item_kind_at_index(this, index);
@@ -336,6 +337,7 @@ namespace MidosHouse.OotrMultiworld {
         private List<Button> kickButtons = new List<Button>();
         private Label otherState = new Label();
 
+        private ushort port = Native.default_port();
         private Client? client;
         private uint? coopContextAddr;
         private byte? playerID;
@@ -454,11 +456,11 @@ namespace MidosHouse.OotrMultiworld {
                     }
                 }
                 this.state.Text = "Loading room list…";
-                using (var res6 = Native.connect_ipv6()) {
+                using (var res6 = Native.connect_ipv6(this.port)) {
                     if (res6.IsOk()) {
                         this.client = res6.Unwrap();
                     } else {
-                        using (var res4 = Native.connect_ipv4()) {
+                        using (var res4 = Native.connect_ipv4(this.port)) {
                             if (res4.IsOk()) {
                                 this.client = res4.Unwrap();
                             } else {
@@ -501,7 +503,7 @@ namespace MidosHouse.OotrMultiworld {
         }
 
         private void ReceiveMessage(Client client) {
-            using (var res = client.TryRecv()) {
+            using (var res = client.TryRecv(this.port)) {
                 if (res.IsOkSome()) {
                     using (var msg = res.UnwrapUnwrap()) {
                         switch (msg.EffectType()) {

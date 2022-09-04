@@ -18,6 +18,10 @@ itertools = "0.10"
 semver = "1"
 thiserror = "1"
 
+[dependencies.clap]
+version = "3"
+features = ["derive"]
+
 [dependencies.iced]
 version = "0.4"
 features = ["default_system_font", "pure", "tokio"]
