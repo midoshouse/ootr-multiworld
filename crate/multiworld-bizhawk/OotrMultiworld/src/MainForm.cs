@@ -23,6 +23,9 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern void client_result_free(IntPtr client_res);
         [DllImport("multiworld")] internal static extern bool client_result_is_ok(ClientResult client_res);
         [DllImport("multiworld")] internal static extern Client client_result_unwrap(IntPtr client_res);
+        [DllImport("multiworld")] internal static extern void client_set_error(Client client, OwnedStringHandle msg);
+        [DllImport("multiworld")] internal static extern byte client_session_state(Client client);
+        [DllImport("multiworld")] internal static extern StringHandle client_debug_err(Client client);
         [DllImport("multiworld")] internal static extern void client_free(IntPtr client);
         [DllImport("multiworld")] internal static extern StringHandle client_result_debug_err(IntPtr client_res);
         [DllImport("multiworld")] internal static extern void string_free(IntPtr s);
@@ -50,10 +53,6 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern void message_free(IntPtr msg);
         [DllImport("multiworld")] internal static extern bool opt_message_result_is_err(OptMessageResult opt_msg_res);
         [DllImport("multiworld")] internal static extern StringHandle opt_message_result_debug_err(IntPtr opt_msg_res);
-        [DllImport("multiworld")] internal static extern StringHandle message_debug(ServerMessage msg);
-        [DllImport("multiworld")] internal static extern byte message_effect_type(ServerMessage msg);
-        [DllImport("multiworld")] internal static extern byte message_player_id(ServerMessage msg);
-        [DllImport("multiworld")] internal static extern IntPtr message_player_name(ServerMessage msg);
         [DllImport("multiworld")] internal static extern UnitResult client_send_item(Client client, uint key, ushort kind, byte target_world);
         [DllImport("multiworld")] internal static extern ushort client_item_queue_len(Client client);
         [DllImport("multiworld")] internal static extern ushort client_item_kind_at_index(Client client, ushort index);
@@ -125,6 +124,15 @@ namespace MidosHouse.OotrMultiworld {
             }
             return true;
         }
+
+        internal void SetError(string msg) {
+            using (var msgHandle = new OwnedStringHandle(msg)) {
+                Native.client_set_error(this, msgHandle);
+            }
+        }
+
+        internal byte SessionState() => Native.client_session_state(this);
+        internal StringHandle DebugErr() => Native.client_debug_err(this);
 
         internal ulong NumRooms() => Native.client_num_rooms(this);
         internal StringHandle RoomName(ulong i) => Native.client_room_name(this, i);
@@ -240,16 +248,6 @@ namespace MidosHouse.OotrMultiworld {
                 Native.message_free(this.handle);
             }
             return true;
-        }
-
-        internal StringHandle Debug() => Native.message_debug(this);
-        internal byte EffectType() => Native.message_effect_type(this);
-        internal byte World() => Native.message_player_id(this);
-
-        internal List<byte> Filename() {
-            var name = new byte[8];
-            Marshal.Copy(Native.message_player_name(this), name, 0, 8);
-            return name.ToList();
         }
     }
 
@@ -455,7 +453,7 @@ namespace MidosHouse.OotrMultiworld {
                         return;
                     }
                 }
-                this.state.Text = "Loading room list…";
+                this.state.Text = "Connecting…";
                 using (var res6 = Native.connect_ipv6(this.port)) {
                     if (res6.IsOk()) {
                         this.client = res6.Unwrap();
@@ -476,8 +474,7 @@ namespace MidosHouse.OotrMultiworld {
             }
             this.playerID = null;
             if (this.client != null) {
-                ReadPlayerID();
-                SyncPlayerNames();
+                UpdateUI(this.client);
             }
         }
 
@@ -490,13 +487,14 @@ namespace MidosHouse.OotrMultiworld {
             }
             if (this.client != null) {
                 ReceiveMessage(this.client);
-                if (this.playerID == null) {
+                if (this.client.SessionState() == 4) { // Room
                     ReadPlayerID();
-                } else {
-                    SyncPlayerNames();
-                    if (this.coopContextAddr != null) {
-                        SendItem(this.client, this.coopContextAddr.Value);
-                        ReceiveItem(this.client, this.coopContextAddr.Value, this.playerID.Value);
+                    if (this.playerID != null) {
+                        SyncPlayerNames();
+                        if (this.coopContextAddr != null) {
+                            SendItem(this.client, this.coopContextAddr.Value);
+                            ReceiveItem(this.client, this.coopContextAddr.Value, this.playerID.Value);
+                        }
                     }
                 }
             }
@@ -506,33 +504,7 @@ namespace MidosHouse.OotrMultiworld {
             using (var res = client.TryRecv(this.port)) {
                 if (res.IsOkSome()) {
                     using (var msg = res.UnwrapUnwrap()) {
-                        switch (msg.EffectType()) {
-                            case 0: {
-                                using (var msg_debug = msg.Debug()) {
-                                    Error($"received unexpected server message: {msg_debug.AsString()}");
-                                }
-                                break;
-                            }
-                            case 1: { // enters the lobby or changes lobby state
-                                this.UpdateLobbyState(client);
-                                break;
-                            }
-                            case 2: { // enters a room or changes room state
-                                this.UpdateRoomState(client);
-                                break;
-                            }
-                            case 3: { // sets a player name and changes room state
-                                if (this.coopContextAddr != null) {
-                                    APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + msg.World() * 0x8, msg.Filename(), "System Bus");
-                                }
-                                this.UpdateRoomState(client);
-                                break;
-                            }
-                            default: {
-                                Error($"received unknown server message of effect type {msg.EffectType()}");
-                                break;
-                            }
-                        }
+                        UpdateUI(client);
                     }
                 } else if (res.IsErr()) {
                     using (var err = res.DebugErr()) {
@@ -581,6 +553,49 @@ namespace MidosHouse.OotrMultiworld {
             }
         }
 
+        private void UpdateUI(Client client) {
+            switch (client.SessionState()) {
+                case 0: { // Error
+                    using (var err = client.DebugErr()) {
+                        this.state.Text = $"error: {err.AsString()}";
+                        HideLobbyUI();
+                        HideRoomUI();
+                    }
+                    break;
+                }
+                case 1: { // Init
+                    this.state.Text = "Loading room list…";
+                    HideLobbyUI();
+                    HideRoomUI();
+                    break;
+                }
+                case 2: { // InitAutoRejoin
+                    this.state.Text = "Reconnecting to room…";
+                    HideLobbyUI();
+                    HideRoomUI();
+                    break;
+                }
+                case 3: { // Lobby
+                    this.UpdateLobbyState(client);
+                    break;
+                }
+                case 4: { // Room
+                    this.UpdateRoomState(client);
+                    break;
+                }
+                case 5: { // Closed
+                    this.state.Text = "You have been disconnected. Reopen the tool to reconnect."; //TODO reconnect button
+                    HideLobbyUI();
+                    HideRoomUI();
+                    break;
+                }
+                default: {
+                    Error("received unknown session state type");
+                    break;
+                }
+            }
+        }
+
         private void UpdateLobbyState(Client client) {
             var numRooms = client.NumRooms();
             this.state.Text = "Join or create a room:";
@@ -612,6 +627,8 @@ namespace MidosHouse.OotrMultiworld {
 
         private void UpdateRoomState(Client client) {
             SuspendLayout();
+            ReadPlayerID();
+            SyncPlayerNames();
             HideLobbyUI();
             var num_players = client.NumPlayers();
             for (byte player_idx = 0; player_idx < num_players; player_idx++) {
@@ -709,7 +726,7 @@ namespace MidosHouse.OotrMultiworld {
                     // get own player name from save file
                     this.playerName = APIs.Memory.ReadByteRange(0x0020 + 0x0024, 8, "SRAM");
                     // always fill player names in co-op context (some player names may go missing seemingly at random while others stay intact, so this has to run every frame)
-                    if (this.client != null && this.coopContextAddr != null) {
+                    if (this.client != null && this.client.SessionState() == 4 /* Room */ && this.coopContextAddr != null) {
                         for (var world = 1; world < 256; world++) {
                             APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + world * 0x8, this.client.GetPlayerName((byte) world), "System Bus");
                         }
@@ -731,13 +748,14 @@ namespace MidosHouse.OotrMultiworld {
         }
 
         private void Error(string msg) {
-            this.state.Text = $"error: {msg}";
-            if (this.client != null) {
-                this.client.Dispose();
-                this.client = null;
+            if (this.client == null) {
+                this.state.Text = $"error: {msg}";
+                HideLobbyUI();
+                HideRoomUI();
+            } else {
+                this.client.SetError(msg);
+                UpdateUI(this.client);
             }
-            HideLobbyUI();
-            HideRoomUI();
         }
 
         private void HideLobbyUI() {

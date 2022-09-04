@@ -385,6 +385,43 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 
 /// # Safety
 ///
+/// `client` must point at a valid `Client`.
+#[no_mangle] pub unsafe extern "C" fn client_set_error(client: *mut Client, msg: *const c_char) {
+    let client = &mut *client;
+    client.session_state = SessionState::Error {
+        e: CStr::from_ptr(msg).to_str().expect("error message was not valid UTF-8").to_owned().into(),
+        auto_retry: false,
+    };
+}
+
+/// # Safety
+///
+/// `client` must point at a valid `Client`.
+#[no_mangle] pub unsafe extern "C" fn client_session_state(client: *const Client) -> u8 {
+    let client = &*client;
+    match client.session_state {
+        SessionState::Error { .. } => 0,
+        SessionState::Init => 1,
+        SessionState::InitAutoRejoin { .. } => 2,
+        SessionState::Lobby { .. } => 3,
+        SessionState::Room { .. } => 4,
+        SessionState::Closed => 5,
+    }
+}
+
+/// # Safety
+///
+/// `client` must point at a valid `Client`.
+#[no_mangle] pub unsafe extern "C" fn client_debug_err(client: *const Client) -> StringHandle {
+    let client = &*client;
+    match client.session_state {
+        SessionState::Error { ref e, .. } => StringHandle::from_string(e),
+        _ => StringHandle::from_string("tried to check session error when there was none"),
+    }
+}
+
+/// # Safety
+///
 /// `client` must point at a valid `Client`. This function takes ownership of the `Client`.
 #[no_mangle] pub unsafe extern "C" fn client_free(client: HandleOwned<Client>) {
     let _ = client.into_box();
@@ -670,96 +707,6 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
         Ok(value) => panic!("tried to debug_err an Ok({value:?})"),
         Err(e) => e.0,
     })
-}
-
-/// # Safety
-///
-/// `msg` must point at a valid `ServerMessage`.
-#[no_mangle] pub unsafe extern "C" fn message_debug(msg: *const ServerMessage) -> StringHandle {
-    let msg = &*msg;
-    StringHandle::from_string(format!("{msg:?}"))
-}
-
-#[repr(u8)]
-pub enum MessageEffectType {
-    /// This message should never be received by the BizHawk client.
-    Error = 0,
-    /// This message enters the lobby or changes the lobby state.
-    ChangeLobbyState = 1,
-    /// This message enters a room or changes the room state.
-    ChangeRoomState = 2,
-    /// This message sets the player name for a world and changes the room state.
-    SetPlayerNameChangeRoomState = 3,
-}
-
-/// # Safety
-///
-/// `msg` must point at a valid `ServerMessage`.
-#[no_mangle] pub unsafe extern "C" fn message_effect_type(msg: *const ServerMessage) -> MessageEffectType {
-    let msg = &*msg;
-    match msg {
-        ServerMessage::StructuredError(_) |
-        ServerMessage::OtherError(_) |
-        ServerMessage::AdminLoginSuccess { .. } |
-        ServerMessage::Goodbye |
-        ServerMessage::Ping => MessageEffectType::Error,
-        ServerMessage::EnterLobby { .. } |
-        ServerMessage::NewRoom(_) => MessageEffectType::ChangeLobbyState,
-        ServerMessage::EnterRoom { .. } |
-        ServerMessage::PlayerId(_) |
-        ServerMessage::ResetPlayerId(_) |
-        ServerMessage::ClientConnected |
-        ServerMessage::PlayerDisconnected(_) |
-        ServerMessage::UnregisteredClientDisconnected |
-        ServerMessage::ItemQueue(_) |
-        ServerMessage::GetItem(_) => MessageEffectType::ChangeRoomState,
-        ServerMessage::PlayerName(_, _) => MessageEffectType::SetPlayerNameChangeRoomState,
-    }
-}
-
-/// # Safety
-///
-/// `msg` must point at a valid `ServerMessage`.
-///
-/// # Panics
-///
-/// If the `ServerMessage` variant doesn't contain a world ID.
-#[no_mangle] pub unsafe extern "C" fn message_player_id(msg: *const ServerMessage) -> u8 {
-    let msg = &*msg;
-    match msg {
-        ServerMessage::PlayerId(world) |
-        ServerMessage::ResetPlayerId(world) |
-        ServerMessage::PlayerDisconnected(world) |
-        ServerMessage::PlayerName(world, _) => world.get(),
-        ServerMessage::StructuredError(ServerError::WrongPassword | ServerError::Future(_)) |
-        ServerMessage::OtherError(_) |
-        ServerMessage::EnterLobby { .. } |
-        ServerMessage::NewRoom(_) |
-        ServerMessage::EnterRoom { .. } |
-        ServerMessage::ClientConnected |
-        ServerMessage::UnregisteredClientDisconnected |
-        ServerMessage::ItemQueue(_) |
-        ServerMessage::GetItem(_) |
-        ServerMessage::AdminLoginSuccess { .. } |
-        ServerMessage::Goodbye |
-        ServerMessage::Ping => panic!("this message variant has no world ID"),
-    }
-}
-
-/// # Safety
-///
-/// `msg` must point at a valid `ServerMessage`.
-///
-/// # Panics
-///
-/// If the `ServerMessage` variant doesn't contain a player filename.
-#[no_mangle] pub unsafe extern "C" fn message_player_name(msg: *const ServerMessage) -> *const u8 {
-    let msg = &*msg;
-    if let ServerMessage::PlayerName(_, name) = msg {
-        name.0.as_ptr()
-    } else {
-        panic!("this message variant has no player filename")
-    }
 }
 
 /// # Safety
