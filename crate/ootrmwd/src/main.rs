@@ -287,6 +287,8 @@ impl Default for Rooms {
 struct Args {
     #[clap(short, long, default_value_t = multiworld::PORT)]
     port: u16,
+    #[clap(short, long, default_value = "ootr_multiworld")]
+    database: String,
     #[clap(subcommand)]
     subcommand: Option<Subcommand>,
 }
@@ -308,7 +310,7 @@ enum Error {
 }
 
 #[wheel::main]
-async fn main(Args { port, subcommand }: Args) -> Result<(), Error> {
+async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
     match subcommand {
         Some(Subcommand::Stop) => {
             let mut tcp_stream = TcpStream::connect((Ipv6Addr::LOCALHOST, port)).await?;
@@ -339,7 +341,7 @@ async fn main(Args { port, subcommand }: Args) -> Result<(), Error> {
         }
         None => {
             let listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, port)).await?;
-            let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database("ootr_multiworld").application_name("ootrmwd")).await?;
+            let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database(&database).application_name("ootrmwd")).await?;
             let rooms = Rooms::default();
             {
                 let mut query = sqlx::query!("SELECT name, password, base_queue, player_queues FROM rooms").fetch(&db_pool);
