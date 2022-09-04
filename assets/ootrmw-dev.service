@@ -1,0 +1,15 @@
+[Unit]
+Description=Mido's House Ocarina of Time Randomizer multiworld server, test version
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Restart=always
+ExecStart=/home/fenhl/.cargo/bin/cargo run --package=ootrmwd -- --port=18820
+ExecStop=/opt/git/github.com/midoshouse/ootr-multiworld/stage/target/debug/ootrmwd stop --port=18820
+User=fenhl
+Group=fenhl
+WorkingDirectory=/opt/git/github.com/midoshouse/ootr-multiworld/stage
+
+[Install]
+WantedBy=multi-user.target
