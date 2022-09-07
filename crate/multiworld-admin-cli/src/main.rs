@@ -12,7 +12,8 @@ use {
         net::TcpStream,
         select,
         time::{
-            interval,
+            Instant,
+            interval_at,
             timeout,
         },
     },
@@ -77,7 +78,7 @@ async fn main(Args { port, id, api_key, server_ip }: Args) -> Result<(), Error> 
     ClientMessage::Login { id, api_key }.write(&mut tcp_stream).await?;
     let (reader, mut writer) = tcp_stream.into_split();
     let mut read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_owned(reader)));
-    let mut interval = interval(Duration::from_secs(30));
+    let mut interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
     loop {
         select! {
             res = &mut read => {
@@ -89,6 +90,7 @@ async fn main(Args { port, id, api_key, server_ip }: Args) -> Result<(), Error> 
                     ServerMessage::OtherError(msg) => return Err(Error::Server(msg)),
                     ServerMessage::EnterLobby { rooms } => println!("entered lobby, rooms: {}", rooms.into_iter().format(", ")),
                     ServerMessage::NewRoom(room_name) => println!("new room: {room_name:?}"),
+                    ServerMessage::DeleteRoom(room_name) => println!("room deleted: {room_name:?}"),
                     ServerMessage::AdminLoginSuccess { active_connections } => {
                         println!("admin login success, active connections:");
                         for (room_name, (players, num_unassigned_clients)) in active_connections {

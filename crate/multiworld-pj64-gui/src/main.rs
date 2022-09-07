@@ -91,7 +91,10 @@ impl IsNetworkError for Error {
 
 #[derive(Debug, Clone)]
 enum Message {
+    CancelRoomDeletion,
     CommandError(Arc<Error>),
+    ConfirmRoomDeletion,
+    DeleteRoom,
     DismissWrongPassword,
     Exit,
     JoinRoom,
@@ -197,7 +200,19 @@ impl Application for State {
 
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
+            Message::CancelRoomDeletion => if let SessionState::Room { ref mut confirm_deletion, .. } = self.server_connection {
+                *confirm_deletion = false;
+            },
             Message::CommandError(e) => { self.command_error.get_or_insert(e); }
+            Message::ConfirmRoomDeletion => if let Some(writer) = self.server_writer.clone() {
+                return cmd(async move {
+                    ClientMessage::DeleteRoom.write(&mut *writer.lock().await).await?;
+                    Ok(Message::Nop)
+                })
+            },
+            Message::DeleteRoom => if let SessionState::Room { ref mut confirm_deletion, .. } = self.server_connection {
+                *confirm_deletion = true;
+            },
             Message::DismissWrongPassword => if let SessionState::Lobby { ref mut wrong_password, .. } = self.server_connection {
                 *wrong_password = false;
             },
@@ -485,8 +500,19 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                SessionState::Room { ref players, num_unassigned_clients, .. } => {
-                    let mut col = Column::new();
+                SessionState::Room { confirm_deletion: true, .. } => Column::new()
+                    .push(Text::new("Are you sure you want to delete this room? Items that have already been sent will be lost forever!").color(text_color))
+                    .push(Row::new()
+                        .push(Button::new(Text::new("Delete").color(text_color)).on_press(Message::ConfirmRoomDeletion).style(Style(system_theme)))
+                        .push(Button::new(Text::new("Back").color(text_color)).on_press(Message::CancelRoomDeletion).style(Style(system_theme)))
+                        .spacing(8)
+                    )
+                    .spacing(8)
+                    .padding(8)
+                    .into(),
+                SessionState::Room { confirm_deletion: false, ref players, num_unassigned_clients, .. } => {
+                    let mut col = Column::new()
+                        .push(Button::new(Text::new("Delete Room").color(text_color)).on_press(Message::DeleteRoom).style(Style(system_theme)));
                     let (players, other) = format_room_state(players, num_unassigned_clients, self.last_world);
                     for (player_id, player) in players.into_iter() {
                         col = col.push(Row::new()

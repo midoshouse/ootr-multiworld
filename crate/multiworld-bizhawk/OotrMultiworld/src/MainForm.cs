@@ -49,6 +49,7 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern StringHandle client_player_state(Client client, byte player_idx);
         [DllImport("multiworld")] internal static extern StringHandle client_other_room_state(Client client);
         [DllImport("multiworld")] internal static extern UnitResult client_kick_player(Client client, byte player_idx);
+        [DllImport("multiworld")] internal static extern UnitResult client_delete_room(Client client);
         [DllImport("multiworld")] internal static extern OptMessageResult client_try_recv_message(Client client, ushort port);
         [DllImport("multiworld")] internal static extern void opt_message_result_free(IntPtr opt_msg_res);
         [DllImport("multiworld")] internal static extern bool opt_message_result_is_ok_some(OptMessageResult opt_msg_res);
@@ -181,6 +182,7 @@ namespace MidosHouse.OotrMultiworld {
         internal ushort ItemQueueLen() => Native.client_item_queue_len(this);
         internal ushort Item(ushort index) => Native.client_item_kind_at_index(this, index);
         internal UnitResult KickPlayer(byte player_idx) => Native.client_kick_player(this, player_idx);
+        internal UnitResult DeleteRoom() => Native.client_delete_room(this);
     }
 
     internal class ClientResult : SafeHandle {
@@ -337,6 +339,7 @@ namespace MidosHouse.OotrMultiworld {
         private TextBox password = new TextBox();
         private Button createJoinButton = new Button();
         private Label version = new Label();
+        private Button deleteRoomButton = new Button();
         private List<Label> playerStates = new List<Label>();
         private List<Button> kickButtons = new List<Button>();
         private Label otherState = new Label();
@@ -421,7 +424,27 @@ namespace MidosHouse.OotrMultiworld {
             }
             this.Controls.Add(this.version);
 
-            this.otherState.TabIndex = 4;
+            this.deleteRoomButton.TabIndex = 5;
+            this.deleteRoomButton.Location = new Point(11, 42);
+            this.deleteRoomButton.AutoSize = true;
+            this.deleteRoomButton.Text = "Delete Room";
+            this.deleteRoomButton.Enabled = true;
+            this.deleteRoomButton.Click += (s, e) => {
+                if (this.client != null) {
+                    if (this.DialogController.ShowMessageBox2(this, "Are you sure you want to delete this room? Items that have already been sent will be lost forever!", null, EMsgBoxIcon.Question)) {
+                        using (var res = this.client.DeleteRoom()) {
+                            if (!res.IsOk()) {
+                                using (var err = res.DebugErr()) {
+                                    Error(err.AsString());
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            this.Controls.Add(this.deleteRoomButton);
+
+            this.otherState.TabIndex = 5;
             this.otherState.Location = new Point(12, 42);
             this.otherState.AutoSize = true;
             this.otherState.Visible = false;
@@ -651,19 +674,13 @@ namespace MidosHouse.OotrMultiworld {
         private void UpdateRoomState(Client client) {
             SuspendLayout();
             HideLobbyUI();
+            this.deleteRoomButton.Visible = true;
             var num_players = client.NumPlayers();
             for (byte player_idx = 0; player_idx < num_players; player_idx++) {
                 if (player_idx >= this.playerStates.Count) {
-                    var playerState = new Label();
-                    playerState.TabIndex = 2 * player_idx + 4;
-                    playerState.Location = new Point(92, 40 * player_idx + 42);
-                    playerState.AutoSize = true;
-                    this.Controls.Add(playerState);
-                    this.playerStates.Add(playerState);
-
                     var kickButton = new Button();
                     kickButton.TabIndex = 2 * player_idx + 5;
-                    kickButton.Location = new Point(12, 40 * player_idx + 42);
+                    kickButton.Location = new Point(12, 40 * player_idx + 82);
                     kickButton.AutoSize = true;
                     kickButton.Enabled = true;
                     var closurePlayerIdx = player_idx;
@@ -678,6 +695,13 @@ namespace MidosHouse.OotrMultiworld {
                     };
                     this.Controls.Add(kickButton);
                     this.kickButtons.Add(kickButton);
+
+                    var playerState = new Label();
+                    playerState.TabIndex = 2 * player_idx + 6;
+                    playerState.Location = new Point(92, 40 * player_idx + 82);
+                    playerState.AutoSize = true;
+                    this.Controls.Add(playerState);
+                    this.playerStates.Add(playerState);
                 }
                 using (var stateText = client.PlayerState(player_idx)) {
                     this.playerStates[player_idx].Text = stateText.AsString();
@@ -686,8 +710,8 @@ namespace MidosHouse.OotrMultiworld {
                 this.kickButtons[player_idx].Text = client.PlayerWorld(player_idx) == this.playerID ? "Leave" : "Kick";
                 this.kickButtons[player_idx].Visible = true;
             }
-            this.otherState.TabIndex = 2 * num_players + 4;
-            this.otherState.Location = new Point(12, 40 * num_players + 42);
+            this.otherState.TabIndex = 2 * num_players + 5;
+            this.otherState.Location = new Point(12, 40 * num_players + 82);
             this.otherState.Visible = true;
             this.otherState.Text = client.OtherState().AsString();
             if (num_players < this.playerStates.Count) {
@@ -800,6 +824,7 @@ namespace MidosHouse.OotrMultiworld {
         }
 
         private void HideRoomUI() {
+            this.deleteRoomButton.Visible = false;
             for (var player_idx = 0; player_idx < this.playerStates.Count; player_idx++) {
                 this.playerStates[player_idx].Visible = false;
                 this.kickButtons[player_idx].Visible = false;

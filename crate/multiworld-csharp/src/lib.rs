@@ -648,6 +648,14 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
     }
 }
 
+/// # Safety
+///
+/// `client` must point at a valid `Client`.
+#[csharp_ffi] pub unsafe extern "C" fn client_delete_room(client: *mut Client) -> HandleOwned<DebugResult<()>> {
+    let client = &mut *client;
+    HandleOwned::new(client.write(&ClientMessage::DeleteRoom).map_err(DebugError::from))
+}
+
 /// Attempts to read a message from the server if one is available, without blocking if there is not.
 ///
 /// # Safety

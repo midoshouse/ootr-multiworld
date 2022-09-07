@@ -30,7 +30,8 @@ use {
         select,
         sync::Mutex,
         time::{
-            interval,
+            Instant,
+            interval_at,
             timeout,
         },
     },
@@ -111,7 +112,7 @@ impl<H: Hasher, I> Recipe<H, I> for Client {
                 multiworld::handshake(&mut tcp_stream).await?;
                 let (reader, writer) = tcp_stream.into_split();
                 let writer = Arc::new(Mutex::new(writer));
-                let interval = interval(Duration::from_secs(30));
+                let interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
                 Ok(
                     stream::once(future::ok(Message::ServerConnected(writer.clone())))
                     .chain(stream::try_unfold((reader, writer, interval), |(reader, writer, mut interval)| async move {

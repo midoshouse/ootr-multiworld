@@ -17,7 +17,6 @@ use {
         },
         num::NonZeroU8,
         sync::Arc,
-        time::Instant,
     },
     async_proto::Protocol,
     async_recursion::async_recursion,
@@ -33,6 +32,7 @@ use {
             Mutex,
             oneshot,
         },
+        time::Instant,
     },
 };
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
@@ -238,6 +238,17 @@ impl Room {
         }
     }
 
+    pub async fn delete(&mut self) {
+        for client_id in self.clients.keys().copied().collect::<Vec<_>>() {
+            self.remove_client(client_id, EndRoomSession::ToLobby).await;
+        }
+        #[cfg(feature = "sqlx")] {
+            if let Err(e) = sqlx::query!("DELETE FROM rooms WHERE name = $1", &self.name).execute(&self.db_pool).await {
+                eprintln!("failed to delete room from database: {e} ({e:?})");
+            }
+        }
+    }
+
     /// Moves a player from unloaded (no world assigned) to the given `world`.
     pub async fn load_player(&mut self, client_id: SocketId, world: NonZeroU8) -> bool {
         if self.clients.iter().any(|(&iter_client_id, (iter_player, _, _))| iter_player.as_ref().map_or(false, |p| p.world == world) && iter_client_id != client_id) {
@@ -368,6 +379,8 @@ pub enum ClientMessage {
     },
     /// Only works after [`ServerMessage::EnterRoom`].
     KickPlayer(NonZeroU8),
+    /// Only works after [`ServerMessage::EnterRoom`].
+    DeleteRoom,
 }
 
 macro_rules! server_errors {
@@ -425,6 +438,8 @@ pub enum ServerMessage {
     },
     /// A new room has been created.
     NewRoom(String),
+    /// A room has been deleted.
+    DeleteRoom(String),
     /// You have created or joined a room.
     EnterRoom {
         players: Vec<Player>,
@@ -524,6 +539,7 @@ pub enum SessionState<E> {
         players: Vec<Player>,
         num_unassigned_clients: u8,
         item_queue: Vec<u16>,
+        confirm_deletion: bool,
     },
     Closed,
 }
@@ -581,13 +597,21 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
+            ServerMessage::DeleteRoom(name) => if let SessionState::Lobby { rooms, .. } = self {
+                rooms.remove(&name);
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
             ServerMessage::EnterRoom { players, num_unassigned_clients } => {
                 let (room_name, room_password) = match self {
                     SessionState::Lobby { create_new_room: false, existing_room_selection, password, .. } => (existing_room_selection.clone().unwrap_or_default(), password.clone()),
                     SessionState::Lobby { create_new_room: true, new_room_name, password, .. } => (new_room_name.clone(), password.clone()),
                     _ => <_>::default(),
                 };
-                *self = SessionState::Room { item_queue: Vec::default(), room_name, room_password, players, num_unassigned_clients };
+                *self = SessionState::Room { item_queue: Vec::default(), confirm_deletion: false, room_name, room_password, players, num_unassigned_clients };
             }
             ServerMessage::PlayerId(world) => if let SessionState::Room { players, num_unassigned_clients, .. } = self {
                 if let Err(idx) = players.binary_search_by_key(&world, |p| p.world) {
