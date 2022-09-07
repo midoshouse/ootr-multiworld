@@ -14,5 +14,4 @@ ThrowOnNativeFailure
 
 Set-Location .\crate\multiworld-bizhawk\OotrMultiworld\BizHawk
 .\EmuHawk.exe --open-ext-tool-dll=OotrMultiworld
-.\EmuHawk.exe --open-ext-tool-dll=OotrMultiworld
 Set-Location ..\..\..\..

@@ -2820,11 +2820,21 @@ dependencies = [
  "directories",
  "libc",
  "multiworld",
+ "multiworld-derive",
+ "once_cell",
  "reqwest",
  "semver 1.0.13",
  "serde",
  "serde_json",
  "winver",
+]
+
+[[package]]
+name = "multiworld-derive"
+version = "5.0.0"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]

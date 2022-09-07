@@ -26,6 +26,8 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern void client_set_error(Client client, OwnedStringHandle msg);
         [DllImport("multiworld")] internal static extern byte client_session_state(Client client);
         [DllImport("multiworld")] internal static extern StringHandle client_debug_err(Client client);
+        [DllImport("multiworld")] internal static extern bool client_has_wrong_password(Client client);
+        [DllImport("multiworld")] internal static extern void client_reset_wrong_password(Client client);
         [DllImport("multiworld")] internal static extern void client_free(IntPtr client);
         [DllImport("multiworld")] internal static extern StringHandle client_result_debug_err(IntPtr client_res);
         [DllImport("multiworld")] internal static extern void string_free(IntPtr s);
@@ -134,6 +136,8 @@ namespace MidosHouse.OotrMultiworld {
         internal byte SessionState() => Native.client_session_state(this);
         internal StringHandle DebugErr() => Native.client_debug_err(this);
 
+        internal bool HasWrongPassword() => Native.client_has_wrong_password(this);
+        internal void ResetWrongPassword() => Native.client_reset_wrong_password(this);
         internal ulong NumRooms() => Native.client_num_rooms(this);
         internal StringHandle RoomName(ulong i) => Native.client_room_name(this, i);
 
@@ -367,9 +371,14 @@ namespace MidosHouse.OotrMultiworld {
             this.rooms.SelectedIndex = 0;
             this.rooms.AutoCompleteMode = AutoCompleteMode.Append;
             this.rooms.AutoCompleteSource = AutoCompleteSource.ListItems;
+            this.rooms.SelectedIndexChanged += (s, e) => {
+                if (this.client != null) {
+                    this.UpdateLobbyState(this.client, false);
+                }
+            };
             this.rooms.TextChanged += (s, e) => {
                 if (this.client != null) {
-                    this.UpdateLobbyState(this.client);
+                    this.UpdateLobbyState(this.client, false);
                 }
             };
             this.Controls.Add(this.rooms);
@@ -377,10 +386,15 @@ namespace MidosHouse.OotrMultiworld {
             this.password.TabIndex = 2;
             this.password.Location = new Point(12, 82);
             this.password.Size = new Size(485, 25);
-            password.UseSystemPasswordChar = true;
+            this.password.UseSystemPasswordChar = true;
             //TODO (.net 5) add PlaceholderText (“Password”)
             this.password.TextChanged += (s, e) => {
                 this.createJoinButton.Enabled = this.rooms.Enabled && this.rooms.Text.Length > 0 && this.password.Text.Length > 0;
+            };
+            this.password.KeyPress += (s, e) => {
+                if (e.KeyChar == (char) Keys.Enter) {
+                    CreateJoinRoom();
+                }
             };
             this.Controls.Add(this.password);
 
@@ -390,21 +404,7 @@ namespace MidosHouse.OotrMultiworld {
             this.createJoinButton.Text = "Create/Join";
             this.createJoinButton.Enabled = false;
             this.createJoinButton.Click += (s, e) => {
-                if (this.client != null) {
-                    using (var res = this.client.CreateJoinRoom(this.rooms.Text, this.password.Text)) {
-                        if (!res.IsOk()) {
-                            using (var err = res.DebugErr()) {
-                                var debug = err.AsString();
-                                if (debug == "wrong password") {
-                                    this.DialogController.ShowMessageBox(this, "wrong password", null, EMsgBoxIcon.Error);
-                                    this.password.Text = "";
-                                } else {
-                                    Error(debug);
-                                }
-                            }
-                        }
-                    }
-                }
+                CreateJoinRoom();
             };
             this.Controls.Add(this.createJoinButton);
 
@@ -425,6 +425,18 @@ namespace MidosHouse.OotrMultiworld {
             this.Controls.Add(this.otherState);
 
             ResumeLayout(true);
+        }
+
+        private void CreateJoinRoom() {
+            if (this.client != null) {
+                using (var res = this.client.CreateJoinRoom(this.rooms.Text, this.password.Text)) {
+                    if (!res.IsOk()) {
+                        using (var err = res.DebugErr()) {
+                            Error(err.AsString());
+                        }
+                    }
+                }
+            }
         }
 
         public override void Restart() {
@@ -488,8 +500,9 @@ namespace MidosHouse.OotrMultiworld {
             if (this.client != null) {
                 ReceiveMessage(this.client);
                 if (this.client.SessionState() == 4) { // Room
-                    ReadPlayerID();
-                    if (this.playerID != null) {
+                    if (this.playerID == null) {
+                        ReadPlayerID();
+                    } else {
                         SyncPlayerNames();
                         if (this.coopContextAddr != null) {
                             SendItem(this.client, this.coopContextAddr.Value);
@@ -576,7 +589,7 @@ namespace MidosHouse.OotrMultiworld {
                     break;
                 }
                 case 3: { // Lobby
-                    this.UpdateLobbyState(client);
+                    this.UpdateLobbyState(client, true);
                     break;
                 }
                 case 4: { // Room
@@ -596,7 +609,12 @@ namespace MidosHouse.OotrMultiworld {
             }
         }
 
-        private void UpdateLobbyState(Client client) {
+        private void UpdateLobbyState(Client client, bool updateRoomList) {
+            if (client.HasWrongPassword()) {
+                this.DialogController.ShowMessageBox(this, "wrong password", null, EMsgBoxIcon.Error);
+                client.ResetWrongPassword();
+                this.password.Text = "";
+            }
             var numRooms = client.NumRooms();
             this.state.Text = "Join or create a room:";
             SuspendLayout();
@@ -605,13 +623,15 @@ namespace MidosHouse.OotrMultiworld {
             this.password.Visible = true;
             this.createJoinButton.Visible = true;
             this.version.Visible = true;
-            this.rooms.SelectedItem = null;
-            this.rooms.Items.Clear();
-            for (ulong i = 0; i < numRooms; i++) {
-                this.rooms.Items.Add(client.RoomName(i).AsString());
+            if (updateRoomList) {
+                this.rooms.SelectedItem = null;
+                this.rooms.Items.Clear();
+                for (ulong i = 0; i < numRooms; i++) {
+                    this.rooms.Items.Add(client.RoomName(i).AsString());
+                }
             }
             this.rooms.Enabled = true;
-            if (this.rooms.Enabled && this.rooms.Text.Length > 0) {
+            if (this.rooms.Text.Length > 0) {
                 this.createJoinButton.Enabled = this.password.Text.Length > 0;
                 if (this.rooms.Items.Contains(this.rooms.Text)) {
                     this.createJoinButton.Text = "Join";
@@ -627,8 +647,6 @@ namespace MidosHouse.OotrMultiworld {
 
         private void UpdateRoomState(Client client) {
             SuspendLayout();
-            ReadPlayerID();
-            SyncPlayerNames();
             HideLobbyUI();
             var num_players = client.NumPlayers();
             for (byte player_idx = 0; player_idx < num_players; player_idx++) {
@@ -637,7 +655,7 @@ namespace MidosHouse.OotrMultiworld {
                     playerState.TabIndex = 2 * player_idx + 4;
                     playerState.Location = new Point(92, 40 * player_idx + 42);
                     playerState.AutoSize = true;
-                    playerState.Visible = this.otherState.Visible;
+                    playerState.Visible = true;
                     this.Controls.Add(playerState);
                     this.playerStates.Add(playerState);
 
@@ -645,7 +663,7 @@ namespace MidosHouse.OotrMultiworld {
                     kickButton.TabIndex = 2 * player_idx + 5;
                     kickButton.Location = new Point(12, 40 * player_idx + 42);
                     kickButton.AutoSize = true;
-                    kickButton.Visible = this.otherState.Visible;
+                    kickButton.Visible = true;
                     kickButton.Text = "Kick";
                     kickButton.Enabled = true;
                     var closurePlayerIdx = player_idx;
@@ -665,6 +683,7 @@ namespace MidosHouse.OotrMultiworld {
             }
             this.otherState.TabIndex = 2 * num_players + 4;
             this.otherState.Location = new Point(12, 40 * num_players + 42);
+            this.otherState.Visible = true;
             this.otherState.Text = client.OtherState().AsString();
             if (num_players < this.playerStates.Count) {
                 for (var player_idx = num_players; player_idx < this.playerStates.Count; player_idx++) {
@@ -678,6 +697,7 @@ namespace MidosHouse.OotrMultiworld {
         }
 
         private void ReadPlayerID() {
+            var oldPlayerID = this.playerID;
             if ((APIs.GameInfo.GetGameInfo()?.Name ?? "Null") == "Null") {
                 this.playerID = null;
                 this.state.Text = "Please open the ROM…";
@@ -687,9 +707,8 @@ namespace MidosHouse.OotrMultiworld {
                     this.playerID = null;
                     this.state.Text = $"Expected OoTR, found {APIs.GameInfo.GetGameInfo()?.Name ?? "Null"}";
                 } else {
-                    SuspendLayout();
                     //TODO also check OoTR version bytes and error on vanilla OoT
-                    this.state.Text = "Waiting for game…";
+                    var newText = "Waiting for game…";
                     if (Enumerable.SequenceEqual(APIs.Memory.ReadByteRange(0x11a5d0 + 0x1c, 6, "RDRAM"), new List<byte>(Encoding.UTF8.GetBytes("ZELDAZ")))) { // don't set or reset player ID while rom is loaded but not properly initialized
                         var randoContextAddr = APIs.Memory.ReadU32(0x1c6e90 + 0x15d4, "RDRAM");
                         if (randoContextAddr >= 0x8000_0000 && randoContextAddr != 0xffff_ffff) {
@@ -698,18 +717,22 @@ namespace MidosHouse.OotrMultiworld {
                                 //TODO COOP_VERSION check
                                 this.coopContextAddr = newCoopContextAddr;
                                 this.playerID = (byte?) APIs.Memory.ReadU8(newCoopContextAddr + 0x4, "System Bus");
-                                this.state.Text = $"Connected as world {this.playerID}";
+                                newText = $"Connected as world {this.playerID}";
                             } else {
                                 this.coopContextAddr = null;
                             }
                         }
                     }
-                    ResumeLayout();
+                    if (this.state.Text != newText) {
+                        this.state.Text = newText;
+                    }
                 }
             }
-            if (this.client != null) {
+            if (this.client != null && this.playerID != oldPlayerID) {
                 using (var res = this.client.SetPlayerID(this.playerID)) {
-                    if (!res.IsOk()) {
+                    if (res.IsOk()) {
+                        UpdateUI(this.client);
+                    } else {
                         using (var err = res.DebugErr()) {
                             Error(err.AsString());
                         }
@@ -719,6 +742,7 @@ namespace MidosHouse.OotrMultiworld {
         }
 
         private void SyncPlayerNames() {
+            var oldPlayerName = this.playerName;
             if (this.playerID == null) {
                 this.playerName = new List<byte> { 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf };
             } else {
@@ -736,9 +760,11 @@ namespace MidosHouse.OotrMultiworld {
                     this.playerName = new List<byte> { 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf };
                 }
             }
-            if (this.client != null) {
+            if (this.client != null && !Enumerable.SequenceEqual(this.playerName, oldPlayerName)) {
                 using (var res = this.client.SetPlayerName(this.playerName)) {
-                    if (!res.IsOk()) {
+                    if (res.IsOk()) {
+                        UpdateUI(this.client);
+                    } else {
                         using (var err = res.DebugErr()) {
                             Error(err.AsString());
                         }
