@@ -488,14 +488,11 @@ impl Application for State {
                 SessionState::Room { ref players, num_unassigned_clients, .. } => {
                     let mut col = Column::new();
                     let (players, other) = format_room_state(players, num_unassigned_clients, self.last_world);
-                    for (player_idx, player) in players.into_iter().enumerate() {
-                        let player_id = NonZeroU8::new(u8::try_from(player_idx + 1).expect("too many players")).expect("iterator index + 1 was 0");
-                        let mut row = Row::new();
-                        row = row.push(Text::new(player).color(text_color));
-                        if self.last_world.map_or(true, |my_id| my_id != player_id) {
-                            row = row.push(Button::new(Text::new("Kick").color(text_color)).on_press(Message::Kick(player_id)).style(Style(system_theme)));
-                        }
-                        col = col.push(row);
+                    for (player_id, player) in players.into_iter() {
+                        col = col.push(Row::new()
+                            .push(Text::new(player).color(text_color))
+                            .push(Button::new(Text::new(if self.last_world.map_or(false, |my_id| my_id == player_id) { "Leave" } else { "Kick" }).color(text_color)).on_press(Message::Kick(player_id)).style(Style(system_theme)))
+                        );
                     }
                     col
                         .push(Text::new(other).color(text_color))

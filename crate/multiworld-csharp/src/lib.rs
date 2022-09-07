@@ -587,11 +587,28 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 /// # Panics
 ///
 /// If `client` is not in a room or `player_idx` is out of range.
+#[csharp_ffi] pub unsafe extern "C" fn client_player_world(client: *const Client, player_idx: u8) -> u8 {
+    let client = &*client;
+    if let SessionState::Room { ref players, num_unassigned_clients, .. } = client.session_state {
+        let (mut players, _) = format_room_state(players, num_unassigned_clients, client.last_world);
+        players.remove(usize::from(player_idx)).0.get()
+    } else {
+        panic!("client is not in a room")
+    }
+}
+
+/// # Safety
+///
+/// `client` must point at a valid `Client`.
+///
+/// # Panics
+///
+/// If `client` is not in a room or `player_idx` is out of range.
 #[csharp_ffi] pub unsafe extern "C" fn client_player_state(client: *const Client, player_idx: u8) -> StringHandle {
     let client = &*client;
     if let SessionState::Room { ref players, num_unassigned_clients, .. } = client.session_state {
         let (mut players, _) = format_room_state(players, num_unassigned_clients, client.last_world);
-        StringHandle::from_string(players.remove(usize::from(player_idx)))
+        StringHandle::from_string(players.remove(usize::from(player_idx)).1)
     } else {
         panic!("client is not in a room")
     }

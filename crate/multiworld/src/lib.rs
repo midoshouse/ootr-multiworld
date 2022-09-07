@@ -671,13 +671,13 @@ impl<E> SessionState<E> {
     }
 }
 
-pub fn format_room_state(players: &[Player], num_unassigned_clients: u8, my_world: Option<NonZeroU8>) -> (Vec<String>, String) {
+pub fn format_room_state(players: &[Player], num_unassigned_clients: u8, my_world: Option<NonZeroU8>) -> (Vec<(NonZeroU8, String)>, String) {
     match (players.len(), num_unassigned_clients) {
         (0, 0) => (Vec::default(), format!("this room is empty")), // for admin view
         (0, unassigned) => (Vec::default(), format!("{unassigned} client{} with no world", if unassigned == 1 { "" } else { "s" })),
         (_, unassigned) => {
             (players.iter()
-                .map(|player| if player.name == Filename::default() {
+                .map(|player| (player.world, if player.name == Filename::default() {
                     if my_world == Some(player.world) {
                         format!("{}. [create save file 1 to set name]", player.world)
                     } else {
@@ -685,7 +685,7 @@ pub fn format_room_state(players: &[Player], num_unassigned_clients: u8, my_worl
                     }
                 } else {
                     format!("{}. {}", player.world, player.name)
-                })
+                }))
                 .collect(),
             if unassigned > 0 {
                 format!("…and {unassigned} client{} with no world", if unassigned == 1 { "" } else { "s" })

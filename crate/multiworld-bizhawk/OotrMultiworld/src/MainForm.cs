@@ -45,6 +45,7 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern UnitResult client_reset_player_id(Client client);
         [DllImport("multiworld")] internal static extern UnitResult client_set_player_name(Client client, IntPtr name);
         [DllImport("multiworld")] internal static extern byte client_num_players(Client client);
+        [DllImport("multiworld")] internal static extern byte client_player_world(Client client, byte player_idx);
         [DllImport("multiworld")] internal static extern StringHandle client_player_state(Client client, byte player_idx);
         [DllImport("multiworld")] internal static extern StringHandle client_other_room_state(Client client);
         [DllImport("multiworld")] internal static extern UnitResult client_kick_player(Client client, byte player_idx);
@@ -172,6 +173,7 @@ namespace MidosHouse.OotrMultiworld {
         }
 
         internal byte NumPlayers() => Native.client_num_players(this);
+        internal byte PlayerWorld(byte player_idx) => Native.client_player_world(this, player_idx);
         internal StringHandle PlayerState(byte player_idx) => Native.client_player_state(this, player_idx);
         internal StringHandle OtherState() => Native.client_other_room_state(this);
         internal OptMessageResult TryRecv(ushort port) => Native.client_try_recv_message(this, port);
@@ -656,7 +658,6 @@ namespace MidosHouse.OotrMultiworld {
                     playerState.TabIndex = 2 * player_idx + 4;
                     playerState.Location = new Point(92, 40 * player_idx + 42);
                     playerState.AutoSize = true;
-                    playerState.Visible = true;
                     this.Controls.Add(playerState);
                     this.playerStates.Add(playerState);
 
@@ -664,8 +665,6 @@ namespace MidosHouse.OotrMultiworld {
                     kickButton.TabIndex = 2 * player_idx + 5;
                     kickButton.Location = new Point(12, 40 * player_idx + 42);
                     kickButton.AutoSize = true;
-                    kickButton.Visible = true;
-                    kickButton.Text = "Kick";
                     kickButton.Enabled = true;
                     var closurePlayerIdx = player_idx;
                     kickButton.Click += (s, e) => {
@@ -680,7 +679,12 @@ namespace MidosHouse.OotrMultiworld {
                     this.Controls.Add(kickButton);
                     this.kickButtons.Add(kickButton);
                 }
-                this.playerStates[player_idx].Text = client.PlayerState(player_idx).AsString();
+                using (var stateText = client.PlayerState(player_idx)) {
+                    this.playerStates[player_idx].Text = stateText.AsString();
+                }
+                this.playerStates[player_idx].Visible = true;
+                this.kickButtons[player_idx].Text = client.PlayerWorld(player_idx) == this.playerID ? "Leave" : "Kick";
+                this.kickButtons[player_idx].Visible = true;
             }
             this.otherState.TabIndex = 2 * num_players + 4;
             this.otherState.Location = new Point(12, 40 * num_players + 42);
