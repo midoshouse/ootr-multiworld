@@ -391,8 +391,9 @@ namespace MidosHouse.OotrMultiworld {
             this.password.TextChanged += (s, e) => {
                 this.createJoinButton.Enabled = this.rooms.Enabled && this.rooms.Text.Length > 0 && this.password.Text.Length > 0;
             };
-            this.password.KeyPress += (s, e) => {
-                if (e.KeyChar == (char) Keys.Enter) {
+            this.password.KeyDown += (s, e) => {
+                if (e.KeyCode == Keys.Enter) {
+                    e.SuppressKeyPress = true;
                     CreateJoinRoom();
                 }
             };
