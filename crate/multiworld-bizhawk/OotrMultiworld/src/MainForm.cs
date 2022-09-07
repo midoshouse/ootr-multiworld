@@ -701,11 +701,13 @@ namespace MidosHouse.OotrMultiworld {
             if ((APIs.GameInfo.GetGameInfo()?.Name ?? "Null") == "Null") {
                 this.playerID = null;
                 this.state.Text = "Please open the ROM…";
+                PerformLayout();
             } else {
                 var romIdent = APIs.Memory.ReadByteRange(0x20, 0x15, "ROM");
                 if (!Enumerable.SequenceEqual(romIdent, new List<byte>(Encoding.UTF8.GetBytes("THE LEGEND OF ZELDA \0")))) {
                     this.playerID = null;
                     this.state.Text = $"Expected OoTR, found {APIs.GameInfo.GetGameInfo()?.Name ?? "Null"}";
+                    PerformLayout();
                 } else {
                     //TODO also check OoTR version bytes and error on vanilla OoT
                     var newText = "Waiting for game…";
@@ -725,6 +727,7 @@ namespace MidosHouse.OotrMultiworld {
                     }
                     if (this.state.Text != newText) {
                         this.state.Text = newText;
+                        PerformLayout();
                     }
                 }
             }
