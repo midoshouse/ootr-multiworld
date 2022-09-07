@@ -745,7 +745,21 @@ namespace MidosHouse.OotrMultiworld {
                         if (randoContextAddr >= 0x8000_0000 && randoContextAddr != 0xffff_ffff) {
                             var newCoopContextAddr = APIs.Memory.ReadU32(randoContextAddr, "System Bus");
                             if (newCoopContextAddr >= 0x8000_0000 && newCoopContextAddr != 0xffff_ffff) {
-                                //TODO COOP_VERSION check
+                                switch (APIs.Memory.ReadU32(newCoopContextAddr, "System Bus")) {
+                                    case 0 | 1:
+                                        Error("randomizer version too old (version 5.1.4 or higher required)");
+                                        this.coopContextAddr = null;
+                                        return;
+                                    case 2:
+                                        break; // supported, but no MW_SEND_OWN_ITEMS support
+                                    case 3:
+                                        APIs.Memory.WriteU8(newCoopContextAddr + 0x0a, 1, "System Bus"); // enable MW_SEND_OWN_ITEMS for server-side tracking
+                                        break;
+                                    default:
+                                        Error("randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)");
+                                        this.coopContextAddr = null;
+                                        return;
+                                }
                                 this.coopContextAddr = newCoopContextAddr;
                                 this.playerID = (byte?) APIs.Memory.ReadU8(newCoopContextAddr + 0x4, "System Bus");
                                 newText = $"Connected as world {this.playerID}";

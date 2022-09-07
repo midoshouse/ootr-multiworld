@@ -108,7 +108,20 @@ sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
                 if (randoContextAddr >= 0x80000000 && randoContextAddr != 0xffffffff) {
                     var newCoopContextAddr = mem.u32[randoContextAddr];
                     if (newCoopContextAddr >= 0x80000000 && newCoopContextAddr != 0xffffffff) {
-                        //TODO COOP_VERSION check
+                        switch (mem.u32[newCoopContextAddr]) {
+                            case 0:
+                            case 1:
+                                sock.close();
+                                throw 'randomizer version too old (version 5.1.4 or higher required)';
+                            case 2:
+                                break; // supported, but no MW_SEND_OWN_ITEMS support
+                            case 3:
+                                mem.u8[newCoopContextAddr + 0x0a] = 1; // enable MW_SEND_OWN_ITEMS for server-side tracking
+                                break;
+                            default:
+                                sock.close();
+                                throw "randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)";
+                        }
                         coopContextAddr = newCoopContextAddr;
                         var newPlayerID = mem.u8[newCoopContextAddr + 0x4];
                         if (newPlayerID !== playerID) {
