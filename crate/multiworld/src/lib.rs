@@ -517,6 +517,7 @@ pub enum SessionState<E> {
         room_password: String,
     },
     Lobby {
+        logged_in_as_admin: bool,
         rooms: BTreeSet<String>,
         create_new_room: bool,
         existing_room_selection: Option<String>,
@@ -563,6 +564,7 @@ impl<E> SessionState<E> {
             ServerMessage::EnterLobby { rooms } => *self = if let SessionState::InitAutoRejoin { room_name, room_password } = self {
                 let room_still_exists = rooms.contains(room_name);
                 SessionState::Lobby {
+                    logged_in_as_admin: false,
                     create_new_room: !room_still_exists,
                     existing_room_selection: room_still_exists.then(|| room_name.clone()),
                     new_room_name: room_name.clone(),
@@ -572,6 +574,7 @@ impl<E> SessionState<E> {
                 }
             } else {
                 SessionState::Lobby {
+                    logged_in_as_admin: false,
                     create_new_room: rooms.is_empty(),
                     existing_room_selection: None,
                     new_room_name: String::default(),
@@ -678,7 +681,14 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::AdminLoginSuccess { .. } => unreachable!(), //TODO use SessionState for the CLI?
+            ServerMessage::AdminLoginSuccess { .. } => if let SessionState::Lobby { logged_in_as_admin, .. } = self {
+                *logged_in_as_admin = true;
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
             ServerMessage::Goodbye => if !matches!(self, SessionState::Error { .. }) {
                 *self = SessionState::Closed;
             },
