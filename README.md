@@ -28,8 +28,8 @@ If you can't or don't want to use the installer, you can follow the manual insta
     6. Download [the multiworld companion app for Project64](https://github.com/midoshouse/ootr-multiworld/releases/latest/download/multiworld-pj64.exe), put it somewhere you'll find it again, and open it.
     7. In Project64's Debugger menu, select Scripts.
     8. Click the “…” button. A File Explorer window should open, showing the Scripts subfolder of your Project64 installation. If it shows a different folder, navigate to the Scripts folder (`C:\Program Files (x86)\Project64 3.0\Scripts` by default). You may have to create that folder.
-    9. Download [the multiworld script for Project64](https://github.com/midoshouse/ootr-multiworld/releases/latest/download/ootrmw-pj64.js) and put it into the Scripts folder. You can then close the File Explorer window.
-    10. In Project64's Scripts window, select `ootrmw-pj64.js` and click Run. You can then close the Scripts window.
+    9. Download [the multiworld script for Project64](https://github.com/midoshouse/ootr-multiworld/releases/latest/download/ootrmw-pj64.js), put it into the Scripts folder, and rename it to `ootrmw.js`. You can then close the File Explorer window.
+    10. In Project64's Scripts window, select `ootrmw.js` and click Run. You can then close the Scripts window.
     11. The companion app should now allow you to connect to or create a room. Keep the companion app open during your seed (you can minimize it if you want).
 
 If you need help, please ask in #setup-support on the OoTR Discord.
