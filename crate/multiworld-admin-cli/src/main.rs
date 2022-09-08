@@ -3,10 +3,25 @@
 
 use {
     std::{
+        convert::Infallible as Never,
         net::IpAddr,
         time::Duration,
     },
     async_proto::Protocol as _,
+    crossterm::{
+        event::{
+            Event,
+            EventStream,
+            KeyCode,
+            KeyEvent,
+            KeyModifiers,
+        },
+        terminal::{
+            disable_raw_mode,
+            enable_raw_mode,
+        },
+    },
+    futures::stream::StreamExt as _,
     itertools::Itertools as _,
     tokio::{
         net::TcpStream,
@@ -19,10 +34,13 @@ use {
     },
     multiworld::{
         ClientMessage,
-        ServerError,
         ServerMessage,
+        SessionState,
     },
+    crate::parse::FromExpr as _,
 };
+
+mod parse;
 
 #[derive(Debug, thiserror::Error)]
 enum ParseApiKeyError {
@@ -49,13 +67,13 @@ fn parse_api_key(s: &str) -> Result<[u8; 32], ParseApiKeyError> {
 #[derive(clap::Parser)]
 #[clap(version)]
 struct Args {
-    #[clap(short, long, default_value_t = multiworld::PORT)]
-    port: u16,
-    id: u64,
-    #[clap(parse(try_from_str = parse_api_key))]
-    api_key: [u8; 32],
     #[clap(long)]
     server_ip: Option<IpAddr>,
+    #[clap(short, long, default_value_t = multiworld::PORT)]
+    port: u16,
+    id: Option<u64>,
+    #[clap(parse(try_from_str = parse_api_key))]
+    api_key: Option<[u8; 32]>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -64,55 +82,70 @@ enum Error {
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] Io(#[from] tokio::io::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
+    #[error(transparent)] Syn(#[from] syn::Error),
+    #[error(transparent)] TryFromSlice(#[from] std::array::TryFromSliceError),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
-    #[error("server error #{0}")]
-    Future(u8),
-    #[error("server error: {0}")]
-    Server(String),
+    #[error("expected exactly one element, got zero or multiple")]
+    ExactlyOne,
+    #[error("failed to parse")]
+    FromExpr,
+}
+
+impl<T: Iterator> From<itertools::ExactlyOneError<T>> for Error {
+    fn from(_: itertools::ExactlyOneError<T>) -> Self {
+        Error::ExactlyOne
+    }
+}
+
+fn try_disable_raw_mode(e: impl Into<Error>) -> Error {
+    match disable_raw_mode() {
+        Ok(()) => e.into(),
+        Err(e) => e.into(),
+    }
 }
 
 #[wheel::main(debug)]
-async fn main(Args { port, id, api_key, server_ip }: Args) -> Result<(), Error> {
-    let mut tcp_stream = TcpStream::connect((server_ip.unwrap_or(IpAddr::V4(multiworld::ADDRESS_V4)), port)).await?;
-    multiworld::handshake(&mut tcp_stream).await?;
-    ClientMessage::Login { id, api_key }.write(&mut tcp_stream).await?;
+async fn main(Args { server_ip, port, id, api_key }: Args) -> Result<(), Error> {
+    enable_raw_mode()?;
+    let mut cli_events = EventStream::default().fuse();
+    let mut tcp_stream = TcpStream::connect((server_ip.unwrap_or(IpAddr::V4(multiworld::ADDRESS_V4)), port)).await.map_err(try_disable_raw_mode)?;
+    multiworld::handshake(&mut tcp_stream).await.map_err(try_disable_raw_mode)?;
+    if let (Some(id), Some(api_key)) = (id, api_key) {
+        ClientMessage::Login { id, api_key }.write(&mut tcp_stream).await.map_err(try_disable_raw_mode)?;
+    }
     let (reader, mut writer) = tcp_stream.into_split();
+    let mut session_state = SessionState::<Never>::Init;
     let mut read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_owned(reader)));
+    let mut cmd_buf = String::default();
     let mut interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
     loop {
         select! {
             res = &mut read => {
-                let (reader, msg) = res??;
-                match msg {
-                    ServerMessage::Ping => {}
-                    ServerMessage::StructuredError(ServerError::WrongPassword) => unreachable!(),
-                    ServerMessage::StructuredError(ServerError::Future(discrim)) => return Err(Error::Future(discrim)),
-                    ServerMessage::OtherError(msg) => return Err(Error::Server(msg)),
-                    ServerMessage::EnterLobby { rooms } => println!("entered lobby, rooms: {}", rooms.into_iter().format(", ")),
-                    ServerMessage::NewRoom(room_name) => println!("new room: {room_name:?}"),
-                    ServerMessage::DeleteRoom(room_name) => println!("room deleted: {room_name:?}"),
-                    ServerMessage::AdminLoginSuccess { active_connections } => {
-                        println!("admin login success, active connections:");
-                        for (room_name, (players, num_unassigned_clients)) in active_connections {
-                            println!("{room_name:?}: {:?} and {num_unassigned_clients} clients with no world", players.into_iter().format(", "));
-                        }
-                        println!("end active connections");
-                    }
-                    ServerMessage::Goodbye => break,
-                    ServerMessage::EnterRoom { .. } |
-                    ServerMessage::PlayerId(_) |
-                    ServerMessage::ResetPlayerId(_) |
-                    ServerMessage::ClientConnected |
-                    ServerMessage::PlayerDisconnected(_) |
-                    ServerMessage::UnregisteredClientDisconnected |
-                    ServerMessage::PlayerName(_, _) |
-                    ServerMessage::ItemQueue(_) |
-                    ServerMessage::GetItem(_) => unreachable!(),
-                }
+                let (reader, msg) = res.map_err(try_disable_raw_mode)?.map_err(try_disable_raw_mode)?;
+                //TODO move to beginning of line, restore position after printing
+                println!("{msg:#?}");
+                session_state.apply(msg);
                 read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_owned(reader)));
             },
-            _ = interval.tick() => ClientMessage::Ping.write(&mut writer).await?,
+            cli_event = cli_events.select_next_some() => match cli_event.map_err(try_disable_raw_mode)? {
+                Event::Key(key_event) => if key_event == KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL) {
+                    break
+                } else {
+                    match key_event.code {
+                        KeyCode::Enter => {
+                            ClientMessage::from_expr(syn::parse_str(&cmd_buf).map_err(try_disable_raw_mode)?).map_err(try_disable_raw_mode)?.write(&mut writer).await.map_err(try_disable_raw_mode)?;
+                            cmd_buf.clear();
+                        }
+                        KeyCode::Char(c) => cmd_buf.push(c),
+                        _ => {}
+                    }
+                },
+                Event::Paste(text) => cmd_buf.push_str(&text),
+                _ => {}
+            },
+            _ = interval.tick() => ClientMessage::Ping.write(&mut writer).await.map_err(try_disable_raw_mode)?,
         }
     }
+    disable_raw_mode()?;
     Ok(())
 }

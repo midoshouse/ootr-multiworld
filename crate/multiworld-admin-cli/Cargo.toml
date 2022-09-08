@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 async-proto = "0.15.1"
+futures = "0.3"
 itertools = "0.10"
 thiserror = "1"
 
@@ -12,8 +13,16 @@ thiserror = "1"
 version = "3"
 features = ["derive"]
 
+[dependencies.crossterm]
+version = "0.25"
+features = ["event-stream"]
+
 [dependencies.multiworld]
 path = "../multiworld"
+
+[dependencies.syn]
+version = "1"
+features = ["full"]
 
 [dependencies.tokio]
 version = "1"

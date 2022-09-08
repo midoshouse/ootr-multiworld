@@ -952,6 +952,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossterm"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e64e6c0fbe2c17357405f7c758c1ef960fce08bdfb2c03d88d2a18d7e09c4b67"
+dependencies = [
+ "bitflags",
+ "crossterm_winapi",
+ "futures-core",
+ "libc",
+ "mio",
+ "parking_lot 0.12.1",
+ "signal-hook",
+ "signal-hook-mio",
+ "winapi",
+]
+
+[[package]]
 name = "crossterm_winapi"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1901,7 +1918,7 @@ version = "0.2.0"
 source = "git+https://github.com/fenhl/gres?branch=main#ed0a56eed959a4916cd82a90a23e318fc35d1a5f"
 dependencies = [
  "async-trait",
- "crossterm",
+ "crossterm 0.23.2",
  "tokio",
 ]
 
@@ -2797,8 +2814,11 @@ version = "5.0.0"
 dependencies = [
  "async-proto",
  "clap",
+ "crossterm 0.25.0",
+ "futures",
  "itertools",
  "multiworld",
+ "syn",
  "thiserror",
  "tokio",
  "wheel",
