@@ -305,6 +305,8 @@ impl Room {
                         self.write(target_client, &msg).await;
                     }
                 }
+            } else if source == target_world {
+                // don't send own item back to sender
             } else {
                 if !self.player_queues.get(&target_world).map_or(false, |queue| queue.iter().any(|item| item.source == source && item.key == key)) {
                     self.player_queues.entry(target_world).or_insert_with(|| self.base_queue.clone()).push(Item { source, key, kind });
