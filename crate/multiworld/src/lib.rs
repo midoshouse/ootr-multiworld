@@ -37,10 +37,7 @@ use {
 };
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
 #[cfg(windows)] use std::os::windows::io::AsRawSocket;
-#[cfg(feature = "sqlx")] use {
-    std::time::Duration,
-    sqlx::PgPool,
-};
+#[cfg(feature = "sqlx")] use sqlx::PgPool;
 
 pub mod github;
 #[cfg(feature = "style")] pub mod style;
@@ -185,7 +182,7 @@ pub struct Room {
     pub clients: HashMap<SocketId, (Option<Player>, Arc<Mutex<OwnedWriteHalf>>, oneshot::Sender<EndRoomSession>)>,
     pub base_queue: Vec<Item>,
     pub player_queues: HashMap<NonZeroU8, Vec<Item>>,
-    pub last_saved: Instant,
+    pub last_saved: Instant, //TODO delete rooms after some time of inactivity, make configurable
     #[cfg(feature = "sqlx")]
     pub db_pool: PgPool,
 }
@@ -327,15 +324,7 @@ impl Room {
     }
 
     #[cfg(feature = "sqlx")]
-    async fn save(&mut self) -> sqlx::Result<()> {
-        if self.last_saved.elapsed() >= Duration::from_secs(60) {
-            self.force_save().await?;
-        }
-        Ok(())
-    }
-
-    #[cfg(feature = "sqlx")]
-    pub async fn force_save(&mut self) -> sqlx::Result<()> {
+    pub async fn save(&mut self) -> sqlx::Result<()> {
         let mut base_queue = Vec::default();
         self.base_queue.write_sync(&mut base_queue).expect("failed to write base queue to buffer");
         let mut player_queues = Vec::default();

@@ -196,7 +196,7 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                     ClientMessage::Stop => if logged_in_as_admin {
                         //TODO close TCP connections and listener
                         for room in rooms.0.lock().await.0.values() {
-                            room.write().await.force_save().await?;
+                            room.write().await.save().await?;
                         }
                         process::exit(0)
                     } else {
