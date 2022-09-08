@@ -558,9 +558,7 @@ namespace MidosHouse.OotrMultiworld {
             if (outgoingKey != 0) {
                 var kind = (ushort) APIs.Memory.ReadU16(coopContextAddr + 0x10, "System Bus");
                 var player = (byte) APIs.Memory.ReadU16(coopContextAddr + 0x12, "System Bus");
-                if (player == this.playerID && kind != 0xca) {
-                    //Debug($"P{this.playerID}: Found {outgoingKey}, an item {kind} for myself");
-                } else if (outgoingKey == 0xff05ff) {
+                if (outgoingKey == 0xff05ff) {
                     //Debug($"P{this.playerID}: Found an item {kind} for player {player} sent via network, ignoring");
                 } else {
                     //Debug($"P{this.playerID}: Found {outgoingKey}, an item {kind} for player {player}");

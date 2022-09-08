@@ -186,9 +186,7 @@ sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
                 if (outgoingKey != 0) {
                     var kind = mem.u16[coopContextAddr + 0x10];
                     var player = mem.u8[coopContextAddr + 0x13];
-                    if (player == playerID && kind != 0xca) {
-                        //Debug($"P{this.playerID}: Found {outgoingKey}, an item {kind} for myself");
-                    } else if (outgoingKey == 0xff05ff) {
+                    if (outgoingKey == 0xff05ff) {
                         //Debug($"P{this.playerID}: Found an item {kind} for player {player} sent via network, ignoring");
                     } else {
                         //Debug($"P{this.playerID}: Found {outgoingKey}, an item {kind} for player {player}");
