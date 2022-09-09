@@ -1,3 +1,5 @@
+import sys
+
 import re
 
 with open('crate/multiworld-csharp/src/lib.rs', encoding='utf-8') as rs_f:
@@ -12,8 +14,12 @@ for line in rs.splitlines():
 for line in cs.splitlines():
     if match := re.search('        \\[DllImport\\("multiworld"\\)\\] internal static extern [0-9A-Za-z_]+ ([0-9a-z_]+)\\(', line):
         cs_fns.add(match.group(1))
-
+okay = True
 for rs_fn in rs_fns - cs_fns:
     print(f'only in Rust: {rs_fn}')
+    okay = False
 for cs_fn in cs_fns - rs_fns:
     print(f'only in C#: {cs_fn}')
+    okay = False
+if not okay:
+    sys.exit(1)
