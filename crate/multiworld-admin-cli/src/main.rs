@@ -168,7 +168,7 @@ async fn cli(Args { server_ip, port, id, api_key }: Args) -> Result<(), Error> {
                             ClientMessage::from_expr(syn::parse_str(&cmd_buf)?)?.write(&mut writer).await?;
                             cmd_buf.clear();
                             crossterm::execute!(stdout,
-                                Print("\r\n"),
+                                Print(format_args!("\r\n{}> ", prompt(&session_state))),
                             )?;
                         }
                         KeyCode::Backspace => if cmd_buf.pop().is_some() {
