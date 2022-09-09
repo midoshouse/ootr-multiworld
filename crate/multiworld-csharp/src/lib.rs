@@ -186,7 +186,11 @@ impl Client {
 }
 
 #[csharp_ffi] pub extern "C" fn version_string() -> StringHandle {
-    StringHandle::from_string(env!("CARGO_PKG_VERSION"))
+    StringHandle::from_string(if CONFIG.port == multiworld::PORT {
+        format!("v{}", env!("CARGO_PKG_VERSION"))
+    } else {
+        format!("port {} — v{}", CONFIG.port, env!("CARGO_PKG_VERSION"))
+    })
 }
 
 #[csharp_ffi] pub extern "C" fn update_available() -> HandleOwned<DebugResult<bool>> {

@@ -430,7 +430,7 @@ namespace MidosHouse.OotrMultiworld {
             this.version.Size = new Size(335, 25);
             this.version.TextAlign = ContentAlignment.MiddleRight;
             using (var versionString = Native.version_string()) {
-                this.version.Text = $"v{versionString.AsString()}";
+                this.version.Text = versionString.AsString();
             }
             this.Controls.Add(this.version);
 
