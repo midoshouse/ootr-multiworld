@@ -59,7 +59,7 @@ use {
 
 mod subscriptions;
 
-const MW_PJ64_PROTO_VERSION: u8 = 1; //TODO sync with JS code
+const MW_PJ64_PROTO_VERSION: u8 = 2; //TODO sync with JS code
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
@@ -135,6 +135,7 @@ struct State {
     wait_time: Duration,
     last_world: Option<NonZeroU8>,
     last_name: Filename,
+    last_save: Option<oottracker::Save>,
     updates_checked: bool,
     should_exit: bool,
 }
@@ -155,6 +156,7 @@ impl Application for State {
             wait_time: Duration::from_secs(1),
             last_world: None,
             last_name: Filename::default(),
+            last_save: None,
             updates_checked: false,
             should_exit: false,
             port,
@@ -308,6 +310,15 @@ impl Application for State {
                     Ok(Message::Nop)
                 })
             }
+            Message::Plugin(subscriptions::ClientMessage::SaveData(save)) => {
+                self.last_save = Some(save.clone());
+                if let Some(writer) = self.server_writer.clone() {
+                    return cmd(async move {
+                        ClientMessage::SaveData(save).write(&mut *writer.lock().await).await?; //TODO only send if room is marked as being tracked?
+                        Ok(Message::Nop)
+                    })
+                }
+            }
             Message::ReconnectToLobby => self.server_connection = SessionState::Init,
             Message::ReconnectToRoom(room_name, room_password) => self.server_connection = SessionState::InitAutoRejoin { room_name, room_password },
             Message::Server(msg) => {
@@ -330,12 +341,16 @@ impl Application for State {
                         let pj64_writer = self.pj64_writer.clone().expect("join room button only appears when connected to PJ64");
                         let player_id = self.last_world;
                         let player_name = self.last_name;
+                        let save = self.last_save.clone();
                         return cmd(async move {
                             if let Some(player_id) = player_id {
                                 ClientMessage::PlayerId(player_id).write(&mut *server_writer.lock().await).await?;
                                 if player_name != Filename::default() {
                                     ClientMessage::PlayerName(player_name).write(&mut *server_writer.lock().await).await?;
                                 }
+                            }
+                            if let Some(save) = save {
+                                ClientMessage::SaveData(save).write(&mut *server_writer.lock().await).await?; //TODO only send if room is marked as being tracked?
                             }
                             for player in players {
                                 if player.name != Filename::default() {

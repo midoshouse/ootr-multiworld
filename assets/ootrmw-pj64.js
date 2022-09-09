@@ -1,5 +1,5 @@
 const TCP_PORT = 24818;
-const MW_PJ64_PROTO_VERSION = 1;
+const MW_PJ64_PROTO_VERSION = 2;
 //TODO generate above constants from Rust code
 const DEFAULT_PLAYER_NAME = [0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf];
 const SRAM_START = 0xA8000000;
@@ -28,6 +28,7 @@ var playerNames = [
 ];
 var itemQueue = [];
 var remainingItems = 0;
+var normalGameplay = false;
 var sock = new Socket();
 sock.on('close', function() {
     throw 'connection to multiworld app lost';
@@ -122,6 +123,19 @@ sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
                                 sock.close();
                                 throw "randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)";
                         }
+                        if (mem.u32[ADDR_ANY_RDRAM.start + 0x11a5d0 + 0x135c] == 0) { // game mode == gameplay
+                            if (!normalGameplay) {
+                                const saveDataPacket = new ArrayBuffer(0x1451);
+                                var saveDataPacketView = new DataView(saveDataPacket);
+                                saveDataPacketView.setUint8(0, 3);
+                                var saveDataByteArray = new Uint8Array(saveDataPacket);
+                                saveDataByteArray.set(new Uint8Array(mem.getblock(ADDR_ANY_RDRAM.start + 0x11a5d0, 0x1450)), 1);
+                                sock.write(new Buffer(saveDataByteArray));
+                                normalGameplay = true;
+                            }
+                        } else {
+                            normalGameplay = false;
+                        }
                         coopContextAddr = newCoopContextAddr;
                         var newPlayerID = mem.u8[newCoopContextAddr + 0x4];
                         if (newPlayerID !== playerID) {
@@ -135,8 +149,14 @@ sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
                                 playerNames[playerID] = playerName;
                             }
                         }
+                    } else {
+                        normalGameplay = false;
                     }
+                } else {
+                    normalGameplay = false;
                 }
+            } else {
+                normalGameplay = false;
             }
             // sync player names
             var newPlayerName;

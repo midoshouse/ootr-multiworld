@@ -44,6 +44,7 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern StringHandle unit_result_debug_err(IntPtr unit_res);
         [DllImport("multiworld")] internal static extern UnitResult client_reset_player_id(Client client);
         [DllImport("multiworld")] internal static extern UnitResult client_set_player_name(Client client, IntPtr name);
+        [DllImport("multiworld")] internal static extern UnitResult client_set_save_data(Client client, IntPtr save);
         [DllImport("multiworld")] internal static extern byte client_num_players(Client client);
         [DllImport("multiworld")] internal static extern byte client_player_world(Client client, byte player_idx);
         [DllImport("multiworld")] internal static extern StringHandle client_player_state(Client client, byte player_idx);
@@ -164,6 +165,14 @@ namespace MidosHouse.OotrMultiworld {
             Marshal.Copy(name.ToArray(), 0, namePtr, 8);
             var res = Native.client_set_player_name(this, namePtr);
             Marshal.FreeHGlobal(namePtr);
+            return res;
+        }
+
+        internal UnitResult SendSaveData(List<byte> saveData) {
+            var savePtr = Marshal.AllocHGlobal(0x1450);
+            Marshal.Copy(saveData.ToArray(), 0, savePtr, 0x1450);
+            var res = Native.client_set_save_data(this, savePtr);
+            Marshal.FreeHGlobal(savePtr);
             return res;
         }
 
@@ -349,6 +358,7 @@ namespace MidosHouse.OotrMultiworld {
         private uint? coopContextAddr;
         private byte? playerID;
         private List<byte> playerName = new List<byte> { 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf };
+        private bool normalGameplay = false;
 
         public ApiContainer? _apiContainer { get; set; }
         private ApiContainer APIs => _apiContainer ?? throw new NullReferenceException();
@@ -521,6 +531,7 @@ namespace MidosHouse.OotrMultiworld {
                 return;
             }
             if ((APIs.GameInfo.GetGameInfo()?.Name ?? "Null") == "Null") {
+                this.normalGameplay = false;
                 return;
             }
             if (this.client != null) {
@@ -531,11 +542,46 @@ namespace MidosHouse.OotrMultiworld {
                     } else {
                         SyncPlayerNames();
                         if (this.coopContextAddr != null) {
+                            if (Enumerable.SequenceEqual(APIs.Memory.ReadByteRange(0x11a5d0 + 0x1c, 6, "RDRAM"), new List<byte>(Encoding.UTF8.GetBytes("ZELDAZ")))) { // don't read save data while rom is loaded but not properly initialized
+                                var randoContextAddr = APIs.Memory.ReadU32(0x1c6e90 + 0x15d4, "RDRAM");
+                                if (randoContextAddr >= 0x8000_0000 && randoContextAddr != 0xffff_ffff) {
+                                    var newCoopContextAddr = APIs.Memory.ReadU32(randoContextAddr, "System Bus");
+                                    if (newCoopContextAddr >= 0x8000_0000 && newCoopContextAddr != 0xffff_ffff) {
+                                        if (APIs.Memory.ReadU32(0x11a5d0 + 0x135c, "RDRAM") == 0) { // game mode == gameplay
+                                            if (!this.normalGameplay) {
+                                                using (var res = this.client.SendSaveData(APIs.Memory.ReadByteRange(0x11a5d0, 0x1450, "RDRAM"))) {
+                                                    if (!res.IsOk()) {
+                                                        using (var err = res.DebugErr()) {
+                                                            Error(err.AsString());
+                                                        }
+                                                    }
+                                                }
+                                                normalGameplay = true;
+                                            }
+                                        } else {
+                                            this.normalGameplay = false;
+                                        }
+                                    } else {
+                                        this.normalGameplay = false;
+                                    }
+                                } else {
+                                    this.normalGameplay = false;
+                                }
+                            } else {
+                                this.normalGameplay = false;
+                            }
+
                             SendItem(this.client, this.coopContextAddr.Value);
                             ReceiveItem(this.client, this.coopContextAddr.Value, this.playerID.Value);
+                        } else {
+                            this.normalGameplay = false;
                         }
                     }
+                } else {
+                    this.normalGameplay = false;
                 }
+            } else {
+                this.normalGameplay = false;
             }
         }
 

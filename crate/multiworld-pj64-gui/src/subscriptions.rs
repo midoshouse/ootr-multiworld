@@ -59,6 +59,7 @@ pub(crate) enum ClientMessage {
         kind: u16,
         target_world: NonZeroU8,
     },
+    SaveData(oottracker::Save),
 }
 
 pub(crate) struct Pj64Listener;

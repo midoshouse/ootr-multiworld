@@ -570,6 +570,24 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 
 /// # Safety
 ///
+/// `client` must point at a valid `Client`. `save` must point at a byte slice of length `0x1450`.
+///
+/// # Panics
+///
+/// If `save` does not represent valid OoT save sata.
+#[csharp_ffi] pub unsafe extern "C" fn client_set_save_data(client: *mut Client, save: *const u8) -> HandleOwned<DebugResult<()>> {
+    let client = &mut *client;
+    let save = slice::from_raw_parts(save, 0x1450);
+    if let SessionState::Room { .. } = client.session_state {
+        if let Err(e) = client.write(&ClientMessage::SaveData(oottracker::Save::from_save_data(save).expect("invalid save data"))) {
+            return HandleOwned::new(Err(e.into()))
+        }
+    }
+    HandleOwned::new(Ok(()))
+}
+
+/// # Safety
+///
 /// `client` must point at a valid `Client`.
 #[csharp_ffi] pub unsafe extern "C" fn client_num_players(client: *const Client) -> u8 {
     let client = &*client;
