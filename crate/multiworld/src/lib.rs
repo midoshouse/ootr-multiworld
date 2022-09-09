@@ -258,6 +258,10 @@ impl Room {
                 eprintln!("failed to delete room from database: {e} ({e:?})");
             }
         }
+        #[cfg(feature = "tokio-tungstenite")]
+        if let Some(ref mut sock) = self.tracker_connection {
+            let _ = oottracker::websocket::ClientMessage::MwDeleteRoom { room: self.name.clone() }.write_ws(sock).await;
+        }
     }
 
     /// Moves a player from unloaded (no world assigned) to the given `world`.

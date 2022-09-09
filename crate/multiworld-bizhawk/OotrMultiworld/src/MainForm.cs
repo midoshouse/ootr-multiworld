@@ -556,7 +556,7 @@ namespace MidosHouse.OotrMultiworld {
                                                         }
                                                     }
                                                 }
-                                                normalGameplay = true;
+                                                this.normalGameplay = true;
                                             }
                                         } else {
                                             this.normalGameplay = false;
