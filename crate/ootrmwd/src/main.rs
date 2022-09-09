@@ -131,8 +131,8 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                                 room.add_client(socket_id, Arc::clone(&writer), end_tx).await;
                                 let mut players = Vec::<Player>::default();
                                 let mut num_unassigned_clients = 0;
-                                for &(player, _, _) in room.clients.values() {
-                                    if let Some(player) = player {
+                                for client in room.clients.values() {
+                                    if let Some(player) = client.player {
                                         players.insert(players.binary_search_by_key(&player.world, |p| p.world).expect_err("duplicate world number"), player);
                                     } else {
                                         num_unassigned_clients += 1;
@@ -156,13 +156,19 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                         if password.contains('\0') { error!("room password must not contain null characters") }
                         let mut clients = HashMap::default();
                         let (end_tx, end_rx) = oneshot::channel();
-                        clients.insert(socket_id, (None, Arc::clone(&writer), end_tx));
+                        clients.insert(socket_id, multiworld::Client {
+                            player: None,
+                            writer: Arc::clone(&writer),
+                            save_data: None,
+                            end_tx,
+                        });
                         let room = Arc::new(RwLock::new(Room {
                             name: name.clone(),
                             base_queue: Vec::default(),
                             player_queues: HashMap::default(),
                             last_saved: Instant::now(),
                             db_pool: db_pool.clone(),
+                            tracker_connection: None,
                             password, clients,
                         }));
                         if !rooms.add(room.clone()).await { error!("a room with this name already exists") }
@@ -179,8 +185,8 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                             let room = room.read().await;
                             let mut players = Vec::<Player>::default();
                             let mut num_unassigned_clients = 0;
-                            for &(player, _, _) in room.clients.values() {
-                                if let Some(player) = player {
+                            for client in room.clients.values() {
+                                if let Some(player) = client.player {
                                     players.insert(players.binary_search_by_key(&player.world, |p| p.world).expect_err("duplicate world number"), player);
                                 } else {
                                     num_unassigned_clients += 1;
@@ -202,12 +208,22 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                     } else {
                         error!("Stop command requires admin login")
                     },
+                    ClientMessage::Track { room_name, world_count } => if logged_in_as_admin {
+                        if let Some(room) = rooms.0.lock().await.0.get(&room_name) {
+                            room.write().await.init_tracker(world_count).await?;
+                        } else {
+                            error!("there is no room named {room_name:?}")
+                        }
+                    } else {
+                        error!("Track command requires admin login")
+                    },
                     ClientMessage::PlayerId(_) |
                     ClientMessage::ResetPlayerId |
                     ClientMessage::PlayerName(_) |
                     ClientMessage::SendItem { .. } |
                     ClientMessage::KickPlayer(_) |
-                    ClientMessage::DeleteRoom => error!("received a message that only works in a room, but you're in the lobby"),
+                    ClientMessage::DeleteRoom |
+                    ClientMessage::SaveData(_) => error!("received a message that only works in a room, but you're in the lobby"),
                 }
                 read = next_message(reader);
             }
@@ -235,21 +251,22 @@ async fn room_session(rooms: Rooms, room: Arc<RwLock<Room>>, socket_id: multiwor
                     ClientMessage::JoinRoom { .. } |
                     ClientMessage::CreateRoom { .. } |
                     ClientMessage::Login { .. } |
-                    ClientMessage::Stop => error!("received a message that only works in the lobby, but you're in a room"),
-                    ClientMessage::PlayerId(id) => if !room.write().await.load_player(socket_id, id).await {
+                    ClientMessage::Stop |
+                    ClientMessage::Track { .. } => error!("received a message that only works in the lobby, but you're in a room"),
+                    ClientMessage::PlayerId(id) => if !room.write().await.load_player(socket_id, id).await? {
                         error!("world {id} is already taken")
                     },
                     ClientMessage::ResetPlayerId => room.write().await.unload_player(socket_id).await,
                     ClientMessage::PlayerName(name) => if !room.write().await.set_player_name(socket_id, name).await {
                         error!("please claim a world before setting your player name")
                     },
-                    ClientMessage::SendItem { key, kind, target_world } => if !room.write().await.queue_item(socket_id, key, kind, target_world).await {
+                    ClientMessage::SendItem { key, kind, target_world } => if !room.write().await.queue_item(socket_id, key, kind, target_world).await? {
                         error!("please claim a world before sending items")
                     },
                     ClientMessage::KickPlayer(id) => {
                         let mut room = room.write().await;
-                        for (&socket_id, &(player, _, _)) in &room.clients {
-                            if let Some(Player { world, .. }) = player {
+                        for (&socket_id, client) in &room.clients {
+                            if let Some(Player { world, .. }) = client.player {
                                 if world == id {
                                     room.remove_client(socket_id, EndRoomSession::ToLobby).await;
                                     break
@@ -262,6 +279,7 @@ async fn room_session(rooms: Rooms, room: Arc<RwLock<Room>>, socket_id: multiwor
                         room.delete().await;
                         rooms.remove(room.name.clone()).await;
                     }
+                    ClientMessage::SaveData(save) => room.write().await.set_save_data(socket_id, save).await?,
                 }
                 read = next_message(reader);
             },
@@ -372,6 +390,7 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                         player_queues: HashMap::read_sync(&mut &*row.player_queues)?,
                         last_saved: Instant::now(),
                         db_pool: db_pool.clone(),
+                        tracker_connection: None,
                     }))).await);
                 }
             }

@@ -176,21 +176,31 @@ pub enum EndRoomSession {
 }
 
 #[derive(Debug)]
+pub struct Client {
+    pub writer: Arc<Mutex<OwnedWriteHalf>>,
+    pub end_tx: oneshot::Sender<EndRoomSession>,
+    pub player: Option<Player>,
+    pub save_data: Option<oottracker::Save>,
+}
+
+#[derive(Debug)]
 pub struct Room {
     pub name: String,
     pub password: String,
-    pub clients: HashMap<SocketId, (Option<Player>, Arc<Mutex<OwnedWriteHalf>>, oneshot::Sender<EndRoomSession>)>,
+    pub clients: HashMap<SocketId, Client>,
     pub base_queue: Vec<Item>,
     pub player_queues: HashMap<NonZeroU8, Vec<Item>>,
     pub last_saved: Instant, //TODO delete rooms after some time of inactivity, make configurable
     #[cfg(feature = "sqlx")]
     pub db_pool: PgPool,
+    #[cfg(feature = "tokio-tungstenite")]
+    pub tracker_connection: Option<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>>,
 }
 
 impl Room {
     async fn write(&mut self, client_id: SocketId, msg: &ServerMessage) {
-        if let Some((_, writer, _)) = self.clients.get(&client_id) {
-            let mut writer = writer.lock().await;
+        if let Some(client) = self.clients.get(&client_id) {
+            let mut writer = client.writer.lock().await;
             if let Err(e) = msg.write(&mut *writer).await {
                 eprintln!("{} error sending message: {:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), e);
                 drop(writer);
@@ -201,8 +211,8 @@ impl Room {
 
     async fn write_all(&mut self, msg: &ServerMessage) {
         let mut notified = HashSet::new();
-        while let Some((&client_id, (_, writer, _))) = self.clients.iter().find(|&(client_id, _)| !notified.contains(client_id)) {
-            let mut writer = writer.lock().await;
+        while let Some((&client_id, client)) = self.clients.iter().find(|&(client_id, _)| !notified.contains(client_id)) {
+            let mut writer = client.writer.lock().await;
             if let Err(e) = msg.write(&mut *writer).await {
                 eprintln!("{} error sending message: {:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), e);
                 drop(writer);
@@ -215,7 +225,11 @@ impl Room {
     pub async fn add_client(&mut self, client_id: SocketId, writer: Arc<Mutex<OwnedWriteHalf>>, end_tx: oneshot::Sender<EndRoomSession>) {
         // the client doesn't need to be told that it has connected, so notify everyone *before* adding it
         self.write_all(&ServerMessage::ClientConnected).await;
-        self.clients.insert(client_id, (None, writer, end_tx));
+        self.clients.insert(client_id, Client {
+            player: None,
+            save_data: None,
+            writer, end_tx,
+        });
     }
 
     pub fn has_client(&self, client_id: SocketId) -> bool {
@@ -224,9 +238,9 @@ impl Room {
 
     #[async_recursion]
     pub async fn remove_client(&mut self, client_id: SocketId, to: EndRoomSession) {
-        if let Some((player, _, end_tx)) = self.clients.remove(&client_id) {
-            let _ = end_tx.send(to);
-            let msg = if let Some(Player { world, .. }) = player {
+        if let Some(client) = self.clients.remove(&client_id) {
+            let _ = client.end_tx.send(to);
+            let msg = if let Some(Player { world, .. }) = client.player {
                 ServerMessage::PlayerDisconnected(world)
             } else {
                 ServerMessage::UnregisteredClientDisconnected
@@ -247,14 +261,16 @@ impl Room {
     }
 
     /// Moves a player from unloaded (no world assigned) to the given `world`.
-    pub async fn load_player(&mut self, client_id: SocketId, world: NonZeroU8) -> bool {
-        if self.clients.iter().any(|(&iter_client_id, (iter_player, _, _))| iter_player.as_ref().map_or(false, |p| p.world == world) && iter_client_id != client_id) {
-            return false
+    pub async fn load_player(&mut self, client_id: SocketId, world: NonZeroU8) -> Result<bool, async_proto::WriteError> {
+        if self.clients.iter().any(|(&iter_client_id, iter_client)| iter_client.player.as_ref().map_or(false, |p| p.world == world) && iter_client_id != client_id) {
+            return Ok(false)
         }
-        let prev_player = &mut self.clients.get_mut(&client_id).expect("no such client").0;
+        let client = self.clients.get_mut(&client_id).expect("no such client");
+        #[cfg(feature = "tokio-tungstenite")] let save = client.save_data.clone();
+        let prev_player = &mut client.player;
         if let Some(player) = prev_player {
             let prev_world = mem::replace(&mut player.world, world);
-            if prev_world == world { return true }
+            if prev_world == world { return Ok(true) }
             self.write_all(&ServerMessage::ResetPlayerId(prev_world)).await;
         } else {
             *prev_player = Some(Player::new(world));
@@ -264,17 +280,23 @@ impl Room {
         if !queue.is_empty() {
             self.write(client_id, &ServerMessage::ItemQueue(queue)).await;
         }
-        true
+        #[cfg(feature = "tokio-tungstenite")]
+        if let Some(save) = save {
+            if let Some(ref mut sock) = self.tracker_connection {
+                oottracker::websocket::ClientMessage::MwResetPlayer { room: self.name.clone(), world, save }.write_ws(sock).await?;
+            }
+        }
+        Ok(true)
     }
 
     pub async fn unload_player(&mut self, client_id: SocketId) {
-        if let Some(prev_player) = self.clients.get_mut(&client_id).expect("no such client").0.take() {
+        if let Some(prev_player) = self.clients.get_mut(&client_id).expect("no such client").player.take() {
             self.write_all(&ServerMessage::ResetPlayerId(prev_player.world)).await;
         }
     }
 
     pub async fn set_player_name(&mut self, client_id: SocketId, name: Filename) -> bool {
-        if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").0 {
+        if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").player {
             let world = player.world;
             player.name = name;
             drop(player);
@@ -285,8 +307,8 @@ impl Room {
         }
     }
 
-    pub async fn queue_item(&mut self, source_client: SocketId, key: u32, kind: u16, target_world: NonZeroU8) -> bool {
-        if let Some(source) = self.clients.get(&source_client).expect("no such client").0.map(|source_player| source_player.world) {
+    pub async fn queue_item(&mut self, source_client: SocketId, key: u32, kind: u16, target_world: NonZeroU8) -> Result<bool, async_proto::WriteError> {
+        Ok(if let Some(source) = self.clients.get(&source_client).expect("no such client").player.map(|source_player| source_player.world) {
             if kind == TRIFORCE_PIECE {
                 if !self.base_queue.iter().any(|item| item.source == source && item.key == key) {
                     let item = Item { source, key, kind };
@@ -296,19 +318,31 @@ impl Room {
                     }
                     let msg = ServerMessage::GetItem(kind);
                     let player_clients = self.clients.iter()
-                        .filter_map(|(&target_client, (p, _, _))| if p.map_or(false, |p| p.world != source) { Some(target_client) } else { None })
+                        .filter_map(|(&target_client, c)| if c.player.map_or(false, |p| p.world != source) { Some(target_client) } else { None })
                         .collect::<Vec<_>>();
                     for target_client in player_clients {
                         self.write(target_client, &msg).await;
                     }
+                    #[cfg(feature = "tokio-tungstenite")]
+                    if let Some(ref mut sock) = self.tracker_connection {
+                        oottracker::websocket::ClientMessage::MwGetItemAll { room: self.name.clone(), item: kind }.write_ws(sock).await?;
+                    }
                 }
             } else if source == target_world {
                 // don't send own item back to sender
+                #[cfg(feature = "tokio-tungstenite")]
+                if let Some(ref mut sock) = self.tracker_connection {
+                    oottracker::websocket::ClientMessage::MwGetItem { room: self.name.clone(), world: target_world, item: kind }.write_ws(sock).await?;
+                }
             } else {
                 if !self.player_queues.get(&target_world).map_or(false, |queue| queue.iter().any(|item| item.source == source && item.key == key)) {
                     self.player_queues.entry(target_world).or_insert_with(|| self.base_queue.clone()).push(Item { source, key, kind });
-                    if let Some((&target_client, _)) = self.clients.iter().find(|(_, (p, _, _))| p.map_or(false, |p| p.world == target_world)) {
+                    if let Some((&target_client, _)) = self.clients.iter().find(|(_, c)| c.player.map_or(false, |p| p.world == target_world)) {
                         self.write(target_client, &ServerMessage::GetItem(kind)).await;
+                    }
+                    #[cfg(feature = "tokio-tungstenite")]
+                    if let Some(ref mut sock) = self.tracker_connection {
+                        oottracker::websocket::ClientMessage::MwGetItem { room: self.name.clone(), world: target_world, item: kind }.write_ws(sock).await?;
                     }
                 }
             }
@@ -320,7 +354,38 @@ impl Room {
             true
         } else {
             false
+        })
+    }
+
+    pub async fn set_save_data(&mut self, client_id: SocketId, save: oottracker::Save) -> Result<(), async_proto::WriteError> {
+        let client = self.clients.get_mut(&client_id).expect("no such client");
+        client.save_data = Some(save.clone());
+        #[cfg(feature = "tokio-tungstenite")]
+        if let Some(Player { world, .. }) = client.player {
+            if let Some(ref mut sock) = self.tracker_connection {
+                oottracker::websocket::ClientMessage::MwResetPlayer { room: self.name.clone(), world, save }.write_ws(sock).await?;
+            }
         }
+        Ok(())
+    }
+
+    #[cfg(feature = "tokio-tungstenite")]
+    pub async fn init_tracker(&mut self, world_count: NonZeroU8) -> Result<(), async_proto::WriteError> {
+        let mut worlds = (1..=world_count.get())
+            .map(|player_id| (
+                None,
+                self.player_queues.get(&NonZeroU8::new(player_id).expect("range starts at 1")).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>(),
+            ))
+            .collect::<Vec<_>>();
+        for client in self.clients.values() {
+            if let (Some(player), Some(save_data)) = (client.player, client.save_data) {
+                worlds[usize::from(player.world.get() - 1)].0 = Some(save_data);
+            }
+        }
+        let mut sock = tokio_tungstenite::connect_async("wss://oottracker.fenhl.net/websocket").await?.0;
+        oottracker::websocket::ClientMessage::MwCreateRoom { room: self.name.clone(), worlds }.write_ws(&mut sock).await?;
+        self.tracker_connection = Some(sock);
+        Ok(())
     }
 
     #[cfg(feature = "sqlx")]
@@ -372,6 +437,13 @@ pub enum ClientMessage {
     KickPlayer(NonZeroU8),
     /// Only works after [`ServerMessage::EnterRoom`].
     DeleteRoom,
+    /// Configures the given room to be visible on oottracker.fenhl.net. Only works after [`ServerMessage::AdminLoginSuccess`].
+    Track {
+        room_name: String,
+        world_count: NonZeroU8,
+    },
+    /// Only works after [`ServerMessage::EnterRoom`].
+    SaveData(oottracker::Save),
 }
 
 macro_rules! server_errors {

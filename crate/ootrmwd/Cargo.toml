@@ -15,7 +15,7 @@ features = ["derive"]
 
 [dependencies.multiworld]
 path = "../multiworld"
-features = ["sqlx"]
+features = ["sqlx", "tokio-tungstenite"]
 
 [dependencies.sqlx]
 version = "0.6"

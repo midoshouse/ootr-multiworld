@@ -23,6 +23,10 @@ version = "0.4"
 features = ["pure"]
 optional = true
 
+[dependencies.oottracker]
+git = "https://github.com/fenhl/oottracker"
+branch = "main"
+
 [dependencies.reqwest]
 version = "0.11"
 default-features = false
@@ -41,6 +45,11 @@ optional = true
 [dependencies.tokio]
 version = "1"
 features = ["net", "sync", "time"]
+
+[dependencies.tokio-tungstenite]
+version = "0.17"
+features = ["rustls-tls-webpki-roots"]
+optional = true
 
 [dependencies.url]
 version = "2"

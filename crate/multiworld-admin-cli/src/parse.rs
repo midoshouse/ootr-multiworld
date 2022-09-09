@@ -122,6 +122,7 @@ impl FromExpr for ClientMessage {
                             let world_id = call.args.into_iter().exactly_one()?;
                             Ok(Self::KickPlayer(NonZeroU8::from_expr(world_id)?))
                         }
+                        //TODO SaveData (read from path?)
                         _ => Err(Error::FromExpr),
                     }
                 } else {
@@ -203,6 +204,21 @@ impl FromExpr for ClientMessage {
                             }
                         }
                         Ok(Self::SendItem { key: key.ok_or(Error::FromExpr)?, kind: kind.ok_or(Error::FromExpr)?, target_world: target_world.ok_or(Error::FromExpr)? })
+                    }
+                    "Track" => {
+                        let mut room_name = None;
+                        let mut world_count = None;
+                        for FieldValue { member, expr, .. } in struct_lit.fields {
+                            match member {
+                                Member::Named(member) => match &*member.to_string() {
+                                    "room_name" => if room_name.replace(String::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
+                                    "world_count" => if world_count.replace(NonZeroU8::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
+                                    _ => return Err(Error::FromExpr),
+                                },
+                                Member::Unnamed(_) => return Err(Error::FromExpr),
+                            }
+                        }
+                        Ok(Self::Track { room_name: room_name.ok_or(Error::FromExpr)?, world_count: world_count.ok_or(Error::FromExpr)? })
                     }
                     _ => Err(Error::FromExpr),
                 }
