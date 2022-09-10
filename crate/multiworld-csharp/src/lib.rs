@@ -555,8 +555,11 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
     let client = &mut *client;
     let save = slice::from_raw_parts(save, 0x1450);
     if let SessionState::Room { .. } = client.session_state {
-        if let Err(e) = client.write(&ClientMessage::SaveData(oottracker::Save::from_save_data(save).expect("invalid save data"))) {
-            return HandleOwned::new(Err(e.into()))
+        match oottracker::Save::from_save_data(save) {
+            Ok(save) => if let Err(e) = client.write(&ClientMessage::SaveData(save)) {
+                return HandleOwned::new(Err(e.into()))
+            },
+            Err(e) => return HandleOwned::new(Err(e.into())),
         }
     }
     HandleOwned::new(Ok(()))

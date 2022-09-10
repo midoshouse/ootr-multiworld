@@ -359,6 +359,7 @@ namespace MidosHouse.OotrMultiworld {
         private byte? playerID;
         private List<byte> playerName = new List<byte> { 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf };
         private bool normalGameplay = false;
+        private bool saveDataErrorNotified = false;
 
         public ApiContainer? _apiContainer { get; set; }
         private ApiContainer APIs => _apiContainer ?? throw new NullReferenceException();
@@ -551,8 +552,11 @@ namespace MidosHouse.OotrMultiworld {
                                             if (!this.normalGameplay) {
                                                 using (var res = this.client.SendSaveData(APIs.Memory.ReadByteRange(0x11a5d0, 0x1450, "RDRAM"))) {
                                                     if (!res.IsOk()) {
-                                                        using (var err = res.DebugErr()) {
-                                                            Error(err.AsString());
+                                                        if (!this.saveDataErrorNotified) {
+                                                            this.saveDataErrorNotified = true;
+                                                            using (var err = res.DebugErr()) {
+                                                                this.DialogController.ShowMessageBox(this, $"error sending save data: {err.AsString()}", null, EMsgBoxIcon.Error);
+                                                            }
                                                         }
                                                     }
                                                 }
