@@ -34,7 +34,6 @@ use {
     libc::c_char,
     once_cell::sync::Lazy,
     semver::Version,
-    serde::Deserialize,
     multiworld_derive::csharp_ffi,
     multiworld::{
         ClientMessage,
@@ -44,6 +43,7 @@ use {
         ServerMessage,
         SessionState,
         SessionStateError,
+        config::CONFIG,
         format_room_state,
         github::Repo,
     },
@@ -54,34 +54,6 @@ static LOG: Lazy<File> = Lazy::new(|| {
     fs::create_dir_all(project_dirs.data_dir()).expect("failed to create log dir");
     File::create(project_dirs.data_dir().join("ffi.log")).expect("failed to create log file")
 });
-static CONFIG: Lazy<Config> = Lazy::new(|| {
-    if let Some(project_dirs) = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld") {
-        if let Ok(config) = fs::read_to_string(project_dirs.config_dir().join("config.json")) {
-            if let Ok(config) = serde_json::from_str::<Config>(&config) {
-                return config
-            }
-        }
-    }
-    Config::default()
-});
-
-fn make_default_port() -> u16 { multiworld::PORT }
-
-#[derive(Deserialize)]
-struct Config {
-    log: bool,
-    #[serde(default = "make_default_port")]
-    port: u16,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            log: false,
-            port: multiworld::PORT,
-        }
-    }
-}
 
 #[repr(transparent)]
 pub struct FfiBool(u32);

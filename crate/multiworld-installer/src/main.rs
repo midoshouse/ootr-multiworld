@@ -62,6 +62,7 @@ use {
         },
     },
     multiworld::{
+        config::CONFIG,
         github::Repo,
         style::Style,
     },
@@ -69,6 +70,7 @@ use {
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
+    #[error(transparent)] Config(#[from] multiworld::config::SaveError),
     #[error(transparent)] IniDe(#[from] serde_ini::de::Error),
     #[error(transparent)] IniSer(#[from] serde_ini::ser::Error),
     #[error(transparent)] Io(#[from] io::Error),
@@ -503,8 +505,12 @@ impl Application for State {
                             fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-pj64-gui.exe")).await?;
                             let scripts_path = emulator_dir.join("Scripts");
                             fs::create_dir(&scripts_path).await.exist_ok()?;
+                            let script_path = scripts_path.join("ootrmw.js");
                             //TODO download latest release instead of embedding in installer
-                            fs::write(scripts_path.join("ootrmw.js"), include_bytes!("../../../assets/ootrmw-pj64.js")).await?;
+                            fs::write(&script_path, include_bytes!("../../../assets/ootrmw-pj64.js")).await?;
+                            let mut new_mw_config = CONFIG.clone();
+                            new_mw_config.pj64_script_path = Some(script_path);
+                            new_mw_config.save()?;
                             let config_path = emulator_dir.join("Config");
                             fs::create_dir(&config_path).await.exist_ok()?;
                             let config_path = config_path.join("Project64.cfg");

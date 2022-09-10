@@ -55,6 +55,7 @@ use {
 };
 #[cfg(feature = "sqlx")] use sqlx::PgPool;
 
+pub mod config;
 pub mod github;
 #[cfg(feature = "style")] pub mod style;
 

@@ -62,6 +62,7 @@ use {
     },
     winapi::um::fileapi::GetFullPathNameW,
     multiworld::{
+        config::CONFIG,
         github::{
             ReleaseAsset,
             Repo,
@@ -221,8 +222,12 @@ impl Application for App {
                 self.state = State::DownloadMultiworld;
                 return cmd(async move {
                     if let Some(script) = script {
-                        let program_files = env::var_os("ProgramFiles(x86)").or_else(|| env::var_os("ProgramFiles")).ok_or(Error::ProgramFiles)?;
-                        let script_path = PathBuf::from(program_files).join("Project64 3.0").join("Scripts").join("ootrmw.js");
+                        let script_path = if let Some(ref script_path) = CONFIG.pj64_script_path {
+                            script_path.clone()
+                        } else {
+                            let program_files = env::var_os("ProgramFiles(x86)").or_else(|| env::var_os("ProgramFiles")).ok_or(Error::ProgramFiles)?;
+                            PathBuf::from(program_files).join("Project64 3.0").join("Scripts").join("ootrmw.js")
+                        };
                         let old_script = fs::read(&script_path).await?;
                         let new_script = http_client.get(script.browser_download_url).send().await?.error_for_status()?.bytes().await?;
                         if old_script != new_script {
