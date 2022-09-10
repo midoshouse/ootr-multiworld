@@ -553,7 +553,7 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 /// If `save` does not represent valid OoT save sata.
 #[csharp_ffi] pub unsafe extern "C" fn client_set_save_data(client: *mut Client, save: *const u8) -> HandleOwned<DebugResult<()>> {
     let client = &mut *client;
-    let save = slice::from_raw_parts(save, 0x1450);
+    let save = slice::from_raw_parts(save, oottracker::save::SIZE);
     if let SessionState::Room { .. } = client.session_state {
         match oottracker::Save::from_save_data(save) {
             Ok(save) => if let Err(e) = client.write(&ClientMessage::SaveData(save)) {

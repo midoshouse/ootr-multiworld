@@ -310,7 +310,7 @@ impl Application for State {
                     Ok(Message::Nop)
                 })
             }
-            Message::Plugin(subscriptions::ClientMessage::SaveData(save)) => {
+            Message::Plugin(subscriptions::ClientMessage::SaveData(save)) => if let Ok(save) = oottracker::Save::from_save_data(&save) {
                 self.last_save = Some(save.clone());
                 if let Some(writer) = self.server_writer.clone() {
                     return cmd(async move {
@@ -318,7 +318,7 @@ impl Application for State {
                         Ok(Message::Nop)
                     })
                 }
-            }
+            },
             Message::ReconnectToLobby => self.server_connection = SessionState::Init,
             Message::ReconnectToRoom(room_name, room_password) => self.server_connection = SessionState::InitAutoRejoin { room_name, room_password },
             Message::Server(msg) => {
