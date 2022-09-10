@@ -62,6 +62,7 @@ enum SessionError {
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] OneshotRecv(#[from] oneshot::error::RecvError),
+    #[error(transparent)] SendAll(#[from] multiworld::SendAllError),
     #[error(transparent)] Sql(#[from] sqlx::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("{0}")]
@@ -217,6 +218,17 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                     } else {
                         error!("Track command requires admin login")
                     },
+                    ClientMessage::SendAll { room, source_world, spoiler_log } => if logged_in_as_admin {
+                        if let Some(room) = rooms.0.lock().await.0.get(&room) {
+                            if !room.write().await.send_all(source_world, &spoiler_log).await? {
+                                error!("failed to send some items")
+                            }
+                        } else {
+                            error!("there is no room named {room:?}")
+                        }
+                    } else {
+                        error!("SendAll command requires admin login")
+                    },
                     ClientMessage::PlayerId(_) |
                     ClientMessage::ResetPlayerId |
                     ClientMessage::PlayerName(_) |
@@ -252,7 +264,8 @@ async fn room_session(rooms: Rooms, room: Arc<RwLock<Room>>, socket_id: multiwor
                     ClientMessage::CreateRoom { .. } |
                     ClientMessage::Login { .. } |
                     ClientMessage::Stop |
-                    ClientMessage::Track { .. } => error!("received a message that only works in the lobby, but you're in a room"),
+                    ClientMessage::Track { .. } |
+                    ClientMessage::SendAll { .. } => error!("received a message that only works in the lobby, but you're in a room"),
                     ClientMessage::PlayerId(id) => if !room.write().await.load_player(socket_id, id).await? {
                         error!("world {id} is already taken")
                     },

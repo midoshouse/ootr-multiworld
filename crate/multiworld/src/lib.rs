@@ -10,6 +10,8 @@ use {
             HashSet,
         },
         fmt,
+        iter,
+        marker::PhantomData,
         mem,
         net::{
             Ipv4Addr,
@@ -21,7 +23,17 @@ use {
     async_proto::Protocol,
     async_recursion::async_recursion,
     chrono::prelude::*,
+    itertools::Itertools as _,
+    lazy_regex::regex_captures,
     semver::Version,
+    serde::{
+        Deserialize,
+        Deserializer,
+        de::{
+            Error as _,
+            value::MapDeserializer,
+        },
+    },
     tokio::{
         io,
         net::{
@@ -37,6 +49,10 @@ use {
 };
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
 #[cfg(windows)] use std::os::windows::io::AsRawSocket;
+#[cfg(feature = "pyo3")] use {
+    std::sync::Once,
+    pyo3::prelude::*,
+};
 #[cfg(feature = "sqlx")] use sqlx::PgPool;
 
 pub mod github;
@@ -197,6 +213,13 @@ pub struct Room {
     pub tracker_connection: Option<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>>,
 }
 
+#[cfg(feature = "pyo3")]
+#[derive(Debug, thiserror::Error)]
+pub enum SendAllError {
+    #[error(transparent)] Python(#[from] PyErr),
+    #[error(transparent)] Write(#[from] async_proto::WriteError),
+}
+
 impl Room {
     async fn write(&mut self, client_id: SocketId, msg: &ServerMessage) {
         if let Some(client) = self.clients.get(&client_id) {
@@ -311,51 +334,79 @@ impl Room {
         }
     }
 
-    pub async fn queue_item(&mut self, source_client: SocketId, key: u32, kind: u16, target_world: NonZeroU8) -> Result<bool, async_proto::WriteError> {
-        Ok(if let Some(source) = self.clients.get(&source_client).expect("no such client").player.map(|source_player| source_player.world) {
-            if kind == TRIFORCE_PIECE {
-                if !self.base_queue.iter().any(|item| item.source == source && item.key == key) {
-                    let item = Item { source, key, kind };
-                    self.base_queue.push(item);
-                    for queue in self.player_queues.values_mut() {
-                        queue.push(item);
-                    }
-                    let msg = ServerMessage::GetItem(kind);
-                    let player_clients = self.clients.iter()
-                        .filter_map(|(&target_client, c)| if c.player.map_or(false, |p| p.world != source) { Some(target_client) } else { None })
-                        .collect::<Vec<_>>();
-                    for target_client in player_clients {
-                        self.write(target_client, &msg).await;
-                    }
-                    #[cfg(feature = "tokio-tungstenite")]
-                    if let Some(ref mut sock) = self.tracker_connection {
-                        oottracker::websocket::ClientMessage::MwGetItemAll { room: self.name.clone(), item: kind }.write_ws(sock).await?;
-                    }
+    async fn queue_item_inner(&mut self, source_world: NonZeroU8, key: u32, kind: u16, target_world: NonZeroU8) -> Result<(), async_proto::WriteError> {
+        if kind == TRIFORCE_PIECE {
+            if !self.base_queue.iter().any(|item| item.source == source_world && item.key == key) {
+                let item = Item { source: source_world, key, kind };
+                self.base_queue.push(item);
+                for queue in self.player_queues.values_mut() {
+                    queue.push(item);
                 }
-            } else if source == target_world {
-                // don't send own item back to sender
+                let msg = ServerMessage::GetItem(kind);
+                let player_clients = self.clients.iter()
+                    .filter_map(|(&target_client, c)| if c.player.map_or(false, |p| p.world != source_world) { Some(target_client) } else { None })
+                    .collect::<Vec<_>>();
+                for target_client in player_clients {
+                    self.write(target_client, &msg).await;
+                }
+                #[cfg(feature = "tokio-tungstenite")]
+                if let Some(ref mut sock) = self.tracker_connection {
+                    oottracker::websocket::ClientMessage::MwGetItemAll { room: self.name.clone(), item: kind }.write_ws(sock).await?;
+                }
+            }
+        } else if source_world == target_world {
+            // don't send own item back to sender
+            #[cfg(feature = "tokio-tungstenite")]
+            if let Some(ref mut sock) = self.tracker_connection {
+                oottracker::websocket::ClientMessage::MwGetItem { room: self.name.clone(), world: target_world, item: kind }.write_ws(sock).await?;
+            }
+        } else {
+            if !self.player_queues.get(&target_world).map_or(false, |queue| queue.iter().any(|item| item.source == source_world && item.key == key)) {
+                self.player_queues.entry(target_world).or_insert_with(|| self.base_queue.clone()).push(Item { source: source_world, key, kind });
+                if let Some((&target_client, _)) = self.clients.iter().find(|(_, c)| c.player.map_or(false, |p| p.world == target_world)) {
+                    self.write(target_client, &ServerMessage::GetItem(kind)).await;
+                }
                 #[cfg(feature = "tokio-tungstenite")]
                 if let Some(ref mut sock) = self.tracker_connection {
                     oottracker::websocket::ClientMessage::MwGetItem { room: self.name.clone(), world: target_world, item: kind }.write_ws(sock).await?;
                 }
-            } else {
-                if !self.player_queues.get(&target_world).map_or(false, |queue| queue.iter().any(|item| item.source == source && item.key == key)) {
-                    self.player_queues.entry(target_world).or_insert_with(|| self.base_queue.clone()).push(Item { source, key, kind });
-                    if let Some((&target_client, _)) = self.clients.iter().find(|(_, c)| c.player.map_or(false, |p| p.world == target_world)) {
-                        self.write(target_client, &ServerMessage::GetItem(kind)).await;
-                    }
-                    #[cfg(feature = "tokio-tungstenite")]
-                    if let Some(ref mut sock) = self.tracker_connection {
-                        oottracker::websocket::ClientMessage::MwGetItem { room: self.name.clone(), world: target_world, item: kind }.write_ws(sock).await?;
-                    }
-                }
             }
-            #[cfg(feature = "sqlx")] {
-                if let Err(e) = self.save().await {
-                    eprintln!("failed to save room state: {e} ({e:?})");
-                }
+        }
+        #[cfg(feature = "sqlx")] {
+            if let Err(e) = self.save().await {
+                eprintln!("failed to save room state: {e} ({e:?})");
             }
+        }
+        Ok(())
+    }
+
+    pub async fn queue_item(&mut self, source_client: SocketId, key: u32, kind: u16, target_world: NonZeroU8) -> Result<bool, async_proto::WriteError> {
+        Ok(if let Some(source) = self.clients.get(&source_client).expect("no such client").player.map(|source_player| source_player.world) {
+            self.queue_item_inner(source, key, kind, target_world).await?;
             true
+        } else {
+            false
+        })
+    }
+
+    #[cfg(feature = "pyo3")]
+    pub async fn send_all(&mut self, source_world: NonZeroU8, spoiler_log: &SpoilerLog) -> Result<bool, SendAllError> {
+        Ok(if let Some(world_locations) = spoiler_log.locations.get(usize::from(source_world.get() - 1)) {
+            let mut all_sent = true;
+            for (loc, SpoilerLogItem { player, item }) in world_locations {
+                if *player != source_world {
+                    if let Some(key) = override_key(loc)? {
+                        if let Some(kind) = item_kind(item)? {
+                            self.queue_item_inner(source_world, key, kind, *player).await?;
+                        } else {
+                            all_sent = false;
+                        }
+                    } else {
+                        all_sent = false;
+                    }
+                }
+            }
+            all_sent
         } else {
             false
         })
@@ -404,6 +455,113 @@ impl Room {
     }
 }
 
+fn deserialize_multiworld<'de, D: Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> Result<Vec<T>, D::Error> {
+    struct MultiworldVisitor<'de, T: Deserialize<'de>> {
+        _marker: PhantomData<(&'de (), T)>,
+
+    }
+
+    impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for MultiworldVisitor<'de, T> {
+        type Value = Vec<T>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a multiworld map")
+        }
+
+        fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Vec<T>, A::Error> {
+            Ok(if let Some(first_key) = map.next_key()? {
+                if let Some((_, world_number)) = regex_captures!("^World ([0-9]+)$", first_key) {
+                    let world_number = world_number.parse::<usize>().expect("failed to parse world number");
+                    let mut worlds = iter::repeat_with(|| None).take(world_number - 1).collect_vec();
+                    worlds.push(map.next_value()?);
+                    while let Some((key, value)) = map.next_entry()? {
+                        let world_number = regex_captures!("^World ([0-9]+)$", key).expect("found mixed-format multiworld spoiler log").1.parse::<usize>().expect("failed to parse world number");
+                        if world_number > worlds.len() {
+                            if world_number > worlds.len() + 1 {
+                                worlds.resize_with(world_number - 1, || None);
+                            }
+                            worlds.push(Some(value));
+                        } else {
+                            worlds[world_number - 1] = Some(value);
+                        }
+                    }
+                    worlds.into_iter().map(|world| world.expect("missing entry for world")).collect()
+                } else {
+                    let mut new_map = iter::once((first_key.to_owned(), map.next_value()?)).collect::<serde_json::Map<_, _>>();
+                    while let Some((key, value)) = map.next_entry()? {
+                        new_map.insert(key, value);
+                    }
+                    vec![T::deserialize(MapDeserializer::new(new_map.into_iter())).map_err(A::Error::custom)?]
+                }
+            } else {
+                Vec::default()
+            })
+        }
+    }
+
+    deserializer.deserialize_map(MultiworldVisitor { _marker: PhantomData })
+}
+
+#[derive(Deserialize, Protocol)]
+struct SpoilerLogItem {
+    player: NonZeroU8,
+    item: String,
+}
+
+#[derive(Deserialize, Protocol)]
+pub struct SpoilerLog {
+    #[serde(deserialize_with = "deserialize_multiworld")]
+    locations: Vec<BTreeMap<String, SpoilerLogItem>>,
+}
+
+#[cfg(feature = "pyo3")]
+fn rando_import<'p>(py: Python<'p>, module: &str) -> PyResult<&'p PyModule> {
+    static PATH_SETUP: Once = Once::new();
+    #[cfg(unix)] const RANDO_PATH: &str = "/usr/local/share/midos-house/rando-dev-6.2.181";
+    #[cfg(windows)] const RANDO_PATH: &str = "C:/Users/fenhl/git/github.com/fenhl/OoT-Randomizer/stage";
+
+    if !PATH_SETUP.is_completed() {
+        let sys = py.import("sys")?;
+        sys.getattr("path")?.call_method1("append", (RANDO_PATH,))?;
+        PATH_SETUP.call_once(|| ());
+    }
+    py.import(module)
+}
+
+#[cfg(feature = "pyo3")]
+fn override_key(location: &str) -> PyResult<Option<u32>> {
+    Python::with_gil(|py| {
+        let mod_location = rando_import(py, "Location")?;
+        let location = mod_location.getattr("LocationFactory")?.call1((location,))?;
+        Ok(if let (Some(scene), Some(mut default)) = (location.getattr("scene")?.extract()?, location.getattr("default")?.extract()?) {
+            let kind = match location.getattr("type")?.extract()? {
+                "NPC" | "Scrub" | "BossHeart" => 0,
+                "Chest" => {
+                    default &= 0x1f;
+                    1
+                }
+                "Collectable" => 2,
+                "GS Token" => 3,
+                "Shop" => 0,
+                "GrottoScrub" => 4,
+                "Song" | "Cutscene" => 5,
+                _ => return Ok(None),
+            };
+            Some(u32::from_be_bytes([0, scene, kind, default]))
+        } else {
+            None
+        })
+    })
+}
+
+#[cfg(feature = "pyo3")]
+fn item_kind(item: &str) -> PyResult<Option<u16>> {
+    Python::with_gil(|py| {
+        let item_list = rando_import(py, "ItemList")?;
+        Ok(item_list.getattr("item_table")?.call_method1("get", (item,))?.extract::<Option<(&PyAny, &PyAny, _, &PyAny)>>()?.map(|(_, _, kind, _)| kind))
+    })
+}
+
 #[derive(Protocol)]
 pub enum ClientMessage {
     /// Tells the server we're still here. Should be sent every 30 seconds; the server will consider the connection lost if no message is received for 60 seconds.
@@ -448,6 +606,12 @@ pub enum ClientMessage {
     },
     /// Only works after [`ServerMessage::EnterRoom`].
     SaveData(oottracker::Save),
+    /// Sends all remaining items from the given world to the given room. Only works after [`ServerMessage::AdminLoginSuccess`].
+    SendAll {
+        room: String,
+        source_world: NonZeroU8,
+        spoiler_log: SpoilerLog,
+    },
 }
 
 macro_rules! server_errors {

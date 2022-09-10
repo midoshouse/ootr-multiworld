@@ -10,6 +10,8 @@ style = ["dark-light", "iced"]
 async-proto = "0.15.1"
 async-recursion = "1"
 chrono = "0.4"
+itertools = "0.10"
+lazy-regex = "2"
 semver = "1"
 serde_json = "1"
 thiserror = "1"
@@ -26,6 +28,11 @@ optional = true
 [dependencies.oottracker]
 git = "https://github.com/fenhl/oottracker"
 branch = "main"
+
+[dependencies.pyo3]
+version = "0.17"
+features = ["auto-initialize"]
+optional = true
 
 [dependencies.reqwest]
 version = "0.11"

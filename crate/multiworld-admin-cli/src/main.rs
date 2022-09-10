@@ -90,6 +90,7 @@ enum Error {
     #[error(transparent)] Client(#[from] multiworld::ClientError),
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] Io(#[from] tokio::io::Error),
+    #[error(transparent)] Json(#[from] serde_json::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Syn(#[from] syn::Error),
     #[error(transparent)] TryFromSlice(#[from] std::array::TryFromSliceError),

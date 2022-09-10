@@ -1,9 +1,13 @@
 use {
-    std::num::NonZeroU8,
+    std::{
+        fs,
+        num::NonZeroU8,
+    },
     itertools::Itertools as _,
     multiworld::{
         ClientMessage,
         Filename,
+        SpoilerLog,
     },
     syn::{
         Expr,
@@ -101,6 +105,13 @@ impl FromExpr for Filename {
             Expr::Array(array) => Ok(Self(<_>::from_expr(Expr::Array(array))?)),
             _ => Err(Error::FromExpr),
         }
+    }
+}
+
+impl FromExpr for SpoilerLog {
+    fn from_expr(expr: Expr) -> Result<Self, Error> {
+        let path = String::from_expr(expr)?;
+        Ok(serde_json::from_str(&fs::read_to_string(path)?)?)
     }
 }
 
@@ -219,6 +230,23 @@ impl FromExpr for ClientMessage {
                             }
                         }
                         Ok(Self::Track { room_name: room_name.ok_or(Error::FromExpr)?, world_count: world_count.ok_or(Error::FromExpr)? })
+                    }
+                    "SendAll" => {
+                        let mut room = None;
+                        let mut source_world = None;
+                        let mut spoiler_log = None;
+                        for FieldValue { member, expr, .. } in struct_lit.fields {
+                            match member {
+                                Member::Named(member) => match &*member.to_string() {
+                                    "room" => if room.replace(String::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
+                                    "source_world" => if source_world.replace(NonZeroU8::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
+                                    "spoiler_log" => if spoiler_log.replace(SpoilerLog::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
+                                    _ => return Err(Error::FromExpr),
+                                }
+                                Member::Unnamed(_) => return Err(Error::FromExpr),
+                            }
+                        }
+                        Ok(Self::SendAll { room: room.ok_or(Error::FromExpr)?, source_world: source_world.ok_or(Error::FromExpr)?, spoiler_log: spoiler_log.ok_or(Error::FromExpr)? })
                     }
                     _ => Err(Error::FromExpr),
                 }
