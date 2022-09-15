@@ -78,7 +78,7 @@ async fn client_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::So
     let mut read = next_message(reader);
     Ok(loop {
         let (room_reader, room, end_rx) = lobby_session(db_pool.clone(), rooms.clone(), socket_id, read, writer.clone()).await?;
-        let (lobby_reader, end) = room_session(rooms.clone(), room, socket_id, room_reader, writer.clone(), end_rx).await?;
+        let (lobby_reader, end) = room_session(db_pool.clone(), rooms.clone(), room, socket_id, room_reader, writer.clone(), end_rx).await?;
         match end {
             EndRoomSession::ToLobby => read = lobby_reader,
             EndRoomSession::Disconnect => {
@@ -235,7 +235,8 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                     ClientMessage::SendItem { .. } |
                     ClientMessage::KickPlayer(_) |
                     ClientMessage::DeleteRoom |
-                    ClientMessage::SaveData(_) => error!("received a message that only works in a room, but you're in the lobby"),
+                    ClientMessage::SaveData(_) |
+                    ClientMessage::SaveDataError { .. } => error!("received a message that only works in a room, but you're in the lobby"),
                 }
                 read = next_message(reader);
             }
@@ -243,7 +244,7 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
     })
 }
 
-async fn room_session(rooms: Rooms, room: Arc<RwLock<Room>>, socket_id: multiworld::SocketId, reader: OwnedReadHalf, writer: Arc<Mutex<OwnedWriteHalf>>, mut end_rx: oneshot::Receiver<EndRoomSession>) -> Result<(NextMessage, EndRoomSession), SessionError> {
+async fn room_session(db_pool: PgPool, rooms: Rooms, room: Arc<RwLock<Room>>, socket_id: multiworld::SocketId, reader: OwnedReadHalf, writer: Arc<Mutex<OwnedWriteHalf>>, mut end_rx: oneshot::Receiver<EndRoomSession>) -> Result<(NextMessage, EndRoomSession), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             let msg = format!($($msg)*);
@@ -293,6 +294,9 @@ async fn room_session(rooms: Rooms, room: Arc<RwLock<Room>>, socket_id: multiwor
                         rooms.remove(room.name.clone()).await;
                     }
                     ClientMessage::SaveData(save) => room.write().await.set_save_data(socket_id, save).await?,
+                    ClientMessage::SaveDataError { debug, version } => if version >= multiworld::version() {
+                        sqlx::query!("INSERT INTO save_data_errors (debug, version) VALUES ($1, $2)", debug, version.to_string()).execute(&db_pool).await?;
+                    },
                 }
                 read = next_message(reader);
             },

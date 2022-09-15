@@ -555,11 +555,15 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
     let client = &mut *client;
     let save = slice::from_raw_parts(save, oottracker::save::SIZE);
     if let SessionState::Room { .. } = client.session_state {
-        match oottracker::Save::from_save_data(save) {
-            Ok(save) => if let Err(e) = client.write(&ClientMessage::SaveData(save)) {
-                return HandleOwned::new(Err(e.into()))
+        let msg = match oottracker::Save::from_save_data(save) {
+            Ok(save) => ClientMessage::SaveData(save),
+            Err(e) => ClientMessage::SaveDataError {
+                debug: format!("{e:?}"),
+                version: multiworld::version(),
             },
-            Err(e) => return HandleOwned::new(Err(e.into())),
+        };
+        if let Err(e) = client.write(&msg) {
+            return HandleOwned::new(Err(e.into()))
         }
     }
     HandleOwned::new(Ok(()))

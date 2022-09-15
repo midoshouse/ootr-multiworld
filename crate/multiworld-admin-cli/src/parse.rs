@@ -248,6 +248,7 @@ impl FromExpr for ClientMessage {
                         }
                         Ok(Self::SendAll { room: room.ok_or(Error::FromExpr)?, source_world: source_world.ok_or(Error::FromExpr)?, spoiler_log: spoiler_log.ok_or(Error::FromExpr)? })
                     }
+                    //TODO TrackError
                     _ => Err(Error::FromExpr),
                 }
             } else {

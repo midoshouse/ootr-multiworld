@@ -613,6 +613,11 @@ pub enum ClientMessage {
         source_world: NonZeroU8,
         spoiler_log: SpoilerLog,
     },
+    /// Reports an error with decoding save data.
+    SaveDataError {
+        debug: String,
+        version: Version,
+    },
 }
 
 macro_rules! server_errors {

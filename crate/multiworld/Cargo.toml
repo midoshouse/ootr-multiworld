@@ -7,7 +7,6 @@ edition = "2021"
 style = ["dark-light", "iced"]
 
 [dependencies]
-async-proto = "0.15.1"
 async-recursion = "1"
 chrono = "0.4"
 directories = "4"
@@ -17,6 +16,10 @@ once_cell = "1"
 semver = "1"
 serde_json = "1"
 thiserror = "1"
+
+[dependencies.async-proto]
+version = "0.15.1"
+features = ["semver"]
 
 [dependencies.dark-light]
 version = "0.2"

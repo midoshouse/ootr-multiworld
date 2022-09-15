@@ -310,14 +310,22 @@ impl Application for State {
                     Ok(Message::Nop)
                 })
             }
-            Message::Plugin(subscriptions::ClientMessage::SaveData(save)) => if let Ok(save) = oottracker::Save::from_save_data(&save) {
-                self.last_save = Some(save.clone());
-                if let Some(writer) = self.server_writer.clone() {
+            Message::Plugin(subscriptions::ClientMessage::SaveData(save)) => match oottracker::Save::from_save_data(&save) {
+                Ok(save) => {
+                    self.last_save = Some(save.clone());
+                    if let Some(writer) = self.server_writer.clone() {
+                        return cmd(async move {
+                            ClientMessage::SaveData(save).write(&mut *writer.lock().await).await?; //TODO only send if room is marked as being tracked?
+                            Ok(Message::Nop)
+                        })
+                    }
+                }
+                Err(e) => if let Some(writer) = self.server_writer.clone() {
                     return cmd(async move {
-                        ClientMessage::SaveData(save).write(&mut *writer.lock().await).await?; //TODO only send if room is marked as being tracked?
+                        ClientMessage::SaveDataError { debug: format!("{e:?}"), version: multiworld::version() }.write(&mut *writer.lock().await).await?;
                         Ok(Message::Nop)
                     })
-                }
+                },
             },
             Message::ReconnectToLobby => self.server_connection = SessionState::Init,
             Message::ReconnectToRoom(room_name, room_password) => self.server_connection = SessionState::InitAutoRejoin { room_name, room_password },
