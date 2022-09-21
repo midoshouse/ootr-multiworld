@@ -169,7 +169,7 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                             player_queues: HashMap::default(),
                             last_saved: Instant::now(),
                             db_pool: db_pool.clone(),
-                            tracker_connection: None,
+                            tracker_state: None,
                             password, clients,
                         }));
                         if !rooms.add(room.clone()).await { error!("a room with this name already exists") }
@@ -209,11 +209,11 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                     } else {
                         error!("Stop command requires admin login")
                     },
-                    ClientMessage::Track { room_name, world_count } => if logged_in_as_admin {
-                        if let Some(room) = rooms.0.lock().await.0.get(&room_name) {
-                            room.write().await.init_tracker(world_count).await?;
+                    ClientMessage::Track { mw_room_name, tracker_room_name, world_count } => if logged_in_as_admin {
+                        if let Some(room) = rooms.0.lock().await.0.get(&mw_room_name) {
+                            room.write().await.init_tracker(tracker_room_name, world_count).await?;
                         } else {
-                            error!("there is no room named {room_name:?}")
+                            error!("there is no room named {mw_room_name:?}")
                         }
                     } else {
                         error!("Track command requires admin login")
@@ -407,7 +407,7 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                         player_queues: HashMap::read_sync(&mut &*row.player_queues)?,
                         last_saved: Instant::now(),
                         db_pool: db_pool.clone(),
-                        tracker_connection: None,
+                        tracker_state: None,
                     }))).await);
                 }
             }

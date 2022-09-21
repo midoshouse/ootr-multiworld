@@ -211,7 +211,7 @@ pub struct Room {
     #[cfg(feature = "sqlx")]
     pub db_pool: PgPool,
     #[cfg(feature = "tokio-tungstenite")]
-    pub tracker_connection: Option<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>>,
+    pub tracker_state: Option<(String, tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>)>,
 }
 
 #[cfg(feature = "pyo3")]
@@ -283,8 +283,8 @@ impl Room {
             }
         }
         #[cfg(feature = "tokio-tungstenite")]
-        if let Some(ref mut sock) = self.tracker_connection {
-            let _ = oottracker::websocket::ClientMessage::MwDeleteRoom { room: self.name.clone() }.write_ws(sock).await;
+        if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
+            let _ = oottracker::websocket::ClientMessage::MwDeleteRoom { room: tracker_room_name.clone() }.write_ws(sock).await;
         }
     }
 
@@ -310,8 +310,8 @@ impl Room {
         }
         #[cfg(feature = "tokio-tungstenite")]
         if let Some(save) = save {
-            if let Some(ref mut sock) = self.tracker_connection {
-                oottracker::websocket::ClientMessage::MwResetPlayer { room: self.name.clone(), world, save }.write_ws(sock).await?;
+            if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
+                oottracker::websocket::ClientMessage::MwResetPlayer { room: tracker_room_name.clone(), world, save }.write_ws(sock).await?;
             }
         }
         Ok(true)
@@ -351,15 +351,15 @@ impl Room {
                     self.write(target_client, &msg).await;
                 }
                 #[cfg(feature = "tokio-tungstenite")]
-                if let Some(ref mut sock) = self.tracker_connection {
-                    oottracker::websocket::ClientMessage::MwGetItemAll { room: self.name.clone(), item: kind }.write_ws(sock).await?;
+                if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
+                    oottracker::websocket::ClientMessage::MwGetItemAll { room: tracker_room_name.clone(), item: kind }.write_ws(sock).await?;
                 }
             }
         } else if source_world == target_world {
             // don't send own item back to sender
             #[cfg(feature = "tokio-tungstenite")]
-            if let Some(ref mut sock) = self.tracker_connection {
-                oottracker::websocket::ClientMessage::MwGetItem { room: self.name.clone(), world: target_world, item: kind }.write_ws(sock).await?;
+            if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
+                oottracker::websocket::ClientMessage::MwGetItem { room: tracker_room_name.clone(), world: target_world, item: kind }.write_ws(sock).await?;
             }
         } else {
             if !self.player_queues.get(&target_world).map_or(false, |queue| queue.iter().any(|item| item.source == source_world && item.key == key)) {
@@ -368,8 +368,8 @@ impl Room {
                     self.write(target_client, &ServerMessage::GetItem(kind)).await;
                 }
                 #[cfg(feature = "tokio-tungstenite")]
-                if let Some(ref mut sock) = self.tracker_connection {
-                    oottracker::websocket::ClientMessage::MwGetItem { room: self.name.clone(), world: target_world, item: kind }.write_ws(sock).await?;
+                if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
+                    oottracker::websocket::ClientMessage::MwGetItem { room: tracker_room_name.clone(), world: target_world, item: kind }.write_ws(sock).await?;
                 }
             }
         }
@@ -418,15 +418,15 @@ impl Room {
         client.save_data = Some(save.clone());
         #[cfg(feature = "tokio-tungstenite")]
         if let Some(Player { world, .. }) = client.player {
-            if let Some(ref mut sock) = self.tracker_connection {
-                oottracker::websocket::ClientMessage::MwResetPlayer { room: self.name.clone(), world, save }.write_ws(sock).await?;
+            if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
+                oottracker::websocket::ClientMessage::MwResetPlayer { room: tracker_room_name.clone(), world, save }.write_ws(sock).await?;
             }
         }
         Ok(())
     }
 
     #[cfg(feature = "tokio-tungstenite")]
-    pub async fn init_tracker(&mut self, world_count: NonZeroU8) -> Result<(), async_proto::WriteError> {
+    pub async fn init_tracker(&mut self, tracker_room_name: String, world_count: NonZeroU8) -> Result<(), async_proto::WriteError> {
         let mut worlds = (1..=world_count.get())
             .map(|player_id| (
                 None,
@@ -439,8 +439,8 @@ impl Room {
             }
         }
         let mut sock = tokio_tungstenite::connect_async("wss://oottracker.fenhl.net/websocket").await?.0;
-        oottracker::websocket::ClientMessage::MwCreateRoom { room: self.name.clone(), worlds }.write_ws(&mut sock).await?;
-        self.tracker_connection = Some(sock);
+        oottracker::websocket::ClientMessage::MwCreateRoom { room: tracker_room_name.clone(), worlds }.write_ws(&mut sock).await?;
+        self.tracker_state = Some((tracker_room_name, sock));
         Ok(())
     }
 
@@ -602,7 +602,8 @@ pub enum ClientMessage {
     DeleteRoom,
     /// Configures the given room to be visible on oottracker.fenhl.net. Only works after [`ServerMessage::AdminLoginSuccess`].
     Track {
-        room_name: String,
+        mw_room_name: String,
+        tracker_room_name: String,
         world_count: NonZeroU8,
     },
     /// Only works after [`ServerMessage::EnterRoom`].
