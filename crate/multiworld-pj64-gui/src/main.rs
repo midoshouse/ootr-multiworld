@@ -254,9 +254,11 @@ impl Application for State {
                     return cmd(async move {
                         let mut writer = writer.lock().await;
                         for player in players {
-                            if player.name != Filename::default() {
-                                subscriptions::ServerMessage::PlayerName(player.world, player.name).write(&mut *writer).await?;
-                            }
+                            subscriptions::ServerMessage::PlayerName(player.world, if player.name == Filename::default() {
+                                Filename::fallback(player.world)
+                            } else {
+                                player.name
+                            }).write(&mut *writer).await?;
                         }
                         if !item_queue.is_empty() {
                             subscriptions::ServerMessage::ItemQueue(item_queue).write(&mut *writer).await?;
@@ -361,9 +363,11 @@ impl Application for State {
                                 ClientMessage::SaveData(save).write(&mut *server_writer.lock().await).await?; //TODO only send if room is marked as being tracked?
                             }
                             for player in players {
-                                if player.name != Filename::default() {
-                                    subscriptions::ServerMessage::PlayerName(player.world, player.name).write(&mut *pj64_writer.lock().await).await?;
-                                }
+                                subscriptions::ServerMessage::PlayerName(player.world, if player.name == Filename::default() {
+                                    Filename::fallback(player.world)
+                                } else {
+                                    player.name
+                                }).write(&mut *pj64_writer.lock().await).await?;
                             }
                             Ok(Message::Nop)
                         })

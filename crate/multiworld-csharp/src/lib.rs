@@ -840,7 +840,7 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
         if let Some(player) = players.iter().find(|p| p.world == world) {
             player.name.0.as_ptr()
         } else {
-            Filename::DEFAULT.0.as_ptr()
+            Filename::fallback(world).0.as_ptr()
         }
     } else {
         panic!("client is not in a room")

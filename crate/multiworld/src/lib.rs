@@ -127,6 +127,24 @@ impl Filename {
         '┬', '?', '!', ':', '-', '(', ')', '゛', '゜', ',', '.', '/', '�', '�', '�', '�',
         '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�',
     ];
+
+    pub fn fallback(world: NonZeroU8) -> Self {
+        match world.get() {
+            0 => unreachable!(),
+            n @ 1..=9 => Self([0xba, 0xd0, 0xc5, 0xdd, 0xc9, 0xd6, 0xdf, n]), // Player N
+            n @ 10..=99 => {
+                let tens = n / 10;
+                let ones = n % 10;
+                Self([0xba, 0xd0, 0xc5, 0xdd, 0xc9, 0xd6, tens, ones]) // PlayerNN
+            }
+            n @ 100..=255 => {
+                let hundreds = n / 100;
+                let tens = (n % 100) / 10;
+                let ones = n % 10;
+                Self([0xba, 0xd0, 0xc5, 0xdd, 0xd6, hundreds, tens, ones]) //PlayrNNN
+            }
+        }
+    }
 }
 
 impl Default for Filename {
