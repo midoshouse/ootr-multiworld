@@ -29,8 +29,13 @@ var playerNames = [
 var itemQueue = [];
 var remainingItems = 0;
 var normalGameplay = false;
+var drawCallback = null;
 var sock = new Socket();
 sock.on('close', function() {
+    if (drawCallback !== null) {
+        events.remove(drawCallback);
+        drawCallback = null;
+    }
     throw 'connection to multiworld app lost';
 });
 sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
@@ -100,7 +105,7 @@ sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
                 }
             }
         });
-        events.ondraw(function() {
+        drawCallback = events.ondraw(function() {
             // read player ID
             var zeldaz_rdram = mem.getblock(ADDR_ANY_RDRAM.start + 0x11a5d0 + 0x1c, 6);
             var coopContextAddr = null;
