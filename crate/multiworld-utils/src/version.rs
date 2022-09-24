@@ -1,13 +1,11 @@
 use {
     std::{
         iter,
-        process::Stdio,
         str::FromStr as _,
     },
     graphql_client::GraphQLQuery,
     itertools::Itertools as _,
     semver::Version,
-    tokio::process::Command,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -47,22 +45,6 @@ pub async fn bizhawk_latest(client: &reqwest::Client) -> Result<Version, BizHawk
     Ok(Version::new(major?, minor?, patch?))
 }
 
-pub async fn check_cli_version(package: &str, version: &Version) {
-    let cli_output = String::from_utf8(Command::new("cargo").arg("run").arg(format!("--package={package}")).arg("--").arg("--version").stdout(Stdio::piped()).output().await.expect("failed to run CLI with --version").stdout).expect("CLI version output is invalid UTF-8");
-    let (cli_name, cli_version) = cli_output.trim_end().split(' ').collect_tuple().expect("no space in CLI version output");
-    assert_eq!(cli_name, package);
-    assert_eq!(*version, cli_version.parse().expect("failed to parse CLI version"));
-}
-
 pub async fn version() -> Version {
-    let version = Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse current version");
-    assert_eq!(version, multiworld::version());
-    assert_eq!(version, multiworld_bizhawk::version());
-    //assert_eq!(version, multiworld_csharp::version()); //TODO
-    check_cli_version("multiworld-admin-cli", &version).await;
-    check_cli_version("multiworld-installer", &version).await;
-    check_cli_version("multiworld-pj64-gui", &version).await;
-    check_cli_version("multiworld-updater", &version).await;
-    check_cli_version("ootrmwd", &version).await;
-    version
+    Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse current version")
 }
