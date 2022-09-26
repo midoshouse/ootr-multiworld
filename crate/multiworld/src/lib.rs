@@ -186,7 +186,7 @@ impl PartialEq<&[u8]> for Filename {
 pub struct Player {
     pub world: NonZeroU8,
     pub name: Filename,
-    file_hash: Option<[u8; 5]>,
+    file_hash: Option<[HashIcon; 5]>,
 }
 
 impl Player {
@@ -355,7 +355,7 @@ impl Room {
         }
     }
 
-    pub async fn set_file_hash(&mut self, client_id: SocketId, hash: [u8; 5]) -> bool {
+    pub async fn set_file_hash(&mut self, client_id: SocketId, hash: [HashIcon; 5]) -> bool {
         if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").player {
             let world = player.world;
             player.file_hash = Some(hash);
@@ -488,6 +488,63 @@ impl Room {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Protocol)]
+#[repr(u8)]
+pub enum HashIcon {
+    #[serde(rename = "Deku Stick")]
+    DekuStick,
+    #[serde(rename = "Deku Nut")]
+    DekuNut,
+    Bow,
+    Slingshot,
+    #[serde(rename = "Fairy Ocarina")]
+    FairyOcarina,
+    Bombchu,
+    Longshot,
+    Boomerang,
+    #[serde(rename = "Lens of Truth")]
+    LensOfTruth,
+    Beans,
+    #[serde(rename = "Megaton Hammer")]
+    MegatonHammer,
+    #[serde(rename = "Bottled Fish")]
+    BottledFish,
+    #[serde(rename = "Bottled Milk")]
+    BottledMilk,
+    #[serde(rename = "Mask of Truth")]
+    MaskOfTruth,
+    #[serde(rename = "SOLD OUT")]
+    SoldOut,
+    Cucco,
+    Mushroom,
+    Saw,
+    Frog,
+    #[serde(rename = "Master Sword")]
+    MasterSword,
+    #[serde(rename = "Mirror Shield")]
+    MirrorShield,
+    #[serde(rename = "Kokiri Tunic")]
+    KokiriTunic,
+    #[serde(rename = "Hover Boots")]
+    HoverBoots,
+    #[serde(rename = "Silver Gauntlets")]
+    SilverGauntlets,
+    #[serde(rename = "Gold Scale")]
+    GoldScale,
+    #[serde(rename = "Stone of Agony")]
+    StoneOfAgony,
+    #[serde(rename = "Skull Token")]
+    SkullToken,
+    #[serde(rename = "Heart Container")]
+    HeartContainer,
+    #[serde(rename = "Boss Key")]
+    BossKey,
+    Compass,
+    Map,
+    #[serde(rename = "Big Magic")]
+    BigMagic,
+}
+
 fn deserialize_multiworld<'de, D: Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> Result<Vec<T>, D::Error> {
     struct MultiworldVisitor<'de, T: Deserialize<'de>> {
         _marker: PhantomData<(&'de (), T)>,
@@ -543,7 +600,7 @@ struct SpoilerLogItem {
 
 #[derive(Deserialize, Protocol)]
 pub struct SpoilerLog {
-    //TODO include file hash to check against loaded seed
+    file_hash: [HashIcon; 5],
     #[serde(deserialize_with = "deserialize_multiworld")]
     locations: Vec<BTreeMap<String, SpoilerLogItem>>,
 }
@@ -653,7 +710,7 @@ pub enum ClientMessage {
         version: Version,
     },
     /// Reports the loaded seed's file hash icons, allowing the server to ensure that all players are on the same seed. Only works after [`ServerMessage::PlayerId`].
-    FileHash([u8; 5]),
+    FileHash([HashIcon; 5]),
 }
 
 macro_rules! server_errors {
@@ -743,7 +800,7 @@ pub enum ServerMessage {
     /// The client will now be disconnected.
     Goodbye,
     /// A player has sent their file select hash icons.
-    PlayerFileHash(NonZeroU8, [u8; 5]),
+    PlayerFileHash(NonZeroU8, [HashIcon; 5]),
 }
 
 #[derive(Debug, thiserror::Error)]

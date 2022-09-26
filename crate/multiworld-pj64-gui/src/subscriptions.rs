@@ -35,7 +35,10 @@ use {
             timeout,
         },
     },
-    multiworld::Filename,
+    multiworld::{
+        Filename,
+        HashIcon,
+    },
     crate::{
         Error,
         MW_PJ64_PROTO_VERSION,
@@ -60,7 +63,7 @@ pub(crate) enum ClientMessage {
         target_world: NonZeroU8,
     },
     SaveData([u8; oottracker::save::SIZE]),
-    FileHash([u8; 5]),
+    FileHash([HashIcon; 5]),
 }
 
 pub(crate) struct Pj64Listener;

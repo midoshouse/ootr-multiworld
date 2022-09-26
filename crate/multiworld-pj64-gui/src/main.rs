@@ -47,6 +47,7 @@ use {
     multiworld::{
         ClientMessage,
         Filename,
+        HashIcon,
         IsNetworkError,
         ServerMessage,
         SessionState,
@@ -135,7 +136,7 @@ struct State {
     wait_time: Duration,
     last_world: Option<NonZeroU8>,
     last_name: Filename,
-    last_hash: Option<[u8; 5]>,
+    last_hash: Option<[HashIcon; 5]>,
     last_save: Option<oottracker::Save>,
     updates_checked: bool,
     should_exit: bool,

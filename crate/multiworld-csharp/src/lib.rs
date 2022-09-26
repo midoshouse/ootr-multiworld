@@ -38,6 +38,7 @@ use {
     multiworld::{
         ClientMessage,
         Filename,
+        HashIcon,
         IsNetworkError as _,
         ServerError,
         ServerMessage,
@@ -143,7 +144,7 @@ pub struct Client {
     last_ping: Instant,
     last_world: Option<NonZeroU8>,
     last_name: Filename,
-    last_hash: Option<[u8; 5]>,
+    last_hash: Option<[HashIcon; 5]>,
 }
 
 impl Client {
@@ -562,7 +563,7 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 /// # Safety
 ///
 /// `client` must point at a valid `Client`. `hash` must point at a byte slice of length 5.
-#[csharp_ffi] pub unsafe extern "C" fn client_set_file_hash(client: *mut Client, hash: *const u8) -> HandleOwned<DebugResult<()>> {
+#[csharp_ffi] pub unsafe extern "C" fn client_set_file_hash(client: *mut Client, hash: *const HashIcon) -> HandleOwned<DebugResult<()>> {
     let client = &mut *client;
     let hash = slice::from_raw_parts(hash, 5);
 

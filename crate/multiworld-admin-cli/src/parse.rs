@@ -4,11 +4,6 @@ use {
         num::NonZeroU8,
     },
     itertools::Itertools as _,
-    multiworld::{
-        ClientMessage,
-        Filename,
-        SpoilerLog,
-    },
     syn::{
         Expr,
         ExprLit,
@@ -17,6 +12,12 @@ use {
         Lit,
         Member,
         UnOp,
+    },
+    multiworld::{
+        ClientMessage,
+        Filename,
+        HashIcon,
+        SpoilerLog,
     },
     crate::Error,
 };
@@ -108,6 +109,53 @@ impl FromExpr for Filename {
     }
 }
 
+impl FromExpr for HashIcon {
+    fn from_expr(expr: Expr) -> Result<Self, Error> {
+        match expr {
+            Expr::Path(path) => if let Some(ident) = path.path.get_ident() {
+                match &*ident.to_string() {
+                    "DekuStick" => Ok(Self::DekuStick),
+                    "DekuNut" => Ok(Self::DekuNut),
+                    "Bow" => Ok(Self::Bow),
+                    "Slingshot" => Ok(Self::Slingshot),
+                    "FairyOcarina" => Ok(Self::FairyOcarina),
+                    "Bombchu" => Ok(Self::Bombchu),
+                    "Longshot" => Ok(Self::Longshot),
+                    "Boomerang" => Ok(Self::Boomerang),
+                    "LensOfTruth" => Ok(Self::LensOfTruth),
+                    "Beans" => Ok(Self::Beans),
+                    "MegatonHammer" => Ok(Self::MegatonHammer),
+                    "BottledFish" => Ok(Self::BottledFish),
+                    "BottledMilk" => Ok(Self::BottledMilk),
+                    "MaskOfTruth" => Ok(Self::MaskOfTruth),
+                    "SoldOut" => Ok(Self::SoldOut),
+                    "Cucco" => Ok(Self::Cucco),
+                    "Mushroom" => Ok(Self::Mushroom),
+                    "Saw" => Ok(Self::Saw),
+                    "Frog" => Ok(Self::Frog),
+                    "MasterSword" => Ok(Self::MasterSword),
+                    "MirrorShield" => Ok(Self::MirrorShield),
+                    "KokiriTunic" => Ok(Self::KokiriTunic),
+                    "HoverBoots" => Ok(Self::HoverBoots),
+                    "SilverGauntlets" => Ok(Self::SilverGauntlets),
+                    "GoldScale" => Ok(Self::GoldScale),
+                    "StoneOfAgony" => Ok(Self::StoneOfAgony),
+                    "SkullToken" => Ok(Self::SkullToken),
+                    "HeartContainer" => Ok(Self::HeartContainer),
+                    "BossKey" => Ok(Self::BossKey),
+                    "Compass" => Ok(Self::Compass),
+                    "Map" => Ok(Self::Map),
+                    "BigMagic" => Ok(Self::BigMagic),
+                    _ => Err(Error::FromExpr),
+                }
+            } else {
+                Err(Error::FromExpr)
+            },
+            _ => Err(Error::FromExpr),
+        }
+    }
+}
+
 impl FromExpr for SpoilerLog {
     fn from_expr(expr: Expr) -> Result<Self, Error> {
         let path = String::from_expr(expr)?;
@@ -136,7 +184,7 @@ impl FromExpr for ClientMessage {
                         //TODO SaveData (read from path?)
                         "FileHash" => {
                             let hash = call.args.into_iter().exactly_one()?;
-                            Ok(Self::FileHash(<[u8; 5]>::from_expr(hash)?))
+                            Ok(Self::FileHash(<[HashIcon; 5]>::from_expr(hash)?))
                         }
                         _ => Err(Error::FromExpr),
                     }
