@@ -44,6 +44,7 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern StringHandle unit_result_debug_err(IntPtr unit_res);
         [DllImport("multiworld")] internal static extern UnitResult client_reset_player_id(Client client);
         [DllImport("multiworld")] internal static extern UnitResult client_set_player_name(Client client, IntPtr name);
+        [DllImport("multiworld")] internal static extern UnitResult client_set_file_hash(Client client, IntPtr hash);
         [DllImport("multiworld")] internal static extern UnitResult client_set_save_data(Client client, IntPtr save);
         [DllImport("multiworld")] internal static extern byte client_num_players(Client client);
         [DllImport("multiworld")] internal static extern byte client_player_world(Client client, byte player_idx);
@@ -173,6 +174,14 @@ namespace MidosHouse.OotrMultiworld {
             Marshal.Copy(saveData.ToArray(), 0, savePtr, 0x1450);
             var res = Native.client_set_save_data(this, savePtr);
             Marshal.FreeHGlobal(savePtr);
+            return res;
+        }
+
+        internal UnitResult SendFileHash(List<byte> fileHash) {
+            var hashPtr = Marshal.AllocHGlobal(5);
+            Marshal.Copy(fileHash.ToArray(), 0, hashPtr, 5);
+            var res = Native.client_set_file_hash(this, hashPtr);
+            Marshal.FreeHGlobal(hashPtr);
             return res;
         }
 
@@ -358,8 +367,8 @@ namespace MidosHouse.OotrMultiworld {
         private uint? coopContextAddr;
         private byte? playerID;
         private List<byte> playerName = new List<byte> { 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf };
+        private List<byte> fileHash = new List<byte> { 0xff, 0xff, 0xff, 0xff, 0xff };
         private bool normalGameplay = false;
-        private bool saveDataErrorNotified = false;
 
         public ApiContainer? _apiContainer { get; set; }
         private ApiContainer APIs => _apiContainer ?? throw new NullReferenceException();
@@ -552,11 +561,8 @@ namespace MidosHouse.OotrMultiworld {
                                             if (!this.normalGameplay) {
                                                 using (var res = this.client.SendSaveData(APIs.Memory.ReadByteRange(0x11a5d0, 0x1450, "RDRAM"))) {
                                                     if (!res.IsOk()) {
-                                                        if (!this.saveDataErrorNotified) {
-                                                            this.saveDataErrorNotified = true;
-                                                            using (var err = res.DebugErr()) {
-                                                                this.DialogController.ShowMessageBox(this, $"error sending save data: {err.AsString()}", null, EMsgBoxIcon.Error);
-                                                            }
+                                                        using (var err = res.DebugErr()) {
+                                                            Error(err.AsString());
                                                         }
                                                     }
                                                 }
@@ -802,6 +808,20 @@ namespace MidosHouse.OotrMultiworld {
                                         break; // supported, but no MW_SEND_OWN_ITEMS support
                                     case 3:
                                         APIs.Memory.WriteU8(newCoopContextAddr + 0x0a, 1, "System Bus"); // enable MW_SEND_OWN_ITEMS for server-side tracking
+                                        break;
+                                    case 4:
+                                        APIs.Memory.WriteU8(newCoopContextAddr + 0x0a, 1, "System Bus"); // enable MW_SEND_OWN_ITEMS for server-side tracking
+                                        var newFileHash = APIs.Memory.ReadByteRange(newCoopContextAddr + 0x0814, 5, "System Bus");
+                                        if (this.client != null && !Enumerable.SequenceEqual(this.fileHash, newFileHash)) {
+                                            using (var res = this.client.SendFileHash(newFileHash)) {
+                                                if (!res.IsOk()) {
+                                                    using (var err = res.DebugErr()) {
+                                                        Error(err.AsString());
+                                                    }
+                                                }
+                                            }
+                                            this.fileHash = newFileHash;
+                                        }
                                         break;
                                     default:
                                         Error("randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)");

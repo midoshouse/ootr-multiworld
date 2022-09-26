@@ -134,6 +134,10 @@ impl FromExpr for ClientMessage {
                             Ok(Self::KickPlayer(NonZeroU8::from_expr(world_id)?))
                         }
                         //TODO SaveData (read from path?)
+                        "FileHash" => {
+                            let hash = call.args.into_iter().exactly_one()?;
+                            Ok(Self::FileHash(<[u8; 5]>::from_expr(hash)?))
+                        }
                         _ => Err(Error::FromExpr),
                     }
                 } else {

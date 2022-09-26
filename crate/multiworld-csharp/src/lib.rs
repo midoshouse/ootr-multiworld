@@ -143,6 +143,7 @@ pub struct Client {
     last_ping: Instant,
     last_world: Option<NonZeroU8>,
     last_name: Filename,
+    last_hash: Option<[u8; 5]>,
 }
 
 impl Client {
@@ -254,6 +255,7 @@ fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<TcpStream> {
         last_ping: Instant::now(),
         last_world: None,
         last_name: Filename::default(),
+        last_hash: None,
         tcp_stream,
     }))
 }
@@ -268,6 +270,7 @@ fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<TcpStream> {
         last_ping: Instant::now(),
         last_world: None,
         last_name: Filename::default(),
+        last_hash: None,
         tcp_stream,
     }))
 }
@@ -475,13 +478,25 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
     let id = NonZeroU8::new(id).expect("tried to claim world 0");
 
     if client.last_world != Some(id) {
-        let new_player_name = (client.last_world.replace(id).is_none() && client.last_name != Filename::default()).then_some(client.last_name);
+        let (new_player_name, new_file_hash) = if client.last_world.replace(id).is_none() {
+            (
+                (client.last_name != Filename::default()).then_some(client.last_name),
+                client.last_hash,
+            )
+        } else {
+            (None, None)
+        };
         if let SessionState::Room { .. } = client.session_state {
             if let Err(e) = client.write(&ClientMessage::PlayerId(id)) {
                 return HandleOwned::new(Err(e.into()))
             }
             if let Some(new_player_name) = new_player_name {
                 if let Err(e) = client.write(&ClientMessage::PlayerName(new_player_name)) {
+                    return HandleOwned::new(Err(e.into()))
+                }
+            }
+            if let Some(new_file_hash) = new_file_hash {
+                if let Err(e) = client.write(&ClientMessage::FileHash(new_file_hash)) {
                     return HandleOwned::new(Err(e.into()))
                 }
             }
@@ -536,6 +551,27 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
         if client.last_world.is_some() {
             if let SessionState::Room { .. } = client.session_state {
                 if let Err(e) = client.write(&ClientMessage::PlayerName(client.last_name)) {
+                    return HandleOwned::new(Err(e.into()))
+                }
+            }
+        }
+    }
+    HandleOwned::new(Ok(()))
+}
+
+/// # Safety
+///
+/// `client` must point at a valid `Client`. `hash` must point at a byte slice of length 5.
+#[csharp_ffi] pub unsafe extern "C" fn client_set_file_hash(client: *mut Client, hash: *const u8) -> HandleOwned<DebugResult<()>> {
+    let client = &mut *client;
+    let hash = slice::from_raw_parts(hash, 5);
+
+    let hash = hash.try_into().expect("file hashes are 5 bytes");
+    if client.last_hash != Some(hash) {
+        client.last_hash = Some(hash);
+        if client.last_world.is_some() {
+            if let SessionState::Room { .. } = client.session_state {
+                if let Err(e) = client.write(&ClientMessage::FileHash(hash)) {
                     return HandleOwned::new(Err(e.into()))
                 }
             }
@@ -704,6 +740,11 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
                         }
                         if client.last_name != Filename::default() {
                             if let Err(e) = client.write(&ClientMessage::PlayerName(client.last_name)) {
+                                return HandleOwned::new(Err(DebugError::from(e)))
+                            }
+                        }
+                        if let Some(hash) = client.last_hash {
+                            if let Err(e) = client.write(&ClientMessage::FileHash(hash)) {
                                 return HandleOwned::new(Err(DebugError::from(e)))
                             }
                         }

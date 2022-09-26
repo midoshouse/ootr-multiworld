@@ -186,6 +186,7 @@ impl PartialEq<&[u8]> for Filename {
 pub struct Player {
     pub world: NonZeroU8,
     pub name: Filename,
+    file_hash: Option<[u8; 5]>,
 }
 
 impl Player {
@@ -193,6 +194,7 @@ impl Player {
         Self {
             world,
             name: Filename::default(),
+            file_hash: None,
         }
     }
 }
@@ -347,6 +349,18 @@ impl Room {
             player.name = name;
             drop(player);
             self.write_all(&ServerMessage::PlayerName(world, name)).await;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub async fn set_file_hash(&mut self, client_id: SocketId, hash: [u8; 5]) -> bool {
+        if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").player {
+            let world = player.world;
+            player.file_hash = Some(hash);
+            drop(player);
+            self.write_all(&ServerMessage::PlayerFileHash(world, hash)).await;
             true
         } else {
             false
@@ -529,6 +543,7 @@ struct SpoilerLogItem {
 
 #[derive(Deserialize, Protocol)]
 pub struct SpoilerLog {
+    //TODO include file hash to check against loaded seed
     #[serde(deserialize_with = "deserialize_multiworld")]
     locations: Vec<BTreeMap<String, SpoilerLogItem>>,
 }
@@ -606,7 +621,7 @@ pub enum ClientMessage {
     PlayerId(NonZeroU8),
     /// Unloads the previously claimed world. Only works after [`ServerMessage::EnterRoom`].
     ResetPlayerId,
-    /// Player names are encoded in the NTSC charset, with trailing spaces (`0xdf`). Only works after [`ServerMessage::EnterRoom`].
+    /// Player names are encoded in the NTSC charset, with trailing spaces (`0xdf`). Only works after [`ServerMessage::PlayerId`].
     PlayerName(Filename),
     /// Only works after [`ServerMessage::EnterRoom`].
     SendItem {
@@ -637,6 +652,8 @@ pub enum ClientMessage {
         debug: String,
         version: Version,
     },
+    /// Reports the loaded seed's file hash icons, allowing the server to ensure that all players are on the same seed. Only works after [`ServerMessage::PlayerId`].
+    FileHash([u8; 5]),
 }
 
 macro_rules! server_errors {
@@ -725,6 +742,8 @@ pub enum ServerMessage {
     },
     /// The client will now be disconnected.
     Goodbye,
+    /// A player has sent their file select hash icons.
+    PlayerFileHash(NonZeroU8, [u8; 5]),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -956,6 +975,16 @@ impl<E> SessionState<E> {
             },
             ServerMessage::Goodbye => if !matches!(self, SessionState::Error { .. }) {
                 *self = SessionState::Closed;
+            },
+            ServerMessage::PlayerFileHash(world, hash) => if let SessionState::Room { players, .. } = self {
+                if let Ok(idx) = players.binary_search_by_key(&world, |p| p.world) {
+                    players[idx].file_hash = Some(hash);
+                }
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
             },
         }
     }

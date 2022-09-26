@@ -60,6 +60,7 @@ pub(crate) enum ClientMessage {
         target_world: NonZeroU8,
     },
     SaveData([u8; oottracker::save::SIZE]),
+    FileHash([u8; 5]),
 }
 
 pub(crate) struct Pj64Listener;

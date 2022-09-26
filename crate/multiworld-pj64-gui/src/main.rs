@@ -135,6 +135,7 @@ struct State {
     wait_time: Duration,
     last_world: Option<NonZeroU8>,
     last_name: Filename,
+    last_hash: Option<[u8; 5]>,
     last_save: Option<oottracker::Save>,
     updates_checked: bool,
     should_exit: bool,
@@ -156,6 +157,7 @@ impl Application for State {
             wait_time: Duration::from_secs(1),
             last_world: None,
             last_name: Filename::default(),
+            last_hash: None,
             last_save: None,
             updates_checked: false,
             should_exit: false,
@@ -277,7 +279,14 @@ impl Application for State {
                 self.pj64_subscription_error.get_or_insert(e);
             }
             Message::Plugin(subscriptions::ClientMessage::PlayerId(new_player_id)) => {
-                let new_player_name = (self.last_world.replace(new_player_id).is_none() && self.last_name != Filename::default()).then_some(self.last_name);
+                let (new_player_name, new_file_hash) = if self.last_world.replace(new_player_id).is_none() {
+                    (
+                        (self.last_name != Filename::default()).then_some(self.last_name),
+                        self.last_hash,
+                    )
+                } else {
+                    (None, None)
+                };
                 if let Some(ref writer) = self.server_writer {
                     if let SessionState::Room { .. } = self.server_connection {
                         let writer = writer.clone();
@@ -285,6 +294,9 @@ impl Application for State {
                             ClientMessage::PlayerId(new_player_id).write(&mut *writer.lock().await).await?;
                             if let Some(new_player_name) = new_player_name {
                                 ClientMessage::PlayerName(new_player_name).write(&mut *writer.lock().await).await?;
+                            }
+                            if let Some(new_file_hash) = new_file_hash {
+                                ClientMessage::FileHash(new_file_hash).write(&mut *writer.lock().await).await?;
                             }
                             Ok(Message::Nop)
                         })
@@ -329,6 +341,20 @@ impl Application for State {
                     })
                 },
             },
+            Message::Plugin(subscriptions::ClientMessage::FileHash(new_hash)) => {
+                self.last_hash = Some(new_hash);
+                if self.last_world.is_some() {
+                    if let Some(ref writer) = self.server_writer {
+                        if let SessionState::Room { .. } = self.server_connection {
+                            let writer = writer.clone();
+                            return cmd(async move {
+                                ClientMessage::FileHash(new_hash).write(&mut *writer.lock().await).await?;
+                                Ok(Message::Nop)
+                            })
+                        }
+                    }
+                }
+            }
             Message::ReconnectToLobby => self.server_connection = SessionState::Init,
             Message::ReconnectToRoom(room_name, room_password) => self.server_connection = SessionState::InitAutoRejoin { room_name, room_password },
             Message::Server(msg) => {
@@ -351,12 +377,16 @@ impl Application for State {
                         let pj64_writer = self.pj64_writer.clone().expect("join room button only appears when connected to PJ64");
                         let player_id = self.last_world;
                         let player_name = self.last_name;
+                        let file_hash = self.last_hash;
                         let save = self.last_save.clone();
                         return cmd(async move {
                             if let Some(player_id) = player_id {
                                 ClientMessage::PlayerId(player_id).write(&mut *server_writer.lock().await).await?;
                                 if player_name != Filename::default() {
                                     ClientMessage::PlayerName(player_name).write(&mut *server_writer.lock().await).await?;
+                                }
+                                if let Some(hash) = file_hash {
+                                    ClientMessage::FileHash(hash).write(&mut *server_writer.lock().await).await?;
                                 }
                             }
                             if let Some(save) = save {

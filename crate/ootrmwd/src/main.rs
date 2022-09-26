@@ -236,7 +236,8 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                     ClientMessage::KickPlayer(_) |
                     ClientMessage::DeleteRoom |
                     ClientMessage::SaveData(_) |
-                    ClientMessage::SaveDataError { .. } => error!("received a message that only works in a room, but you're in the lobby"),
+                    ClientMessage::SaveDataError { .. } |
+                    ClientMessage::FileHash(_) => error!("received a message that only works in a room, but you're in the lobby"),
                 }
                 read = next_message(reader);
             }
@@ -296,6 +297,9 @@ async fn room_session(db_pool: PgPool, rooms: Rooms, room: Arc<RwLock<Room>>, so
                     ClientMessage::SaveData(save) => room.write().await.set_save_data(socket_id, save).await?,
                     ClientMessage::SaveDataError { debug, version } => if version >= multiworld::version() {
                         sqlx::query!("INSERT INTO save_data_errors (debug, version) VALUES ($1, $2)", debug, version.to_string()).execute(&db_pool).await?;
+                    },
+                    ClientMessage::FileHash(hash) => if !room.write().await.set_file_hash(socket_id, hash).await {
+                        error!("please claim a world before reporting your file hash")
                     },
                 }
                 read = next_message(reader);
@@ -387,7 +391,8 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                     ServerMessage::PlayerName(_, _) |
                     ServerMessage::ItemQueue(_) |
                     ServerMessage::GetItem(_) |
-                    ServerMessage::Goodbye => unreachable!(),
+                    ServerMessage::Goodbye |
+                    ServerMessage::PlayerFileHash(_, _) => unreachable!(),
                 }
             }
             ClientMessage::Stop.write(&mut tcp_stream).await?;

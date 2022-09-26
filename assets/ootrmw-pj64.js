@@ -6,6 +6,7 @@ const SRAM_START = 0xA8000000;
 
 var readBuf = new Buffer(0);
 var versionChecked = false;
+var fileHash = null;
 var playerID = null;
 var playerName = null;
 var playerNames = [
@@ -124,6 +125,20 @@ sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
                             case 3:
                                 mem.u8[newCoopContextAddr + 0x0a] = 1; // enable MW_SEND_OWN_ITEMS for server-side tracking
                                 break;
+                            case 4:
+                                mem.u8[newCoopContextAddr + 0x0a] = 1; // enable MW_SEND_OWN_ITEMS for server-side tracking
+                                var newFileHash = mem.getblock(newCoopContextAddr + 0x0814, 5);
+                                if (fileHash === null || newFileHash != fileHash) {
+                                    const fileHashPacket = new ArrayBuffer(6);
+                                    var fileHashPacketView = new DataView(fileHashPacket);
+                                    fileHashPacketView.setUint8(0, 4); // message: file hash changed
+                                    for (var c = 0; c < 5; c++) {
+                                        fileHashPacketView.setUint8(c + 1, newFileHash[c]);
+                                    }
+                                    sock.write(new Buffer(new Uint8Array(fileHashPacket)));
+                                    fileHash = newFileHash;
+                                }
+                                break;
                             default:
                                 sock.close();
                                 throw "randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)";
@@ -132,7 +147,7 @@ sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
                             if (!normalGameplay) {
                                 const saveDataPacket = new ArrayBuffer(0x1451);
                                 var saveDataPacketView = new DataView(saveDataPacket);
-                                saveDataPacketView.setUint8(0, 3);
+                                saveDataPacketView.setUint8(0, 3); // message: save data loaded
                                 var saveDataByteArray = new Uint8Array(saveDataPacket);
                                 saveDataByteArray.set(new Uint8Array(mem.getblock(ADDR_ANY_RDRAM.start + 0x11a5d0, 0x1450)), 1);
                                 sock.write(new Buffer(saveDataByteArray));
