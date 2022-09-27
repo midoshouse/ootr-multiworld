@@ -28,6 +28,7 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern StringHandle client_debug_err(Client client);
         [DllImport("multiworld")] internal static extern bool client_has_wrong_password(Client client);
         [DllImport("multiworld")] internal static extern void client_reset_wrong_password(Client client);
+        [DllImport("multiworld")] internal static extern bool client_has_wrong_file_hash(Client client);
         [DllImport("multiworld")] internal static extern void client_free(IntPtr client);
         [DllImport("multiworld")] internal static extern StringHandle client_result_debug_err(IntPtr client_res);
         [DllImport("multiworld")] internal static extern void string_free(IntPtr s);
@@ -191,6 +192,7 @@ namespace MidosHouse.OotrMultiworld {
             return name.ToList();
         }
 
+        internal bool HasWrongFileHash() => Native.client_has_wrong_file_hash(this);
         internal byte NumPlayers() => Native.client_num_players(this);
         internal byte PlayerWorld(byte player_idx) => Native.client_player_world(this, player_idx);
         internal StringHandle PlayerState(byte player_idx) => Native.client_player_state(this, player_idx);
@@ -726,6 +728,31 @@ namespace MidosHouse.OotrMultiworld {
         }
 
         private void UpdateRoomState(Client client) {
+            if (client.HasWrongFileHash()) {
+                if (this.DialogController.ShowMessageBox2(this, "This room is for a different seed. Delete this room? (Items that have already been sent will be lost forever!)", null, EMsgBoxIcon.Warning)) {
+                    using (var res = client.DeleteRoom()) {
+                        if (!res.IsOk()) {
+                            using (var e = res.DebugErr()) {
+                                Error(e.AsString());
+                            }
+                        }
+                    }
+                } else {
+                    var n = client.NumPlayers();
+                    for (byte player_idx = 0; player_idx < n; player_idx++) {
+                        if (client.PlayerWorld(player_idx) == this.playerID) {
+                            using (var res = client.KickPlayer(player_idx)) {
+                                if (!res.IsOk()) {
+                                    using (var e = res.DebugErr()) {
+                                        Error(e.AsString());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return;
+            }
             SuspendLayout();
             HideLobbyUI();
             this.deleteRoomButton.Visible = true;

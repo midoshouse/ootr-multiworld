@@ -455,6 +455,18 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 
 /// # Safety
 ///
+/// `client` must point at a valid `Client`.
+#[csharp_ffi] pub unsafe extern "C" fn client_has_wrong_file_hash(client: *const Client) -> FfiBool {
+    let client = &*client;
+    if let SessionState::Room { wrong_file_hash, .. } = client.session_state {
+        wrong_file_hash
+    } else {
+        false
+    }.into()
+}
+
+/// # Safety
+///
 /// `client` must point at a valid `Client`. This function takes ownership of the `Client`.
 #[csharp_ffi] pub unsafe extern "C" fn client_free(client: HandleOwned<Client>) {
     let _ = client.into_box();
@@ -820,6 +832,7 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 #[csharp_ffi] pub unsafe extern "C" fn opt_message_result_debug_err(opt_msg_res: HandleOwned<DebugResult<Option<ServerMessage>>>) -> StringHandle {
     StringHandle::from_string(match *opt_msg_res.into_box() {
         Ok(Some(ServerMessage::StructuredError(ServerError::WrongPassword))) => format!("wrong password"),
+        Ok(Some(ServerMessage::StructuredError(ServerError::WrongFileHash))) => format!("wrong file hash"),
         Ok(Some(ServerMessage::StructuredError(ServerError::Future(discrim)))) => format!("server error #{discrim}"),
         Ok(Some(ServerMessage::OtherError(e))) => e,
         Ok(value) => panic!("tried to debug_err an Ok({value:?})"),

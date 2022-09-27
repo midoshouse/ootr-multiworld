@@ -787,6 +787,8 @@ macro_rules! server_errors {
 server_errors! {
     /// The client sent the wrong password for the given room.
     WrongPassword,
+    /// The client has the wrong seed loaded.
+    WrongFileHash,
 }
 
 #[derive(Debug, Clone, Protocol)]
@@ -908,6 +910,7 @@ pub enum SessionState<E> {
         num_unassigned_clients: u8,
         item_queue: Vec<u16>,
         confirm_deletion: bool,
+        wrong_file_hash: bool,
     },
     Closed,
 }
@@ -919,6 +922,14 @@ impl<E> SessionState<E> {
             ServerMessage::StructuredError(ServerError::WrongPassword) => if let SessionState::Lobby { password, wrong_password, .. } = self {
                 *wrong_password = true;
                 password.clear();
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::StructuredError(ServerError::WrongFileHash) => if let SessionState::Room { wrong_file_hash, .. } = self {
+                *wrong_file_hash = true;
             } else {
                 *self = Self::Error {
                     e: SessionStateError::Mismatch,
@@ -981,7 +992,12 @@ impl<E> SessionState<E> {
                     SessionState::Lobby { create_new_room: true, new_room_name, password, .. } => (new_room_name.clone(), password.clone()),
                     _ => <_>::default(),
                 };
-                *self = SessionState::Room { item_queue: Vec::default(), confirm_deletion: false, room_name, room_password, players, num_unassigned_clients };
+                *self = SessionState::Room {
+                    item_queue: Vec::default(),
+                    confirm_deletion: false,
+                    wrong_file_hash: false,
+                    room_name, room_password, players, num_unassigned_clients,
+                };
             }
             ServerMessage::PlayerId(world) => if let SessionState::Room { players, num_unassigned_clients, .. } = self {
                 if let Err(idx) = players.binary_search_by_key(&world, |p| p.world) {

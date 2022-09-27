@@ -278,9 +278,13 @@ async fn room_session(db_pool: PgPool, rooms: Rooms, room: Arc<RwLock<Room>>, so
                     ClientMessage::PlayerName(name) => if !room.write().await.set_player_name(socket_id, name).await {
                         error!("please claim a world before setting your player name")
                     },
-                    ClientMessage::SendItem { key, kind, target_world } => if let Err(e) = room.write().await.queue_item(socket_id, key, kind, target_world).await {
-                        ServerMessage::OtherError(e.to_string()).write(&mut *writer.lock().await).await?;
-                        return Err(e.into())
+                    ClientMessage::SendItem { key, kind, target_world } => match room.write().await.queue_item(socket_id, key, kind, target_world).await {
+                        Ok(()) => {}
+                        Err(multiworld::QueueItemError::FileHash) => ServerMessage::StructuredError(ServerError::WrongFileHash).write(&mut *writer.lock().await).await?,
+                        Err(e) => {
+                            ServerMessage::OtherError(e.to_string()).write(&mut *writer.lock().await).await?;
+                            return Err(e.into())
+                        }
                     },
                     ClientMessage::KickPlayer(id) => {
                         let mut room = room.write().await;
@@ -302,9 +306,13 @@ async fn room_session(db_pool: PgPool, rooms: Rooms, room: Arc<RwLock<Room>>, so
                     ClientMessage::SaveDataError { debug, version } => if version >= multiworld::version() {
                         sqlx::query!("INSERT INTO save_data_errors (debug, version) VALUES ($1, $2)", debug, version.to_string()).execute(&db_pool).await?;
                     },
-                    ClientMessage::FileHash(hash) => if let Err(e) = room.write().await.set_file_hash(socket_id, hash).await {
-                        ServerMessage::OtherError(e.to_string()).write(&mut *writer.lock().await).await?;
-                        return Err(e.into())
+                    ClientMessage::FileHash(hash) => match room.write().await.set_file_hash(socket_id, hash).await {
+                        Ok(()) => {}
+                        Err(multiworld::SetHashError::FileHash) => ServerMessage::StructuredError(ServerError::WrongFileHash).write(&mut *writer.lock().await).await?,
+                        Err(e) => {
+                            ServerMessage::OtherError(e.to_string()).write(&mut *writer.lock().await).await?;
+                            return Err(e.into())
+                        }
                     },
                 }
                 read = next_message(reader);
@@ -387,6 +395,7 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                     ServerMessage::AdminLoginSuccess { .. } => break,
                     ServerMessage::StructuredError(ServerError::Future(_)) |
                     ServerMessage::StructuredError(ServerError::WrongPassword) |
+                    ServerMessage::StructuredError(ServerError::WrongFileHash) |
                     ServerMessage::EnterRoom { .. } |
                     ServerMessage::PlayerId(_) |
                     ServerMessage::ResetPlayerId(_) |

@@ -568,7 +568,20 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                SessionState::Room { confirm_deletion: false, ref players, num_unassigned_clients, .. } => {
+                SessionState::Room { confirm_deletion: false, wrong_file_hash: true, .. } => Column::new()
+                    .push(Text::new("This room is for a different seed.").color(text_color))
+                    .push({
+                        let mut row = Row::new();
+                        row = row.push(Button::new(Text::new("Delete Room").color(text_color)).on_press(Message::DeleteRoom).style(Style(system_theme)));
+                        if let Some(my_id) = self.last_world {
+                            row = row.push(Button::new(Text::new("Leave Room").color(text_color)).on_press(Message::Kick(my_id)).style(Style(system_theme)));
+                        }
+                        row.spacing(8)
+                    })
+                    .spacing(8)
+                    .padding(8)
+                    .into(),
+                SessionState::Room { confirm_deletion: false, wrong_file_hash: false, ref players, num_unassigned_clients, .. } => {
                     let mut col = Column::new()
                         .push(Button::new(Text::new("Delete Room").color(text_color)).on_press(Message::DeleteRoom).style(Style(system_theme)));
                     let (players, other) = format_room_state(players, num_unassigned_clients, self.last_world);
