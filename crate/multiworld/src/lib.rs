@@ -225,6 +225,7 @@ pub struct Room {
     pub name: String,
     pub password: String,
     pub clients: HashMap<SocketId, Client>,
+    pub file_hash: Option<[HashIcon; 5]>,
     pub base_queue: Vec<Item>,
     pub player_queues: HashMap<NonZeroU8, Vec<Item>>,
     pub last_saved: Instant, //TODO delete rooms after some time of inactivity, make configurable
@@ -234,11 +235,30 @@ pub struct Room {
     pub tracker_state: Option<(String, tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>)>,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum QueueItemError {
+    #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error("this room is for a different seed")]
+    FileHash,
+    #[error("please claim a world before sending items")]
+    NoSourceWorld,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SetHashError {
+    #[error("this room is for a different seed")]
+    FileHash,
+    #[error("please claim a world before reporting your file hash")]
+    NoSourceWorld,
+}
+
 #[cfg(feature = "pyo3")]
 #[derive(Debug, thiserror::Error)]
 pub enum SendAllError {
     #[error(transparent)] Python(#[from] PyErr),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error("this room is for a different seed")]
+    FileHash,
 }
 
 impl Room {
@@ -355,15 +375,18 @@ impl Room {
         }
     }
 
-    pub async fn set_file_hash(&mut self, client_id: SocketId, hash: [HashIcon; 5]) -> bool {
+    pub async fn set_file_hash(&mut self, client_id: SocketId, hash: [HashIcon; 5]) -> Result<(), SetHashError> {
         if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").player {
+            if self.file_hash.map_or(false, |room_hash| room_hash != hash) {
+                return Err(SetHashError::FileHash)
+            }
             let world = player.world;
             player.file_hash = Some(hash);
             drop(player);
             self.write_all(&ServerMessage::PlayerFileHash(world, hash)).await;
-            true
+            Ok(())
         } else {
-            false
+            Err(SetHashError::NoSourceWorld)
         }
     }
 
@@ -413,17 +436,29 @@ impl Room {
         Ok(())
     }
 
-    pub async fn queue_item(&mut self, source_client: SocketId, key: u32, kind: u16, target_world: NonZeroU8) -> Result<bool, async_proto::WriteError> {
-        Ok(if let Some(source) = self.clients.get(&source_client).expect("no such client").player.map(|source_player| source_player.world) {
-            self.queue_item_inner(source, key, kind, target_world).await?;
-            true
+    pub async fn queue_item(&mut self, source_client: SocketId, key: u32, kind: u16, target_world: NonZeroU8) -> Result<(), QueueItemError> {
+        if let Some(source) = self.clients.get(&source_client).expect("no such client").player {
+            if let Some(player_hash) = source.file_hash {
+                if let Some(room_hash) = self.file_hash {
+                    if player_hash != room_hash {
+                        return Err(QueueItemError::FileHash)
+                    }
+                } else {
+                    self.file_hash = Some(player_hash);
+                }
+            }
+            self.queue_item_inner(source.world, key, kind, target_world).await?;
+            Ok(())
         } else {
-            false
-        })
+            Err(QueueItemError::NoSourceWorld)
+        }
     }
 
     #[cfg(feature = "pyo3")]
     pub async fn send_all(&mut self, source_world: NonZeroU8, spoiler_log: &SpoilerLog) -> Result<bool, SendAllError> {
+        if self.file_hash.map_or(false, |room_hash| spoiler_log.file_hash != room_hash) {
+            return Err(SendAllError::FileHash)
+        }
         Ok(if let Some(world_locations) = spoiler_log.locations.get(usize::from(source_world.get() - 1)) {
             let mut all_sent = true;
             for (loc, SpoilerLogItem { player, item }) in world_locations {

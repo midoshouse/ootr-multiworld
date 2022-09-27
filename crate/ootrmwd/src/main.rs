@@ -62,7 +62,9 @@ enum SessionError {
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] OneshotRecv(#[from] oneshot::error::RecvError),
+    #[error(transparent)] QueueItem(#[from] multiworld::QueueItemError),
     #[error(transparent)] SendAll(#[from] multiworld::SendAllError),
+    #[error(transparent)] SetHashError(#[from] multiworld::SetHashError),
     #[error(transparent)] Sql(#[from] sqlx::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("{0}")]
@@ -165,6 +167,7 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                         });
                         let room = Arc::new(RwLock::new(Room {
                             name: name.clone(),
+                            file_hash: None,
                             base_queue: Vec::default(),
                             player_queues: HashMap::default(),
                             last_saved: Instant::now(),
@@ -275,8 +278,9 @@ async fn room_session(db_pool: PgPool, rooms: Rooms, room: Arc<RwLock<Room>>, so
                     ClientMessage::PlayerName(name) => if !room.write().await.set_player_name(socket_id, name).await {
                         error!("please claim a world before setting your player name")
                     },
-                    ClientMessage::SendItem { key, kind, target_world } => if !room.write().await.queue_item(socket_id, key, kind, target_world).await? {
-                        error!("please claim a world before sending items")
+                    ClientMessage::SendItem { key, kind, target_world } => if let Err(e) = room.write().await.queue_item(socket_id, key, kind, target_world).await {
+                        ServerMessage::OtherError(e.to_string()).write(&mut *writer.lock().await).await?;
+                        return Err(e.into())
                     },
                     ClientMessage::KickPlayer(id) => {
                         let mut room = room.write().await;
@@ -298,8 +302,9 @@ async fn room_session(db_pool: PgPool, rooms: Rooms, room: Arc<RwLock<Room>>, so
                     ClientMessage::SaveDataError { debug, version } => if version >= multiworld::version() {
                         sqlx::query!("INSERT INTO save_data_errors (debug, version) VALUES ($1, $2)", debug, version.to_string()).execute(&db_pool).await?;
                     },
-                    ClientMessage::FileHash(hash) => if !room.write().await.set_file_hash(socket_id, hash).await {
-                        error!("please claim a world before reporting your file hash")
+                    ClientMessage::FileHash(hash) => if let Err(e) = room.write().await.set_file_hash(socket_id, hash).await {
+                        ServerMessage::OtherError(e.to_string()).write(&mut *writer.lock().await).await?;
+                        return Err(e.into())
                     },
                 }
                 read = next_message(reader);
@@ -408,6 +413,7 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                         name: row.name.clone(),
                         password: row.password,
                         clients: HashMap::default(),
+                        file_hash: None,
                         base_queue: Vec::read_sync(&mut &*row.base_queue)?,
                         player_queues: HashMap::read_sync(&mut &*row.player_queues)?,
                         last_saved: Instant::now(),
