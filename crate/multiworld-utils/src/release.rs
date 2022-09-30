@@ -536,7 +536,7 @@ impl Task<Result<(), Error>> for BuildServer {
             }).await,
             Self::Build => gres::transpose(async move {
                 Command::new("ssh").arg("midos.house").arg(concat!("cd /opt/git/github.com/midoshouse/ootr-multiworld/master && cargo build --release --package=ootrmwd")).check("ssh").await?;
-                Ok(Err(Self::Restart))
+                Ok(Err(Self::Restart)) //TODO wait until server is empty before restarting
             }).await,
             Self::Restart => gres::transpose(async move {
                 Command::new("ssh").arg("midos.house").arg("sudo systemctl restart ootrmw").check("ssh").await?;

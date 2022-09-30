@@ -141,7 +141,7 @@ sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
                                 break;
                             default:
                                 sock.close();
-                                throw "randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)";
+                                throw "randomizer version too new (version " + mem.u32[newCoopContextAddr] + "; please tell Fenhl that Mido's House Multiworld needs to be updated)";
                         }
                         if (mem.u32[ADDR_ANY_RDRAM.start + 0x11a5d0 + 0x135c] == 0) { // game mode == gameplay
                             if (!normalGameplay) {
