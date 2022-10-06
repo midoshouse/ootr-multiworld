@@ -232,15 +232,15 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                     } else {
                         error!("SendAll command requires admin login")
                     },
-                    ClientMessage::PlayerId(_) |
-                    ClientMessage::ResetPlayerId |
-                    ClientMessage::PlayerName(_) |
-                    ClientMessage::SendItem { .. } |
-                    ClientMessage::KickPlayer(_) |
-                    ClientMessage::DeleteRoom |
-                    ClientMessage::SaveData(_) |
-                    ClientMessage::SaveDataError { .. } |
-                    ClientMessage::FileHash(_) => error!("received a message that only works in a room, but you're in the lobby"),
+                    ClientMessage::PlayerId(_) => error!("received a PlayerId message, which only works in a room, but you're in the lobby"),
+                    ClientMessage::ResetPlayerId => error!("received a ResetPlayerId message, which only works in a room, but you're in the lobby"),
+                    ClientMessage::PlayerName(_) => error!("received a PlayerName message, which only works in a room, but you're in the lobby"),
+                    ClientMessage::SendItem { .. } => error!("received a SendItem message, which only works in a room, but you're in the lobby"),
+                    ClientMessage::KickPlayer(_) => error!("received a KickPlayer message, which only works in a room, but you're in the lobby"),
+                    ClientMessage::DeleteRoom => error!("received a DeleteRoom message, which only works in a room, but you're in the lobby"),
+                    ClientMessage::SaveData(_) => error!("received a SaveData message, which only works in a room, but you're in the lobby"),
+                    ClientMessage::SaveDataError { .. } => error!("received a SaveDataError message, which only works in a room, but you're in the lobby"),
+                    ClientMessage::FileHash(_) => error!("received a FileHash message, which only works in a room, but you're in the lobby"),
                 }
                 read = next_message(reader);
             }
@@ -265,12 +265,12 @@ async fn room_session(db_pool: PgPool, rooms: Rooms, room: Arc<RwLock<Room>>, so
                 let (reader, msg) = res??;
                 match msg {
                     ClientMessage::Ping => {}
-                    ClientMessage::JoinRoom { .. } |
-                    ClientMessage::CreateRoom { .. } |
-                    ClientMessage::Login { .. } |
-                    ClientMessage::Stop |
-                    ClientMessage::Track { .. } |
-                    ClientMessage::SendAll { .. } => error!("received a message that only works in the lobby, but you're in a room"),
+                    ClientMessage::JoinRoom { .. } => error!("received a JoinRoom message, which only works in the lobby, but you're in a room"),
+                    ClientMessage::CreateRoom { .. } => error!("received a CreateRoom message, which only works in the lobby, but you're in a room"),
+                    ClientMessage::Login { .. } => error!("received a Login message, which only works in the lobby, but you're in a room"),
+                    ClientMessage::Stop => error!("received a Stop message, which only works in the lobby, but you're in a room"),
+                    ClientMessage::Track { .. } => error!("received a Track message, which only works in the lobby, but you're in a room"),
+                    ClientMessage::SendAll { .. } => error!("received a SendAll message, which only works in the lobby, but you're in a room"),
                     ClientMessage::PlayerId(id) => if !room.write().await.load_player(socket_id, id).await? {
                         error!("world {id} is already taken")
                     },
