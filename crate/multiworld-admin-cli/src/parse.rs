@@ -75,6 +75,36 @@ impl FromExpr for u32 {
     }
 }
 
+impl<T: FromExpr> FromExpr for Option<T> {
+    fn from_expr(expr: Expr) -> Result<Self, Error> {
+        match expr {
+            Expr::Call(call) => match *call.func {
+                Expr::Path(path) => if let Some(ident) = path.path.get_ident() {
+                    match &*ident.to_string() {
+                        "Some" => {
+                            let content = call.args.into_iter().exactly_one()?;
+                            Ok(Some(T::from_expr(content)?))
+                        }
+                        _ => Err(Error::FromExpr),
+                    }
+                } else {
+                    Err(Error::FromExpr)
+                },
+                _ => Err(Error::FromExpr),
+            },
+            Expr::Path(path) => if let Some(ident) = path.path.get_ident() {
+                match &*ident.to_string() {
+                    "None" => Ok(None),
+                    _ => Err(Error::FromExpr),
+                }
+            } else {
+                Err(Error::FromExpr)
+            },
+            _ => Err(Error::FromExpr),
+        }
+    }
+}
+
 impl FromExpr for String {
     fn from_expr(expr: Expr) -> Result<Self, Error> {
         match expr {
@@ -213,7 +243,7 @@ impl FromExpr for ClientMessage {
                             match member {
                                 Member::Named(member) => match &*member.to_string() {
                                     "name" => if name.replace(String::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
-                                    "password" => if password.replace(String::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
+                                    "password" => if password.replace(Option::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
                                     _ => return Err(Error::FromExpr),
                                 },
                                 Member::Unnamed(_) => return Err(Error::FromExpr),

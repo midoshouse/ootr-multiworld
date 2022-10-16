@@ -346,7 +346,7 @@ fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<TcpStream> {
 fn client_room_connect_inner(client: &mut Client, room_name: String, room_password: String) -> DebugResult<()> {
     if let SessionState::Lobby { ref rooms, .. } = client.session_state {
         if rooms.contains(&room_name) {
-            client.write(&ClientMessage::JoinRoom { name: room_name.clone(), password: room_password.clone() })?;
+            client.write(&ClientMessage::JoinRoom { name: room_name.clone(), password: Some(room_password.clone()) })?;
         } else {
             client.write(&ClientMessage::CreateRoom { name: room_name.clone(), password: room_password.clone() })?;
         }

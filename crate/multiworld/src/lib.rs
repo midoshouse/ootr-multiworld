@@ -695,7 +695,7 @@ pub enum ClientMessage {
     /// Only works after [`ServerMessage::EnterLobby`].
     JoinRoom {
         name: String,
-        password: String,
+        password: Option<String>,
     },
     /// Only works after [`ServerMessage::EnterLobby`].
     CreateRoom {

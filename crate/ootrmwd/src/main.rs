@@ -126,7 +126,12 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                 match msg {
                     ClientMessage::Ping => {}
                     ClientMessage::JoinRoom { name, password } => if let Some(room) = rooms.0.lock().await.0.get(&name) {
-                        if room.read().await.password == password {
+                        let authorized = if let Some(password) = password {
+                            room.read().await.password == password
+                        } else {
+                            logged_in_as_admin
+                        };
+                        if authorized {
                             if room.read().await.clients.len() >= u8::MAX.into() { error!("room {name:?} is full") }
                             let (end_tx, end_rx) = oneshot::channel();
                             {

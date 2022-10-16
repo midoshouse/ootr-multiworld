@@ -235,7 +235,7 @@ impl Application for State {
                             }
                         } else {
                             if let Some(name) = existing_room_selection {
-                                ClientMessage::JoinRoom { name, password }.write(&mut *writer.lock().await).await?;
+                                ClientMessage::JoinRoom { name, password: Some(password) }.write(&mut *writer.lock().await).await?;
                             }
                         }
                         Ok(Message::Nop)
