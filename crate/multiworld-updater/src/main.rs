@@ -460,13 +460,11 @@ impl Application for App {
 #[clap(rename_all = "lower")]
 enum EmuArgs {
     BizHawk {
-        #[clap(parse(from_os_str))]
         path: PathBuf,
         pid: u32,
         local_bizhawk_version: Version,
     },
     Pj64 {
-        #[clap(parse(from_os_str))]
         path: PathBuf,
         pid: u32,
     },
@@ -478,9 +476,7 @@ enum Args {
     #[clap(flatten)]
     Emu(EmuArgs),
     Pj64Script {
-        #[clap(parse(from_os_str))]
         src: PathBuf,
-        #[clap(parse(from_os_str))]
         dst: PathBuf,
     },
 }

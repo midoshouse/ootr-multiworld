@@ -19,7 +19,7 @@ semver = "1"
 thiserror = "1"
 
 [dependencies.clap]
-version = "3"
+version = "4"
 features = ["derive"]
 
 [dependencies.iced]

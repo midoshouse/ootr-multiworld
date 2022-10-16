@@ -81,7 +81,7 @@ struct Args {
     #[clap(short, long, default_value_t = multiworld::PORT)]
     port: u16,
     id: Option<u64>,
-    #[clap(parse(try_from_str = parse_api_key))]
+    #[clap(value_parser = parse_api_key)]
     api_key: Option<[u8; 32]>,
 }
 

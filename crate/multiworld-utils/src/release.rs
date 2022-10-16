@@ -559,7 +559,7 @@ struct Args {
     #[clap(short = 'W', long)]
     no_wait: bool,
     /// the editor for the release notes
-    #[clap(short = 'e', long, parse(from_os_str))]
+    #[clap(short = 'e', long)]
     release_notes_editor: Option<OsString>,
     /// Only update the server
     #[clap(short, long, exclusive = true)]
