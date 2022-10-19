@@ -14,7 +14,7 @@ futures = "0.3"
 iced_native = "0.5"
 itertools = "0.10"
 open = "3"
-runas = "0.2"
+#runas = "0.2" # https://github.com/mitsuhiko/rust-runas/pull/7 https://github.com/midoshouse/ootr-multiworld/security/dependabot/1
 semver = "1"
 tempfile = "3"
 thiserror = "1"
@@ -46,6 +46,10 @@ features = ["style"]
 version = "0.11"
 default-features = false
 features = ["rustls-tls", "stream"]
+
+[dependencies.runas]
+git = "https://github.com/lucasfernog/rust-runas"
+branch = "chore/update-which-dep"
 
 [dependencies.tokio]
 version = "1"
