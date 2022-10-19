@@ -44,6 +44,7 @@ use {
         time::{
             Instant,
             interval_at,
+            sleep,
             timeout,
         },
     },
@@ -370,6 +371,7 @@ struct Args {
 #[derive(clap::Subcommand)]
 enum Subcommand {
     Stop,
+    StopWhenEmpty,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -416,6 +418,40 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
             }
             ClientMessage::Stop.write(&mut tcp_stream).await?;
         }
+        Some(Subcommand::StopWhenEmpty) => loop {
+            let mut tcp_stream = TcpStream::connect((Ipv6Addr::LOCALHOST, port)).await?;
+            multiworld::handshake(&mut tcp_stream).await?;
+            ClientMessage::Login { id: 14571800683221815449, api_key: *include_bytes!("../../../assets/admin-api-key.bin") }.write(&mut tcp_stream).await?;
+            let active_connections = loop {
+                match ServerMessage::read(&mut tcp_stream).await? {
+                    ServerMessage::OtherError(msg) => return Err(Error::Server(msg)),
+                    ServerMessage::Ping |
+                    ServerMessage::EnterLobby { .. } |
+                    ServerMessage::NewRoom(_) |
+                    ServerMessage::DeleteRoom(_) => {}
+                    ServerMessage::AdminLoginSuccess { active_connections } => break active_connections,
+                    ServerMessage::StructuredError(ServerError::Future(_)) |
+                    ServerMessage::StructuredError(ServerError::WrongPassword) |
+                    ServerMessage::StructuredError(ServerError::WrongFileHash) |
+                    ServerMessage::EnterRoom { .. } |
+                    ServerMessage::PlayerId(_) |
+                    ServerMessage::ResetPlayerId(_) |
+                    ServerMessage::ClientConnected |
+                    ServerMessage::PlayerDisconnected(_) |
+                    ServerMessage::UnregisteredClientDisconnected |
+                    ServerMessage::PlayerName(_, _) |
+                    ServerMessage::ItemQueue(_) |
+                    ServerMessage::GetItem(_) |
+                    ServerMessage::Goodbye |
+                    ServerMessage::PlayerFileHash(_, _) => unreachable!(),
+                }
+            };
+            if active_connections.into_values().all(|(players, _)| players.is_empty()) {
+                ClientMessage::Stop.write(&mut tcp_stream).await?;
+                break
+            }
+            sleep(Duration::from_secs(60)).await; //TODO replace sleep loop by having the server report changes to room connections to admins
+        },
         None => {
             let listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, port)).await?;
             let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database(&database).application_name("ootrmwd")).await?;
