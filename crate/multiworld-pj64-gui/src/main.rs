@@ -16,7 +16,6 @@ use {
     chrono::prelude::*,
     dark_light::Mode::*,
     directories::ProjectDirs,
-    futures::future,
     iced::{
         Command,
         Length,
@@ -371,7 +370,13 @@ impl Application for State {
                 self.server_connection.apply(msg.clone());
                 match msg {
                     ServerMessage::EnterLobby { .. } => if room_still_exists {
-                        return cmd(future::ok(Message::JoinRoom))
+                        let pj64_writer = self.pj64_writer.clone();
+                        return cmd(async move {
+                            if let Some(pj64_writer) = pj64_writer {
+                                subscriptions::ServerMessage::ItemQueue(Vec::default()).write(&mut *pj64_writer.lock().await).await?;
+                            }
+                            Ok(Message::JoinRoom)
+                        })
                     },
                     ServerMessage::EnterRoom { players, .. } => {
                         let server_writer = self.server_writer.clone().expect("join room button only appears when connected to server");
