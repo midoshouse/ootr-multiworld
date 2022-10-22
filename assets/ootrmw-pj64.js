@@ -246,7 +246,12 @@ sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
                 var stateLogo = mem.u32[ADDR_ANY_RDRAM.start + 0x11f200];
                 var stateMain = mem.s8[ADDR_ANY_RDRAM.start + 0x11b92f];
                 var stateMenu = mem.s8[ADDR_ANY_RDRAM.start + 0x1d8dd5];
-                if (stateLogo != 0x802c5880 && stateLogo != 0 && stateMain != 1 && stateMain != 2 && stateMenu == 0) {
+                var currentScene = mem.u8[ADDR_ANY_RDRAM.start + 0x1c8545];
+                if (
+                    stateLogo != 0x802c5880 && stateLogo != 0 && stateMain != 1 && stateMain != 2 && stateMenu == 0 && (
+                        (currentScene < 0x2c || currentScene > 0x33) && currentScene != 0x42 && currentScene != 0x4b // don't receive items in shops to avoid a softlock when buying an item at the same time as receiving one
+                    )
+                ) {
                     if (mem.u16[coopContextAddr + 0x8] == 0) {
                         var internalCount = mem.u16[ADDR_ANY_RDRAM.start + 0x11a5d0 + 0x90];
                         var externalCount = itemQueue.length;

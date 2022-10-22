@@ -632,7 +632,12 @@ namespace MidosHouse.OotrMultiworld {
             var stateLogo = APIs.Memory.ReadU32(0x11f200, "RDRAM");
             var stateMain = APIs.Memory.ReadS8(0x11b92f, "RDRAM");
             var stateMenu = APIs.Memory.ReadS8(0x1d8dd5, "RDRAM");
-            if (stateLogo != 0x802c_5880 && stateLogo != 0 && stateMain != 1 && stateMain != 2 && stateMenu == 0) {
+            var currentScene = APIs.Memory.ReadU8(0x1c8545, "RDRAM");
+            if (
+                stateLogo != 0x802c_5880 && stateLogo != 0 && stateMain != 1 && stateMain != 2 && stateMenu == 0 && (
+                    (currentScene < 0x2c || currentScene > 0x33) && currentScene != 0x42 && currentScene != 0x4b // don't receive items in shops to avoid a softlock when buying an item at the same time as receiving one
+                )
+            ) {
                 if (APIs.Memory.ReadU16(coopContextAddr + 0x8, "System Bus") == 0) {
                     var internalCount = (ushort) APIs.Memory.ReadU16(0x11a5d0 + 0x90, "RDRAM");
                     var externalCount = client.ItemQueueLen();
