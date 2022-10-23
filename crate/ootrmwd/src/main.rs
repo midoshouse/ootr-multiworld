@@ -483,7 +483,7 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
             let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database(&database).application_name("ootrmwd")).await?;
             let rooms = Rooms::default();
             {
-                let mut query = sqlx::query!(r#"SELECT name, password_hash AS "password_hash!: [u8; CREDENTIAL_LEN]", password_salt AS "password_salt!: [u8; CREDENTIAL_LEN]", base_queue, player_queues FROM rooms"#).fetch(&db_pool);
+                let mut query = sqlx::query!(r#"SELECT name, password_hash AS "password_hash: [u8; CREDENTIAL_LEN]", password_salt AS "password_salt: [u8; CREDENTIAL_LEN]", base_queue, player_queues FROM rooms"#).fetch(&db_pool);
                 while let Some(row) = query.try_next().await? {
                     assert!(rooms.add(Arc::new(RwLock::new(Room {
                         name: row.name.clone(),
