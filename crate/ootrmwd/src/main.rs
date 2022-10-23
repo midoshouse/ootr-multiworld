@@ -483,27 +483,12 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
             let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database(&database).application_name("ootrmwd")).await?;
             let rooms = Rooms::default();
             {
-                let mut query = sqlx::query!(r#"SELECT name, password, password_hash AS "password_hash: [u8; CREDENTIAL_LEN]", password_salt AS "password_salt: [u8; CREDENTIAL_LEN]", base_queue, player_queues FROM rooms"#).fetch(&db_pool);
+                let mut query = sqlx::query!(r#"SELECT name, password_hash AS "password_hash!: [u8; CREDENTIAL_LEN]", password_salt AS "password_salt!: [u8; CREDENTIAL_LEN]", base_queue, player_queues FROM rooms"#).fetch(&db_pool);
                 while let Some(row) = query.try_next().await? {
-                    let (password_hash, password_salt) = match (row.password, row.password_hash, row.password_salt) {
-                        (_, Some(password_hash), Some(password_salt)) => (password_hash, password_salt),
-                        (Some(password), _, _) => {
-                            let mut password_salt = [0; CREDENTIAL_LEN];
-                            rng.fill(&mut password_salt)?;
-                            let mut password_hash = [0; CREDENTIAL_LEN];
-                            pbkdf2::derive(
-                                pbkdf2::PBKDF2_HMAC_SHA512,
-                                NonZeroU32::new(100_000).expect("no hashing iterations specified"),
-                                &password_salt,
-                                password.as_bytes(),
-                                &mut password_hash,
-                            );
-                            (password_hash, password_salt)
-                        }
-                        _ => panic!("missing room password"),
-                    };
                     assert!(rooms.add(Arc::new(RwLock::new(Room {
                         name: row.name.clone(),
+                        password_hash: row.password_hash,
+                        password_salt: row.password_salt,
                         clients: HashMap::default(),
                         file_hash: None,
                         base_queue: Vec::read_sync(&mut &*row.base_queue)?,
@@ -511,7 +496,6 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                         last_saved: Instant::now(),
                         db_pool: db_pool.clone(),
                         tracker_state: None,
-                        password_hash, password_salt,
                     }))).await);
                 }
             }
