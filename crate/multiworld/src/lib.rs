@@ -63,6 +63,8 @@ pub const ADDRESS_V4: Ipv4Addr = Ipv4Addr::new(37, 252, 122, 84);
 pub const ADDRESS_V6: Ipv6Addr = Ipv6Addr::new(0x2a02, 0x2770, 0x8, 0, 0x21a, 0x4aff, 0xfee1, 0xf281);
 pub const PORT: u16 = 24809;
 
+pub const CREDENTIAL_LEN: usize = ring::digest::SHA512_OUTPUT_LEN;
+
 pub fn version() -> Version { Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version") }
 pub fn proto_version() -> u8 { version().major.try_into().expect("version number does not fit into u8") }
 
@@ -223,7 +225,8 @@ pub struct Client {
 #[derive(Debug)]
 pub struct Room {
     pub name: String,
-    pub password: String,
+    pub password_hash: [u8; CREDENTIAL_LEN],
+    pub password_salt: [u8; CREDENTIAL_LEN],
     pub clients: HashMap<SocketId, Client>,
     pub file_hash: Option<[HashIcon; 5]>,
     pub base_queue: Vec<Item>,
@@ -517,7 +520,7 @@ impl Room {
         self.base_queue.write_sync(&mut base_queue).expect("failed to write base queue to buffer");
         let mut player_queues = Vec::default();
         self.player_queues.write_sync(&mut player_queues).expect("failed to write player queues to buffer");
-        sqlx::query!("INSERT INTO rooms (name, password, base_queue, player_queues) VALUES ($1, $2, $3, $4) ON CONFLICT (name) DO UPDATE SET password = EXCLUDED.password, base_queue = EXCLUDED.base_queue, player_queues = EXCLUDED.player_queues", &self.name, &self.password, base_queue, player_queues).execute(&self.db_pool).await?;
+        sqlx::query!("INSERT INTO rooms (name, password_hash, password_salt, base_queue, player_queues) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO UPDATE SET password_hash = EXCLUDED.password_hash, password_salt = EXCLUDED.password_salt, base_queue = EXCLUDED.base_queue, player_queues = EXCLUDED.player_queues", &self.name, &self.password_hash, &self.password_salt, base_queue, player_queues).execute(&self.db_pool).await?;
         self.last_saved = Instant::now();
         Ok(())
     }

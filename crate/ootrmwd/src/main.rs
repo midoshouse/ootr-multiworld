@@ -8,6 +8,7 @@ use {
             HashMap,
         },
         net::Ipv6Addr,
+        num::NonZeroU32,
         pin::Pin,
         process,
         sync::Arc,
@@ -18,6 +19,13 @@ use {
     futures::{
         future::Future,
         stream::TryStreamExt as _,
+    },
+    ring::{
+        pbkdf2,
+        rand::{
+            SecureRandom as _,
+            SystemRandom,
+        },
     },
     sqlx::postgres::{
         PgConnectOptions,
@@ -49,6 +57,7 @@ use {
         },
     },
     multiworld::{
+        CREDENTIAL_LEN,
         ClientMessage,
         EndRoomSession,
         Player,
@@ -64,6 +73,7 @@ enum SessionError {
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] OneshotRecv(#[from] oneshot::error::RecvError),
     #[error(transparent)] QueueItem(#[from] multiworld::QueueItemError),
+    #[error(transparent)] Ring(#[from] ring::error::Unspecified),
     #[error(transparent)] SendAll(#[from] multiworld::SendAllError),
     #[error(transparent)] SetHashError(#[from] multiworld::SetHashError),
     #[error(transparent)] Sql(#[from] sqlx::Error),
@@ -74,13 +84,13 @@ enum SessionError {
     VersionMismatch(u8),
 }
 
-async fn client_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::SocketId, mut reader: OwnedReadHalf, writer: Arc<Mutex<OwnedWriteHalf>>) -> Result<(), SessionError> {
+async fn client_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket_id: multiworld::SocketId, mut reader: OwnedReadHalf, writer: Arc<Mutex<OwnedWriteHalf>>) -> Result<(), SessionError> {
     multiworld::proto_version().write(&mut *writer.lock().await).await?;
     let client_version = u8::read(&mut reader).await?;
     if client_version != multiworld::proto_version() { return Err::<(), _>(SessionError::VersionMismatch(client_version)) }
     let mut read = next_message(reader);
     Ok(loop {
-        let (room_reader, room, end_rx) = lobby_session(db_pool.clone(), rooms.clone(), socket_id, read, writer.clone()).await?;
+        let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), rooms.clone(), socket_id, read, writer.clone()).await?;
         let (lobby_reader, end) = room_session(db_pool.clone(), rooms.clone(), room, socket_id, room_reader, writer.clone(), end_rx).await?;
         match end {
             EndRoomSession::ToLobby => read = lobby_reader,
@@ -98,7 +108,7 @@ fn next_message(reader: OwnedReadHalf) -> NextMessage {
     Box::pin(timeout(Duration::from_secs(60), ClientMessage::read_owned(reader)))
 }
 
-async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::SocketId, mut read: NextMessage, writer: Arc<Mutex<OwnedWriteHalf>>) -> Result<(OwnedReadHalf, Arc<RwLock<Room>>, oneshot::Receiver<EndRoomSession>), SessionError> {
+async fn lobby_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket_id: multiworld::SocketId, mut read: NextMessage, writer: Arc<Mutex<OwnedWriteHalf>>) -> Result<(OwnedReadHalf, Arc<RwLock<Room>>, oneshot::Receiver<EndRoomSession>), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             let msg = format!($($msg)*);
@@ -126,30 +136,34 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                 let (reader, msg) = res??;
                 match msg {
                     ClientMessage::Ping => {}
-                    ClientMessage::JoinRoom { name, password } => if let Some(room) = rooms.0.lock().await.0.get(&name) {
+                    ClientMessage::JoinRoom { name, password } => if let Some(room_arc) = rooms.0.lock().await.0.get(&name) {
+                        let mut room = room_arc.write().await;
                         let authorized = if let Some(password) = password {
-                            room.read().await.password == password
+                            pbkdf2::verify(
+                                pbkdf2::PBKDF2_HMAC_SHA512,
+                                NonZeroU32::new(100_000).expect("no hashing iterations specified"),
+                                &room.password_salt,
+                                password.as_bytes(),
+                                &room.password_hash,
+                            ).is_ok()
                         } else {
                             logged_in_as_admin
                         };
                         if authorized {
-                            if room.read().await.clients.len() >= u8::MAX.into() { error!("room {name:?} is full") }
+                            if room.clients.len() >= u8::MAX.into() { error!("room {name:?} is full") }
                             let (end_tx, end_rx) = oneshot::channel();
-                            {
-                                let mut room = room.write().await;
-                                room.add_client(socket_id, Arc::clone(&writer), end_tx).await;
-                                let mut players = Vec::<Player>::default();
-                                let mut num_unassigned_clients = 0;
-                                for client in room.clients.values() {
-                                    if let Some(player) = client.player {
-                                        players.insert(players.binary_search_by_key(&player.world, |p| p.world).expect_err("duplicate world number"), player);
-                                    } else {
-                                        num_unassigned_clients += 1;
-                                    }
+                            room.add_client(socket_id, Arc::clone(&writer), end_tx).await;
+                            let mut players = Vec::<Player>::default();
+                            let mut num_unassigned_clients = 0;
+                            for client in room.clients.values() {
+                                if let Some(player) = client.player {
+                                    players.insert(players.binary_search_by_key(&player.world, |p| p.world).expect_err("duplicate world number"), player);
+                                } else {
+                                    num_unassigned_clients += 1;
                                 }
-                                ServerMessage::EnterRoom { players, num_unassigned_clients }.write(&mut *writer.lock().await).await?;
                             }
-                            break (reader, Arc::clone(room), end_rx)
+                            ServerMessage::EnterRoom { players, num_unassigned_clients }.write(&mut *writer.lock().await).await?;
+                            break (reader, Arc::clone(room_arc), end_rx)
                         } else {
                             ServerMessage::StructuredError(ServerError::WrongPassword).write(&mut *writer.lock().await).await?;
                         }
@@ -163,6 +177,16 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                         if name.contains('\0') { error!("room name must not contain null characters") }
                         if password.chars().count() > 64 { error!("room password too long (maximum 64 characters)") }
                         if password.contains('\0') { error!("room password must not contain null characters") }
+                        let mut password_salt = [0; CREDENTIAL_LEN];
+                        rng.fill(&mut password_salt)?;
+                        let mut password_hash = [0; CREDENTIAL_LEN];
+                        pbkdf2::derive(
+                            pbkdf2::PBKDF2_HMAC_SHA512,
+                            NonZeroU32::new(100_000).expect("no hashing iterations specified"),
+                            &password_salt,
+                            password.as_bytes(),
+                            &mut password_hash,
+                        );
                         let mut clients = HashMap::default();
                         let (end_tx, end_rx) = oneshot::channel();
                         clients.insert(socket_id, multiworld::Client {
@@ -179,7 +203,7 @@ async fn lobby_session(db_pool: PgPool, rooms: Rooms, socket_id: multiworld::Soc
                             last_saved: Instant::now(),
                             db_pool: db_pool.clone(),
                             tracker_state: None,
-                            password, clients,
+                            password_hash, password_salt, clients,
                         }));
                         if !rooms.add(room.clone()).await { error!("a room with this name already exists") }
                         //TODO automatically delete rooms after 7 days of inactivity
@@ -379,6 +403,7 @@ enum Error {
     #[error(transparent)] Client(#[from] multiworld::ClientError),
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
+    #[error(transparent)] Ring(#[from] ring::error::Unspecified),
     #[error(transparent)] Sql(#[from] sqlx::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("server error: {0}")]
@@ -453,15 +478,32 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
             sleep(Duration::from_secs(60)).await; //TODO replace sleep loop by having the server report changes to room connections to admins
         },
         None => {
+            let rng = Arc::new(SystemRandom::new());
             let listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, port)).await?;
             let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database(&database).application_name("ootrmwd")).await?;
             let rooms = Rooms::default();
             {
-                let mut query = sqlx::query!("SELECT name, password, base_queue, player_queues FROM rooms").fetch(&db_pool);
+                let mut query = sqlx::query!(r#"SELECT name, password, password_hash AS "password_hash: [u8; CREDENTIAL_LEN]", password_salt AS "password_salt: [u8; CREDENTIAL_LEN]", base_queue, player_queues FROM rooms"#).fetch(&db_pool);
                 while let Some(row) = query.try_next().await? {
+                    let (password_hash, password_salt) = match (row.password, row.password_hash, row.password_salt) {
+                        (_, Some(password_hash), Some(password_salt)) => (password_hash, password_salt),
+                        (Some(password), _, _) => {
+                            let mut password_salt = [0; CREDENTIAL_LEN];
+                            rng.fill(&mut password_salt)?;
+                            let mut password_hash = [0; CREDENTIAL_LEN];
+                            pbkdf2::derive(
+                                pbkdf2::PBKDF2_HMAC_SHA512,
+                                NonZeroU32::new(100_000).expect("no hashing iterations specified"),
+                                &password_salt,
+                                password.as_bytes(),
+                                &mut password_hash,
+                            );
+                            (password_hash, password_salt)
+                        }
+                        _ => panic!("missing room password"),
+                    };
                     assert!(rooms.add(Arc::new(RwLock::new(Room {
                         name: row.name.clone(),
-                        password: row.password,
                         clients: HashMap::default(),
                         file_hash: None,
                         base_queue: Vec::read_sync(&mut &*row.base_queue)?,
@@ -469,6 +511,7 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                         last_saved: Instant::now(),
                         db_pool: db_pool.clone(),
                         tracker_state: None,
+                        password_hash, password_salt,
                     }))).await);
                 }
             }
@@ -477,11 +520,12 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                 let socket_id = multiworld::socket_id(&socket);
                 let (reader, writer) = socket.into_split();
                 let writer = Arc::new(Mutex::new(writer));
+                let rng = Arc::clone(&rng);
                 let db_pool = db_pool.clone();
                 let rooms = rooms.clone();
                 tokio::spawn(async move {
                     pin! {
-                        let session = client_session(db_pool, rooms.clone(), socket_id, reader, writer.clone());
+                        let session = client_session(&rng, db_pool, rooms.clone(), socket_id, reader, writer.clone());
                     }
                     let mut interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
                     loop {

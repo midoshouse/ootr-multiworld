@@ -17,6 +17,10 @@ features = ["derive"]
 path = "../multiworld"
 features = ["pyo3", "sqlx", "tokio-tungstenite"]
 
+[dependencies.ring]
+version = "0.16"
+features = ["std"]
+
 [dependencies.sqlx]
 version = "0.6"
 default-features = false
