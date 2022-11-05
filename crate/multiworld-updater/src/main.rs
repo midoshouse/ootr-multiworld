@@ -23,7 +23,6 @@ use {
         future::Future,
         stream::TryStreamExt as _,
     },
-    heim::process::pid_exists,
     iced::{
         Command,
         Length,
@@ -42,6 +41,11 @@ use {
     itertools::Itertools as _,
     open::that as open,
     semver::Version,
+    sysinfo::{
+        Pid,
+        ProcessRefreshKind,
+        SystemExt as _,
+    },
     tokio::{
         io::{
             self,
@@ -76,7 +80,6 @@ use {
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error(transparent)] Io(#[from] tokio::io::Error),
-    #[error(transparent)] Process(#[from] heim::process::ProcessError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] SemVer(#[from] semver::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
@@ -172,7 +175,8 @@ impl Application for App {
             state: State::WaitExit,
             args,
         }, cmd(async move {
-            while pid_exists(pid).await? {
+            let mut system = sysinfo::System::default();
+            while system.refresh_process_specifics(pid, ProcessRefreshKind::default()) {
                 sleep(Duration::from_secs(1)).await;
             }
             Ok(Message::Exited)
@@ -461,12 +465,12 @@ impl Application for App {
 enum EmuArgs {
     BizHawk {
         path: PathBuf,
-        pid: u32,
+        pid: Pid,
         local_bizhawk_version: Version,
     },
     Pj64 {
         path: PathBuf,
-        pid: u32,
+        pid: Pid,
     },
 }
 

@@ -16,6 +16,7 @@ itertools = "0.10"
 open = "3"
 #runas = "0.2" # https://github.com/mitsuhiko/rust-runas/pull/7 https://github.com/midoshouse/ootr-multiworld/security/dependabot/1
 semver = "1"
+sysinfo = "0.26"
 tempfile = "3"
 thiserror = "1"
 winapi = "0.3"
@@ -23,11 +24,6 @@ winapi = "0.3"
 [dependencies.clap]
 version = "4"
 features = ["derive"]
-
-[dependencies.heim]
-git = "https://github.com/heim-rs/heim" # https://github.com/heim-rs/heim/issues/322
-default-features = false
-features = ["process"]
 
 [dependencies.iced]
 version = "0.4"
