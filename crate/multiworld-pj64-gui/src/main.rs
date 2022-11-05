@@ -7,6 +7,7 @@ use {
     std::{
         env,
         future::Future,
+        mem,
         num::NonZeroU8,
         process,
         sync::Arc,
@@ -137,6 +138,8 @@ struct State {
     last_name: Filename,
     last_hash: Option<[HashIcon; 5]>,
     last_save: Option<oottracker::Save>,
+    pending_items_before_save: Vec<(u32, u16, NonZeroU8)>,
+    pending_items_after_save: Vec<(u32, u16, NonZeroU8)>,
     updates_checked: bool,
     should_exit: bool,
 }
@@ -159,6 +162,8 @@ impl Application for State {
             last_name: Filename::default(),
             last_hash: None,
             last_save: None,
+            pending_items_before_save: Vec::default(),
+            pending_items_after_save: Vec::default(),
             updates_checked: false,
             should_exit: false,
             port,
@@ -318,20 +323,28 @@ impl Application for State {
                 }
             }
             Message::Plugin(subscriptions::ClientMessage::SendItem { key, kind, target_world }) => {
-                let writer = self.server_writer.clone().expect("trying to send an item but not connected to server");
-                return cmd(async move {
-                    ClientMessage::SendItem { key, kind, target_world }.write(&mut *writer.lock().await).await?;
-                    Ok(Message::Nop)
-                })
+                if let Self { server_writer: Some(writer), server_connection: SessionState::Room { .. }, .. } = self {
+                    let writer = writer.clone();
+                    return cmd(async move {
+                        ClientMessage::SendItem { key, kind, target_world }.write(&mut *writer.lock().await).await?;
+                        Ok(Message::Nop)
+                    })
+                } else {
+                    self.pending_items_after_save.push((key, kind, target_world));
+                }
             }
             Message::Plugin(subscriptions::ClientMessage::SaveData(save)) => match oottracker::Save::from_save_data(&save) {
                 Ok(save) => {
                     self.last_save = Some(save.clone());
-                    if let Some(writer) = self.server_writer.clone() {
-                        return cmd(async move {
-                            ClientMessage::SaveData(save).write(&mut *writer.lock().await).await?; //TODO only send if room is marked as being tracked?
-                            Ok(Message::Nop)
-                        })
+                    self.pending_items_before_save.extend(self.pending_items_after_save.drain(..));
+                    if let Some(ref writer) = self.server_writer {
+                        if let SessionState::Room { .. } = self.server_connection {
+                            let writer = writer.clone();
+                            return cmd(async move {
+                                ClientMessage::SaveData(save).write(&mut *writer.lock().await).await?; //TODO only send if room is marked as being tracked?
+                                Ok(Message::Nop)
+                            })
+                        }
                     }
                 }
                 Err(e) => if let Some(writer) = self.server_writer.clone() {
@@ -385,6 +398,8 @@ impl Application for State {
                         let player_name = self.last_name;
                         let file_hash = self.last_hash;
                         let save = self.last_save.clone();
+                        let pending_items_before_save = mem::take(&mut self.pending_items_before_save);
+                        let pending_items_after_save = mem::take(&mut self.pending_items_after_save);
                         return cmd(async move {
                             if let Some(player_id) = player_id {
                                 ClientMessage::PlayerId(player_id).write(&mut *server_writer.lock().await).await?;
@@ -395,8 +410,14 @@ impl Application for State {
                                     ClientMessage::FileHash(hash).write(&mut *server_writer.lock().await).await?;
                                 }
                             }
+                            for (key, kind, target_world) in pending_items_before_save {
+                                ClientMessage::SendItem { key, kind, target_world }.write(&mut *server_writer.lock().await).await?;
+                            }
                             if let Some(save) = save {
                                 ClientMessage::SaveData(save).write(&mut *server_writer.lock().await).await?; //TODO only send if room is marked as being tracked?
+                            }
+                            for (key, kind, target_world) in pending_items_after_save {
+                                ClientMessage::SendItem { key, kind, target_world }.write(&mut *server_writer.lock().await).await?;
                             }
                             for player in players {
                                 subscriptions::ServerMessage::PlayerName(player.world, if player.name == Filename::default() {
