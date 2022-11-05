@@ -629,6 +629,7 @@ namespace MidosHouse.OotrMultiworld {
         }
 
         private void ReceiveItem(Client client, uint coopContextAddr, byte playerID) {
+            if (client.HasWrongFileHash()) { return; }
             var stateLogo = APIs.Memory.ReadU32(0x11f200, "RDRAM");
             var stateMain = APIs.Memory.ReadS8(0x11b92f, "RDRAM");
             var stateMenu = APIs.Memory.ReadS8(0x1d8dd5, "RDRAM");
