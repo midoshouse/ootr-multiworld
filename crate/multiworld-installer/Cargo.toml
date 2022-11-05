@@ -7,7 +7,7 @@ edition.workspace = true
 winres = "0.1"
 
 [dependencies]
-async_zip = "0.0.7" # 0.0.8 errors when trying to unzip BizHawk
+async_zip = "0.0.9"
 dark-light = "0.2"
 directories = "4"
 futures = "0.3"

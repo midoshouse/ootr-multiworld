@@ -257,7 +257,7 @@ impl Application for App {
                         let mut zip_file = async_zip::read::stream::ZipFileReader::new(&mut zip_file);
                         let mut required_bizhawk_version = None;
                         while let Some(entry) = zip_file.entry_reader().await? {
-                            match entry.entry().name() {
+                            match entry.entry().filename() {
                                 "README.txt" => {
                                     let (readme_prefix, _) = include_str!("../../../assets/bizhawk-readme.txt").split_once("{}").expect("failed to parse readme template");
                                     required_bizhawk_version = Some(
@@ -338,7 +338,7 @@ impl Application for App {
                 let path = path.clone();
                 return cmd(async move {
                     let mut zip_file = async_zip::read::mem::ZipFileReader::new(&mut response).await?;
-                    let entries = zip_file.entries().iter().enumerate().map(|(idx, entry)| (idx, entry.dir(), path.join(entry.name()))).collect_vec();
+                    let entries = zip_file.entries().iter().enumerate().map(|(idx, entry)| (idx, entry.filename().ends_with('/'), path.join(entry.filename()))).collect_vec();
                     for (idx, is_dir, path) in entries {
                         if is_dir {
                             fs::create_dir_all(path).await?;

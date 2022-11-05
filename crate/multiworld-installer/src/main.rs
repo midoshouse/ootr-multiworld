@@ -395,7 +395,7 @@ impl Application for State {
                                     .exactly_one()?;
                                 let mut response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
                                 let mut zip_file = async_zip::read::mem::ZipFileReader::new(&mut response).await?;
-                                let entries = zip_file.entries().iter().enumerate().map(|(idx, entry)| (idx, entry.dir(), bizhawk_dir.join(entry.name()))).collect_vec();
+                                let entries = zip_file.entries().iter().enumerate().map(|(idx, entry)| (idx, entry.filename().ends_with('/'), bizhawk_dir.join(entry.filename()))).collect_vec();
                                 for (idx, is_dir, path) in entries {
                                     if is_dir {
                                         fs::create_dir_all(path).await?;
