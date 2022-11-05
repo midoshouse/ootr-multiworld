@@ -1,6 +1,7 @@
 [package]
 name = "multiworld-derive"
 version.workspace = true
+authors.workspace = true
 edition.workspace = true
 
 [lib]

@@ -4,8 +4,9 @@ default-members = ["crate/ootrmwd"]
 resolver = "2"
 
 [workspace.package]
+version = "7.0.5"
+authors = ["Fenhl <fenhl@fenhl.net>"]
 edition = "2021"
-version = "7.0.4"
 
 [profile.release]
 lto = true

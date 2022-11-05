@@ -1,6 +1,7 @@
 [package]
 name = "multiworld-installer"
 version.workspace = true
+authors.workspace = true
 edition.workspace = true
 
 [build-dependencies]
