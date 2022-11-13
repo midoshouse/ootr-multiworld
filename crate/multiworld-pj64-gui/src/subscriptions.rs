@@ -46,7 +46,7 @@ use {
     },
 };
 
-#[derive(Protocol)]
+#[derive(Debug, Protocol)]
 pub(crate) enum ServerMessage {
     ItemQueue(Vec<u16>),
     GetItem(u16),

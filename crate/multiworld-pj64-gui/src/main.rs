@@ -1,4 +1,4 @@
-#![deny(rust_2018_idioms, unused, unused_crate_dependencies, unused_import_braces, unused_lifetimes, unused_qualifications, warnings)]
+#![deny(rust_2018_idioms, unused, unused_crate_dependencies, unused_import_braces, unused_lifetimes, warnings)]
 #![forbid(unsafe_code)]
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -6,14 +6,16 @@
 use {
     std::{
         env,
+        fmt,
         future::Future,
+        io::prelude::*,
         mem,
         num::NonZeroU8,
         process,
         sync::Arc,
         time::Duration,
     },
-    async_proto::Protocol as _,
+    async_proto::Protocol,
     chrono::prelude::*,
     dark_light::Mode::*,
     directories::ProjectDirs,
@@ -33,6 +35,7 @@ use {
         },
     },
     itertools::Itertools as _,
+    once_cell::sync::Lazy,
     semver::Version,
     tokio::{
         fs,
@@ -61,6 +64,24 @@ use {
 mod subscriptions;
 
 const MW_PJ64_PROTO_VERSION: u8 = 2; //TODO sync with JS code
+
+static LOG: Lazy<std::fs::File> = Lazy::new(|| {
+    let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
+    std::fs::create_dir_all(project_dirs.data_dir()).expect("failed to create log dir");
+    std::fs::File::create(project_dirs.data_dir().join("pj64.log")).expect("failed to create log file")
+});
+
+#[derive(Clone)]
+struct LoggingWriter(bool, Arc<Mutex<OwnedWriteHalf>>);
+
+impl LoggingWriter {
+    async fn write(&self, msg: impl Protocol + fmt::Debug) -> Result<(), async_proto::WriteError> {
+        if self.0 {
+            writeln!(&*LOG, "{msg:?}")?;
+        }
+        msg.write(&mut *self.1.lock().await).await
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
@@ -128,10 +149,11 @@ fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) ->
 struct State {
     command_error: Option<Arc<Error>>,
     pj64_subscription_error: Option<Arc<Error>>,
-    pj64_writer: Option<Arc<Mutex<OwnedWriteHalf>>>,
+    pj64_writer: Option<LoggingWriter>,
+    log: bool,
     port: u16,
     server_connection: SessionState<Arc<Error>>,
-    server_writer: Option<Arc<Mutex<OwnedWriteHalf>>>,
+    server_writer: Option<LoggingWriter>,
     retry: Instant,
     wait_time: Duration,
     last_world: Option<NonZeroU8>,
@@ -147,9 +169,9 @@ struct State {
 impl Application for State {
     type Executor = iced::executor::Default;
     type Message = Message;
-    type Flags = u16;
+    type Flags = Args;
 
-    fn new(port: u16) -> (Self, Command<Message>) {
+    fn new(Args { log, port }: Args) -> (Self, Command<Message>) {
         (Self {
             command_error: None,
             pj64_subscription_error: None,
@@ -166,7 +188,7 @@ impl Application for State {
             pending_items_after_save: Vec::default(),
             updates_checked: false,
             should_exit: false,
-            port,
+            log, port,
         }, cmd(async move {
             let http_client = reqwest::Client::builder()
                 .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
@@ -215,7 +237,7 @@ impl Application for State {
             Message::CommandError(e) => { self.command_error.get_or_insert(e); }
             Message::ConfirmRoomDeletion => if let Some(writer) = self.server_writer.clone() {
                 return cmd(async move {
-                    ClientMessage::DeleteRoom.write(&mut *writer.lock().await).await?;
+                    writer.write(ClientMessage::DeleteRoom).await?;
                     Ok(Message::Nop)
                 })
             },
@@ -235,11 +257,11 @@ impl Application for State {
                     return cmd(async move {
                         if create_new_room {
                             if !new_room_name.is_empty() {
-                                ClientMessage::CreateRoom { name: new_room_name, password }.write(&mut *writer.lock().await).await?;
+                                writer.write(ClientMessage::CreateRoom { name: new_room_name, password }).await?;
                             }
                         } else {
                             if let Some(name) = existing_room_selection {
-                                ClientMessage::JoinRoom { name, password: Some(password) }.write(&mut *writer.lock().await).await?;
+                                writer.write(ClientMessage::JoinRoom { name, password: Some(password) }).await?;
                             }
                         }
                         Ok(Message::Nop)
@@ -248,27 +270,27 @@ impl Application for State {
             }
             Message::Kick(player_id) => if let Some(writer) = self.server_writer.clone() {
                 return cmd(async move {
-                    ClientMessage::KickPlayer(player_id).write(&mut *writer.lock().await).await?;
+                    writer.write(ClientMessage::KickPlayer(player_id)).await?;
                     Ok(Message::Nop)
                 })
             },
             Message::Nop => {}
             Message::Pj64Connected(writer) => {
-                self.pj64_writer = Some(Arc::clone(&writer));
+                let writer = LoggingWriter(self.log, Arc::clone(&writer));
+                self.pj64_writer = Some(writer.clone());
                 if let SessionState::Room { ref players, ref item_queue, .. } = self.server_connection {
                     let players = players.clone();
                     let item_queue = item_queue.clone();
                     return cmd(async move {
-                        let mut writer = writer.lock().await;
                         for player in players {
-                            subscriptions::ServerMessage::PlayerName(player.world, if player.name == Filename::default() {
+                            writer.write(subscriptions::ServerMessage::PlayerName(player.world, if player.name == Filename::default() {
                                 Filename::fallback(player.world)
                             } else {
                                 player.name
-                            }).write(&mut *writer).await?;
+                            })).await?;
                         }
                         if !item_queue.is_empty() {
-                            subscriptions::ServerMessage::ItemQueue(item_queue).write(&mut *writer).await?;
+                            writer.write(subscriptions::ServerMessage::ItemQueue(item_queue)).await?;
                         }
                         Ok(Message::Nop)
                     })
@@ -296,12 +318,12 @@ impl Application for State {
                     if let SessionState::Room { .. } = self.server_connection {
                         let writer = writer.clone();
                         return cmd(async move {
-                            ClientMessage::PlayerId(new_player_id).write(&mut *writer.lock().await).await?;
+                            writer.write(ClientMessage::PlayerId(new_player_id)).await?;
                             if let Some(new_player_name) = new_player_name {
-                                ClientMessage::PlayerName(new_player_name).write(&mut *writer.lock().await).await?;
+                                writer.write(ClientMessage::PlayerName(new_player_name)).await?;
                             }
                             if let Some(new_file_hash) = new_file_hash {
-                                ClientMessage::FileHash(new_file_hash).write(&mut *writer.lock().await).await?;
+                                writer.write(ClientMessage::FileHash(new_file_hash)).await?;
                             }
                             Ok(Message::Nop)
                         })
@@ -315,7 +337,7 @@ impl Application for State {
                         if let SessionState::Room { .. } = self.server_connection {
                             let writer = writer.clone();
                             return cmd(async move {
-                                ClientMessage::PlayerName(new_player_name).write(&mut *writer.lock().await).await?;
+                                writer.write(ClientMessage::PlayerName(new_player_name)).await?;
                                 Ok(Message::Nop)
                             })
                         }
@@ -326,7 +348,7 @@ impl Application for State {
                 if let Self { server_writer: Some(writer), server_connection: SessionState::Room { .. }, .. } = self {
                     let writer = writer.clone();
                     return cmd(async move {
-                        ClientMessage::SendItem { key, kind, target_world }.write(&mut *writer.lock().await).await?;
+                        writer.write(ClientMessage::SendItem { key, kind, target_world }).await?;
                         Ok(Message::Nop)
                     })
                 } else {
@@ -341,7 +363,7 @@ impl Application for State {
                         if let SessionState::Room { .. } = self.server_connection {
                             let writer = writer.clone();
                             return cmd(async move {
-                                ClientMessage::SaveData(save).write(&mut *writer.lock().await).await?; //TODO only send if room is marked as being tracked?
+                                writer.write(ClientMessage::SaveData(save)).await?; //TODO only send if room is marked as being tracked?
                                 Ok(Message::Nop)
                             })
                         }
@@ -349,7 +371,7 @@ impl Application for State {
                 }
                 Err(e) => if let Some(writer) = self.server_writer.clone() {
                     return cmd(async move {
-                        ClientMessage::SaveDataError { debug: format!("{e:?}"), version: multiworld::version() }.write(&mut *writer.lock().await).await?;
+                        writer.write(ClientMessage::SaveDataError { debug: format!("{e:?}"), version: multiworld::version() }).await?;
                         Ok(Message::Nop)
                     })
                 },
@@ -361,7 +383,7 @@ impl Application for State {
                         if let SessionState::Room { .. } = self.server_connection {
                             let writer = writer.clone();
                             return cmd(async move {
-                                ClientMessage::FileHash(new_hash).write(&mut *writer.lock().await).await?;
+                                writer.write(ClientMessage::FileHash(new_hash)).await?;
                                 Ok(Message::Nop)
                             })
                         }
@@ -386,7 +408,7 @@ impl Application for State {
                         let pj64_writer = self.pj64_writer.clone();
                         return cmd(async move {
                             if let Some(pj64_writer) = pj64_writer {
-                                subscriptions::ServerMessage::ItemQueue(Vec::default()).write(&mut *pj64_writer.lock().await).await?;
+                                pj64_writer.write(subscriptions::ServerMessage::ItemQueue(Vec::default())).await?;
                             }
                             Ok(Message::JoinRoom)
                         })
@@ -402,55 +424,55 @@ impl Application for State {
                         let pending_items_after_save = mem::take(&mut self.pending_items_after_save);
                         return cmd(async move {
                             if let Some(player_id) = player_id {
-                                ClientMessage::PlayerId(player_id).write(&mut *server_writer.lock().await).await?;
+                                server_writer.write(ClientMessage::PlayerId(player_id)).await?;
                                 if player_name != Filename::default() {
-                                    ClientMessage::PlayerName(player_name).write(&mut *server_writer.lock().await).await?;
+                                    server_writer.write(ClientMessage::PlayerName(player_name)).await?;
                                 }
                                 if let Some(hash) = file_hash {
-                                    ClientMessage::FileHash(hash).write(&mut *server_writer.lock().await).await?;
+                                    server_writer.write(ClientMessage::FileHash(hash)).await?;
                                 }
                             }
                             for (key, kind, target_world) in pending_items_before_save {
-                                ClientMessage::SendItem { key, kind, target_world }.write(&mut *server_writer.lock().await).await?;
+                                server_writer.write(ClientMessage::SendItem { key, kind, target_world }).await?;
                             }
                             if let Some(save) = save {
-                                ClientMessage::SaveData(save).write(&mut *server_writer.lock().await).await?; //TODO only send if room is marked as being tracked?
+                                server_writer.write(ClientMessage::SaveData(save)).await?; //TODO only send if room is marked as being tracked?
                             }
                             for (key, kind, target_world) in pending_items_after_save {
-                                ClientMessage::SendItem { key, kind, target_world }.write(&mut *server_writer.lock().await).await?;
+                                server_writer.write(ClientMessage::SendItem { key, kind, target_world }).await?;
                             }
                             for player in players {
-                                subscriptions::ServerMessage::PlayerName(player.world, if player.name == Filename::default() {
+                                pj64_writer.write(subscriptions::ServerMessage::PlayerName(player.world, if player.name == Filename::default() {
                                     Filename::fallback(player.world)
                                 } else {
                                     player.name
-                                }).write(&mut *pj64_writer.lock().await).await?;
+                                })).await?;
                             }
                             Ok(Message::Nop)
                         })
                     }
                     ServerMessage::PlayerName(world, name) => if let Some(writer) = self.pj64_writer.clone() {
                         return cmd(async move {
-                            subscriptions::ServerMessage::PlayerName(world, name).write(&mut *writer.lock().await).await?;
+                            writer.write(subscriptions::ServerMessage::PlayerName(world, name)).await?;
                             Ok(Message::Nop)
                         })
                     },
                     ServerMessage::ItemQueue(queue) => if let Some(writer) = self.pj64_writer.clone() {
                         return cmd(async move {
-                            subscriptions::ServerMessage::ItemQueue(queue).write(&mut *writer.lock().await).await?;
+                            writer.write(subscriptions::ServerMessage::ItemQueue(queue)).await?;
                             Ok(Message::Nop)
                         })
                     },
                     ServerMessage::GetItem(item) => if let Some(writer) = self.pj64_writer.clone() {
                         return cmd(async move {
-                            subscriptions::ServerMessage::GetItem(item).write(&mut *writer.lock().await).await?;
+                            writer.write(subscriptions::ServerMessage::GetItem(item)).await?;
                             Ok(Message::Nop)
                         })
                     },
                     _ => {}
                 }
             }
-            Message::ServerConnected(writer) => self.server_writer = Some(writer),
+            Message::ServerConnected(writer) => self.server_writer = Some(LoggingWriter(self.log, writer)),
             Message::ServerSubscriptionError(e) => if !matches!(self.server_connection, SessionState::Error { .. }) {
                 if e.is_network_error() {
                     if self.retry.elapsed() >= Duration::from_secs(60 * 60 * 24) {
@@ -648,6 +670,8 @@ impl Application for State {
 #[derive(clap::Parser)]
 #[clap(version)]
 struct Args {
+    #[clap(long)]
+    log: bool,
     #[clap(short, long, default_value_t = multiworld::PORT)]
     port: u16,
 }
@@ -659,7 +683,7 @@ enum MainError {
 }
 
 #[wheel::main]
-fn main(Args { port }: Args) -> Result<(), MainError> {
+fn main(args: Args) -> Result<(), MainError> {
     let icon = ::image::load_from_memory(include_bytes!("../../../assets/icon.ico")).expect("failed to load embedded DynamicImage").to_rgba8();
     State::run(Settings {
         window: window::Settings {
@@ -667,7 +691,7 @@ fn main(Args { port }: Args) -> Result<(), MainError> {
             icon: Some(Icon::from_rgba(icon.as_flat_samples().as_slice().to_owned(), icon.width(), icon.height())?),
             ..window::Settings::default()
         },
-        ..Settings::with_flags(port)
+        ..Settings::with_flags(args)
     })?;
     Ok(())
 }

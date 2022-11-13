@@ -630,13 +630,13 @@ fn deserialize_multiworld<'de, D: Deserializer<'de>, T: Deserialize<'de>>(deseri
     deserializer.deserialize_map(MultiworldVisitor { _marker: PhantomData })
 }
 
-#[derive(Deserialize, Protocol)]
+#[derive(Debug, Deserialize, Protocol)]
 struct SpoilerLogItem {
     player: NonZeroU8,
     item: String,
 }
 
-#[derive(Deserialize, Protocol)]
+#[derive(Debug, Deserialize, Protocol)]
 pub struct SpoilerLog {
     file_hash: [HashIcon; 5],
     #[serde(deserialize_with = "deserialize_multiworld")]
@@ -691,7 +691,7 @@ fn item_kind(item: &str) -> PyResult<Option<u16>> {
     })
 }
 
-#[derive(Protocol)]
+#[derive(Debug, Protocol)]
 pub enum ClientMessage {
     /// Tells the server we're still here. Should be sent every 30 seconds; the server will consider the connection lost if no message is received for 60 seconds.
     Ping,
