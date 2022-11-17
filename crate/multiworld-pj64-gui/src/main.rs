@@ -19,11 +19,13 @@ use {
     chrono::prelude::*,
     dark_light::Mode::*,
     directories::ProjectDirs,
+    futures::future,
     iced::{
         Command,
         Length,
         Settings,
         Subscription,
+        clipboard,
         pure::{
             Application,
             Element,
@@ -36,7 +38,9 @@ use {
     },
     itertools::Itertools as _,
     once_cell::sync::Lazy,
+    open::that as open,
     semver::Version,
+    serenity::utils::MessageBuilder,
     tokio::{
         fs,
         io,
@@ -47,6 +51,7 @@ use {
             sleep_until,
         },
     },
+    url::Url,
     multiworld::{
         ClientMessage,
         Filename,
@@ -91,7 +96,10 @@ pub(crate) enum Error {
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Semver(#[from] semver::Error),
+    #[error(transparent)] Url(#[from] url::ParseError),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error("tried to copy debug info with no active error")]
+    CopyDebugInfo,
     #[error("user folder not found")]
     MissingHomeDir,
     #[error("protocol version mismatch: Project64 script is version {0} but we're version {}", MW_PJ64_PROTO_VERSION)]
@@ -116,11 +124,15 @@ enum Message {
     CancelRoomDeletion,
     CommandError(Arc<Error>),
     ConfirmRoomDeletion,
+    CopyDebugInfo,
     DeleteRoom,
+    DiscordChannel,
+    DiscordInvite,
     DismissWrongPassword,
     Exit,
     JoinRoom,
     Kick(NonZeroU8),
+    NewIssue,
     Nop,
     Pj64Connected(Arc<Mutex<OwnedWriteHalf>>),
     Pj64SubscriptionError(Arc<Error>),
@@ -147,6 +159,7 @@ fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) ->
 }
 
 struct State {
+    debug_info_copied: bool,
     command_error: Option<Arc<Error>>,
     pj64_subscription_error: Option<Arc<Error>>,
     pj64_writer: Option<LoggingWriter>,
@@ -166,6 +179,32 @@ struct State {
     should_exit: bool,
 }
 
+impl State {
+    fn error_to_markdown(&self) -> Option<String> {
+        Some(if let Some(ref e) = self.command_error {
+            MessageBuilder::default()
+                .push_line(concat!("error in ", env!("CARGO_PKG_NAME"), " version ", env!("CARGO_PKG_VERSION"), ":"))
+                .push_line_safe(e)
+                .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                .build()
+        } else if let Some(ref e) = self.pj64_subscription_error {
+            MessageBuilder::default()
+                .push_line(concat!("error in ", env!("CARGO_PKG_NAME"), " version ", env!("CARGO_PKG_VERSION"), " during communication with Project64:"))
+                .push_line_safe(e)
+                .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                .build()
+        } else if let SessionState::Error { ref e, .. } = self.server_connection {
+            MessageBuilder::default()
+                .push_line(concat!("error in ", env!("CARGO_PKG_NAME"), " version ", env!("CARGO_PKG_VERSION"), " during communication with the server:"))
+                .push_line_safe(e)
+                .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                .build()
+        } else {
+            return None
+        })
+    }
+}
+
 impl Application for State {
     type Executor = iced::executor::Default;
     type Message = Message;
@@ -173,6 +212,7 @@ impl Application for State {
 
     fn new(Args { log, port }: Args) -> (Self, Command<Message>) {
         (Self {
+            debug_info_copied: false,
             command_error: None,
             pj64_subscription_error: None,
             pj64_writer: None,
@@ -241,8 +281,20 @@ impl Application for State {
                     Ok(Message::Nop)
                 })
             },
+            Message::CopyDebugInfo => if let Some(error_md) = self.error_to_markdown() {
+                self.debug_info_copied = true;
+                return clipboard::write(error_md)
+            } else {
+                return cmd(future::err(Error::CopyDebugInfo))
+            },
             Message::DeleteRoom => if let SessionState::Room { ref mut confirm_deletion, .. } = self.server_connection {
                 *confirm_deletion = true;
+            },
+            Message::DiscordChannel => if let Err(e) = open("https://discord.com/channels/274180765816848384/476723801032491008") {
+                return cmd(future::err(e.into()))
+            },
+            Message::DiscordInvite => if let Err(e) = open("https://discord.gg/BGRrKKn") {
+                return cmd(future::err(e.into()))
             },
             Message::DismissWrongPassword => if let SessionState::Lobby { ref mut wrong_password, .. } = self.server_connection {
                 *wrong_password = false;
@@ -274,6 +326,18 @@ impl Application for State {
                     Ok(Message::Nop)
                 })
             },
+            Message::NewIssue => {
+                let mut issue_url = match Url::parse("https://github.com/midoshouse/ootr-multiworld/issues/new") {
+                    Ok(issue_url) => issue_url,
+                    Err(e) => return cmd(future::err(e.into())),
+                };
+                if let Some(error_md) = self.error_to_markdown() {
+                    issue_url.query_pairs_mut().append_pair("body", &error_md);
+                }
+                if let Err(e) = open(issue_url.to_string()) {
+                    return cmd(future::err(e.into()))
+                }
+            }
             Message::Nop => {}
             Message::Pj64Connected(writer) => {
                 let writer = LoggingWriter(self.log, Arc::clone(&writer));
@@ -518,21 +582,9 @@ impl Application for State {
             Light => iced::Color::BLACK,
         };
         if let Some(ref e) = self.command_error {
-            Column::new()
-                .push(Text::new("An error occurred:").color(text_color))
-                .push(Text::new(e.to_string()).color(text_color))
-                .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")).color(text_color))
-                .spacing(8)
-                .padding(8)
-                .into()
+            error_view(system_theme, text_color, "An error occurred:", e, self.debug_info_copied)
         } else if let Some(ref e) = self.pj64_subscription_error {
-            Column::new()
-                .push(Text::new("An error occurred during communication with Project64:").color(text_color))
-                .push(Text::new(e.to_string()).color(text_color))
-                .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")).color(text_color))
-                .spacing(8)
-                .padding(8)
-                .into()
+            error_view(system_theme, text_color, "An error occurred during communication with Project64:", e, self.debug_info_copied)
         } else if !self.updates_checked {
             Column::new()
                 .push(Text::new("Checking for updates…").color(text_color))
@@ -547,13 +599,7 @@ impl Application for State {
                 .into()
         } else {
             match self.server_connection {
-                SessionState::Error { auto_retry: false, ref e } => Column::new()
-                    .push(Text::new("An error occurred during communication with the server:").color(text_color))
-                    .push(Text::new(e.to_string()).color(text_color))
-                    .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")).color(text_color))
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                SessionState::Error { auto_retry: false, ref e } => error_view(system_theme, text_color, "An error occurred during communication with the server:", e, self.debug_info_copied),
                 SessionState::Error { auto_retry: true, ref e } => Column::new()
                     .push(Text::new("A network error occurred:").color(text_color))
                     .push(Text::new(e.to_string()).color(text_color))
@@ -665,6 +711,34 @@ impl Application for State {
         }
         Subscription::batch(subscriptions)
     }
+}
+
+fn error_view(system_theme: dark_light::Mode, text_color: iced::Color, context: &str, e: &impl ToString, debug_info_copied: bool) -> Element<'static, Message> {
+    Column::new()
+        .push(Text::new("Error").size(24).color(text_color))
+        .push(Text::new(context).color(text_color))
+        .push(Text::new(e.to_string()).color(text_color))
+        .push(Row::new()
+            .push(Button::new(Text::new("Copy debug info").color(text_color)).on_press(Message::CopyDebugInfo).style(Style(system_theme)))
+            .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }).color(text_color))
+            .spacing(8)
+        )
+        .push(Text::new("Support").size(24).color(text_color))
+        .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813.").color(text_color))
+        .push(Row::new()
+            .push(Button::new(Text::new("invite link").color(text_color)).on_press(Message::DiscordInvite).style(Style(system_theme)))
+            .push(Button::new(Text::new("direct channel link").color(text_color)).on_press(Message::DiscordChannel).style(Style(system_theme)))
+            .spacing(8)
+        )
+        .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord.").color(text_color))
+        .push(Row::new()
+            .push(Text::new("• Or ").color(text_color))
+            .push(Button::new(Text::new("open an issue").color(text_color)).on_press(Message::NewIssue).style(Style(system_theme)))
+            .spacing(8)
+        )
+        .spacing(8)
+        .padding(8)
+        .into()
 }
 
 #[derive(clap::Parser)]

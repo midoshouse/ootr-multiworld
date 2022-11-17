@@ -20,14 +20,16 @@ use {
     bytes::Bytes,
     dark_light::Mode::*,
     futures::{
-        future::Future,
+        future::{
+            self,
+            Future,
+        },
         stream::TryStreamExt as _,
     },
     iced::{
         Command,
-        Length,
         Settings,
-        alignment,
+        clipboard,
         pure::{
             Application,
             Element,
@@ -41,6 +43,7 @@ use {
     itertools::Itertools as _,
     open::that as open,
     semver::Version,
+    serenity::utils::MessageBuilder,
     sysinfo::{
         Pid,
         ProcessRefreshKind,
@@ -54,6 +57,7 @@ use {
         time::sleep,
     },
     tokio_util::io::StreamReader,
+    url::Url,
     wheel::{
         fs::{
             self,
@@ -83,12 +87,15 @@ enum Error {
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] SemVer(#[from] semver::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
+    #[error(transparent)] Url(#[from] url::ParseError),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Zip(#[from] async_zip::error::ZipError),
     #[error("The update requires an older version of BizHawk. Update manually at your own risk, or ask Fenhl to release a new version.")]
     BizHawkVersionRegression,
     #[error("clone of unexpected message kind")]
     Cloned,
+    #[error("tried to copy debug info or open a GitHub issue with no active error")]
+    CopyDebugInfo,
     #[error("latest release does not have a download for this platform")]
     MissingAsset,
     #[error("the file README.md is missing from the download")]
@@ -103,9 +110,20 @@ enum Error {
     UnexpectedZipEntry,
 }
 
+impl Error {
+    fn to_markdown(&self) -> String {
+        MessageBuilder::default()
+            .push_line(concat!("error in ", env!("CARGO_PKG_NAME"), " version ", env!("CARGO_PKG_VERSION"), ":"))
+            .push_line_safe(self)
+            .push_codeblock_safe(format!("{self:?}"), Some("rust"))
+            .build()
+    }
+}
+
 #[derive(Debug)]
 enum Message {
     Error(Arc<Error>),
+    CopyDebugInfo,
     Exited,
     MultiworldReleaseAssets(reqwest::Client, ReleaseAsset, Option<ReleaseAsset>),
     MultiworldResponse(reqwest::Client, reqwest::Response),
@@ -126,6 +144,7 @@ impl Clone for Message {
     fn clone(&self) -> Self {
         match self {
             Self::Error(e) => Self::Error(e.clone()),
+            Self::CopyDebugInfo => Self::CopyDebugInfo,
             Self::DiscordInvite => Self::DiscordInvite,
             Self::DiscordChannel => Self::DiscordChannel,
             Self::NewIssue => Self::NewIssue,
@@ -156,7 +175,7 @@ enum State {
     WaitDownload,
     Launch,
     Done,
-    Error(Arc<Error>),
+    Error(Arc<Error>, bool),
 }
 
 struct App {
@@ -194,7 +213,13 @@ impl Application for App {
 
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
-            Message::Error(e) => self.state = State::Error(e),
+            Message::Error(e) => self.state = State::Error(e, false),
+            Message::CopyDebugInfo => if let State::Error(ref e, ref mut debug_info_copied) = self.state {
+                *debug_info_copied = true;
+                return clipboard::write(e.to_markdown())
+            } else {
+                self.state = State::Error(Arc::new(Error::CopyDebugInfo), false);
+            },
             Message::Exited => {
                 self.state = State::GetMultiworldRelease;
                 let (asset_name, script_name) = match self.args {
@@ -395,15 +420,24 @@ impl Application for App {
             },
             Message::Done => self.state = State::Done,
             Message::DiscordInvite => if let Err(e) = open("https://discord.gg/BGRrKKn") {
-                self.state = State::Error(Arc::new(e.into()));
+                self.state = State::Error(Arc::new(e.into()), false);
             },
             Message::DiscordChannel => if let Err(e) = open("https://discord.com/channels/274180765816848384/476723801032491008") {
-                self.state = State::Error(Arc::new(e.into()));
+                self.state = State::Error(Arc::new(e.into()), false);
             },
-            Message::NewIssue => if let Err(e) = open("https://github.com/midoshouse/ootr-multiworld/issues/new") {
-                self.state = State::Error(Arc::new(e.into()));
+            Message::NewIssue => if let State::Error(ref e, _) = self.state {
+                let mut issue_url = match Url::parse("https://github.com/midoshouse/ootr-multiworld/issues/new") {
+                    Ok(issue_url) => issue_url,
+                    Err(e) => return cmd(future::err(e.into())),
+                };
+                issue_url.query_pairs_mut().append_pair("body", &e.to_markdown());
+                if let Err(e) = open(issue_url.to_string()) {
+                    self.state = State::Error(Arc::new(e.into()), false);
+                }
+            } else {
+                self.state = State::Error(Arc::new(Error::CopyDebugInfo), false);
             },
-            Message::Cloned => self.state = State::Error(Arc::new(Error::Cloned)),
+            Message::Cloned => self.state = State::Error(Arc::new(Error::Cloned), false),
         }
         Command::none()
     }
@@ -419,10 +453,14 @@ impl Application for App {
                 EmuArgs::BizHawk { .. } => Column::new()
                     .push(Text::new("An update for Mido's House Multiworld for BizHawk is available.").color(text_color))
                     .push(Text::new("Please close BizHawk to start the update.").color(text_color))
+                    .spacing(8)
+                    .padding(8)
                     .into(),
                 EmuArgs::Pj64 { .. } => Column::new()
                     .push(Text::new("An update for Mido's House Multiworld for Project64 is available.").color(text_color))
                     .push(Text::new("Waiting to make sure the old version has exited…").color(text_color))
+                    .spacing(8)
+                    .padding(8)
                     .into(),
             },
             State::GetMultiworldRelease => Text::new("Checking latest release…").color(text_color).into(),
@@ -436,21 +474,30 @@ impl Application for App {
             State::WaitDownload => Text::new("Finishing download…").color(text_color).into(),
             State::Launch => Text::new("Starting new version…").color(text_color).into(),
             State::Done => Text::new("Closing updater…").color(text_color).into(),
-            State::Error(ref e) => Column::new()
-                .push(Text::new("Error").size(24).width(Length::Fill).horizontal_alignment(alignment::Horizontal::Center).color(text_color))
+            State::Error(ref e, debug_info_copied) => Column::new()
+                .push(Text::new("Error").size(24).color(text_color))
+                .push(Text::new("An error occured while trying to update Mido's House Multiworld:").color(text_color))
                 .push(Text::new(e.to_string()).color(text_color))
-                .push(Text::new(format!("debug info: {e:?}")).color(text_color))
-                .push(Text::new("Support").size(24).width(Length::Fill).horizontal_alignment(alignment::Horizontal::Center).color(text_color))
+                .push(Row::new()
+                    .push(Button::new(Text::new("Copy debug info").color(text_color)).on_press(Message::CopyDebugInfo).style(Style(system_theme)))
+                    .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }).color(text_color))
+                    .spacing(8)
+                )
+                .push(Text::new("Support").size(24).color(text_color))
                 .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813.").color(text_color))
                 .push(Row::new()
                     .push(Button::new(Text::new("invite link").color(text_color)).on_press(Message::DiscordInvite).style(Style(system_theme)))
                     .push(Button::new(Text::new("direct channel link").color(text_color)).on_press(Message::DiscordChannel).style(Style(system_theme)))
+                    .spacing(8)
                 )
                 .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord.").color(text_color))
                 .push(Row::new()
                     .push(Text::new("• Or ").color(text_color))
                     .push(Button::new(Text::new("open an issue").color(text_color)).on_press(Message::NewIssue).style(Style(system_theme)))
+                    .spacing(8)
                 )
+                .spacing(8)
+                .padding(8)
                 .into(),
         }
     }

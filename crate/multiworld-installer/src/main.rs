@@ -28,6 +28,7 @@ use {
         Command,
         Length,
         Settings,
+        clipboard,
         pure::{
             Application,
             Element,
@@ -42,11 +43,13 @@ use {
     itertools::Itertools as _,
     kuchiki::traits::TendrilSink as _,
     lazy_regex::regex_is_match,
+    open::that as open,
     rfd::AsyncFileDialog,
     serde::{
         Deserialize,
         Serialize,
     },
+    serenity::utils::MessageBuilder,
     tokio::io,
     tokio_util::io::StreamReader,
     url::Url,
@@ -79,6 +82,8 @@ enum Error {
     #[error(transparent)] Url(#[from] url::ParseError),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Zip(#[from] async_zip::error::ZipError),
+    #[error("tried to copy debug info or open a GitHub issue with no active error")]
+    CopyDebugInfo,
     #[error("got zero elements when exactly one was expected")]
     ExactlyOneEmpty,
     #[error("got at least 2 elements when exactly one was expected")]
@@ -89,6 +94,16 @@ enum Error {
     ParsePj64Html,
     #[error("can't install to the filesystem root")]
     Root,
+}
+
+impl Error {
+    fn to_markdown(&self) -> String {
+        MessageBuilder::default()
+            .push_line(concat!("error in ", env!("CARGO_PKG_NAME"), " version ", env!("CARGO_PKG_VERSION"), ":"))
+            .push_line_safe(self)
+            .push_codeblock_safe(format!("{self:?}"), Some("rust"))
+            .build()
+    }
 }
 
 impl<I: Iterator> From<itertools::ExactlyOneError<I>> for Error {
@@ -108,6 +123,9 @@ enum Message {
     BrowseMultiworldPath,
     ConfigWriteFailed,
     Continue,
+    CopyDebugInfo,
+    DiscordChannel,
+    DiscordInvite,
     EmulatorPath(String),
     Error(Arc<Error>),
     Exit,
@@ -115,6 +133,7 @@ enum Message {
     LocateMultiworld,
     MultiworldInstalled,
     MultiworldPath(String),
+    NewIssue,
     Nop,
     SetCreateDesktopShortcut(bool),
     SetEmulator(Emulator),
@@ -158,7 +177,7 @@ struct Pj64ConfigDebugger {
 }
 
 enum Page {
-    Error(Arc<Error>),
+    Error(Arc<Error>, bool),
     Elevated,
     SelectEmulator {
         emulator: Option<Emulator>,
@@ -263,7 +282,7 @@ impl Application for State {
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
             Message::Back => self.page = match self.page {
-                Page::Error(_) | Page::Elevated | Page::SelectEmulator { .. } => unreachable!(),
+                Page::Error(_, _) | Page::Elevated | Page::SelectEmulator { .. } => unreachable!(),
                 Page::LocateEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => Page::SelectEmulator { emulator: Some(emulator), install_emulator: Some(install_emulator), emulator_path: Some(emulator_path.clone()), multiworld_path: multiworld_path.clone() },
                 Page::InstallEmulator { .. } => unreachable!(),
                 Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
@@ -306,7 +325,7 @@ impl Application for State {
             }
             Message::ConfigWriteFailed => if let Page::InstallMultiworld { ref mut config_write_failed, .. } = self.page { *config_write_failed = true },
             Message::Continue => match self.page {
-                Page::Error(_) | Page::Elevated => unreachable!(),
+                Page::Error(_, _) | Page::Elevated => unreachable!(),
                 Page::SelectEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => {
                     let emulator = emulator.expect("emulator must be selected to continue here");
                     if matches!(emulator, Emulator::Project64) && !is_elevated() {
@@ -475,8 +494,20 @@ impl Application for State {
                     self.should_exit = true;
                 }
             }
+            Message::CopyDebugInfo => if let Page::Error(ref e, ref mut debug_info_copied) = self.page {
+                *debug_info_copied = true;
+                return clipboard::write(e.to_markdown())
+            } else {
+                self.page = Page::Error(Arc::new(Error::CopyDebugInfo), false);
+            },
+            Message::DiscordChannel => if let Err(e) = open("https://discord.com/channels/274180765816848384/476723801032491008") {
+                self.page = Page::Error(Arc::new(e.into()), false);
+            },
+            Message::DiscordInvite => if let Err(e) = open("https://discord.gg/BGRrKKn") {
+                self.page = Page::Error(Arc::new(e.into()), false);
+            },
             Message::EmulatorPath(new_path) => if let Page::LocateEmulator { ref mut emulator_path, .. } = self.page { *emulator_path = new_path },
-            Message::Error(e) => self.page = Page::Error(e),
+            Message::Error(e) => self.page = Page::Error(e, false),
             Message::Exit => self.should_exit = true,
             Message::InstallMultiworld => {
                 let (emulator, emulator_path, multiworld_path) = match self.page {
@@ -545,6 +576,18 @@ impl Application for State {
                 self.page = Page::AskLaunch { emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
             },
             Message::MultiworldPath(new_path) => if let Page::LocateMultiworld { ref mut multiworld_path, .. } = self.page { *multiworld_path = new_path },
+            Message::NewIssue => if let Page::Error(ref e, _) = self.page {
+                let mut issue_url = match Url::parse("https://github.com/midoshouse/ootr-multiworld/issues/new") {
+                    Ok(issue_url) => issue_url,
+                    Err(e) => return cmd(future::err(e.into())),
+                };
+                issue_url.query_pairs_mut().append_pair("body", &e.to_markdown());
+                if let Err(e) = open(issue_url.to_string()) {
+                    self.page = Page::Error(Arc::new(e.into()), false);
+                }
+            } else {
+                self.page = Page::Error(Arc::new(Error::CopyDebugInfo), false);
+            },
             Message::Nop => {}
             Message::SetCreateDesktopShortcut(create_desktop_shortcut) => self.create_desktop_shortcut = create_desktop_shortcut,
             Message::SetEmulator(new_emulator) => if let Page::SelectEmulator { ref mut emulator, .. } = self.page { *emulator = Some(new_emulator) },
@@ -561,11 +604,29 @@ impl Application for State {
             Light => iced::Color::BLACK,
         };
         let (top, next_btn) = match self.page {
-            Page::Error(ref e) => (
+            Page::Error(ref e, debug_info_copied) => (
                 Into::<Element<'_, Message>>::into(Column::new()
-                    .push(Text::new("An error occurred during the installation:").color(text_color))
+                    .push(Text::new("Error").size(24).color(text_color))
+                    .push(Text::new("An error occured while trying to install Mido's House Multiworld:").color(text_color))
                     .push(Text::new(e.to_string()).color(text_color))
-                    .push(Text::new(format!("Please report this error to Fenhl. Debug info: {e:?}")).color(text_color))
+                    .push(Row::new()
+                        .push(Button::new(Text::new("Copy debug info").color(text_color)).on_press(Message::CopyDebugInfo).style(Style(system_theme)))
+                        .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }).color(text_color))
+                        .spacing(8)
+                    )
+                    .push(Text::new("Support").size(24).color(text_color))
+                    .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813.").color(text_color))
+                    .push(Row::new()
+                        .push(Button::new(Text::new("invite link").color(text_color)).on_press(Message::DiscordInvite).style(Style(system_theme)))
+                        .push(Button::new(Text::new("direct channel link").color(text_color)).on_press(Message::DiscordChannel).style(Style(system_theme)))
+                        .spacing(8)
+                    )
+                    .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord.").color(text_color))
+                    .push(Row::new()
+                        .push(Text::new("• Or ").color(text_color))
+                        .push(Button::new(Text::new("open an issue").color(text_color)).on_press(Message::NewIssue).style(Style(system_theme)))
+                        .spacing(8)
+                    )
                     .spacing(8)),
                 None,
             ),

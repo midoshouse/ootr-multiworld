@@ -20,6 +20,7 @@ semver = "1"
 sysinfo = "0.26"
 tempfile = "3"
 thiserror = "1"
+url = "2"
 winapi = "0.3"
 
 [dependencies.clap]
@@ -47,6 +48,11 @@ features = ["rustls-tls", "stream"]
 [dependencies.runas]
 git = "https://github.com/lucasfernog/rust-runas"
 branch = "chore/update-which-dep"
+
+[dependencies.serenity]
+version = "0.11"
+default-features = false
+features = ["utils"]
 
 [dependencies.tokio]
 version = "1"

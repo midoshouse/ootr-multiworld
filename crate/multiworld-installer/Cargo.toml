@@ -17,6 +17,7 @@ is_elevated = "0.1"
 itertools = "0.10"
 kuchiki = "0.8"
 lazy-regex = "2"
+open = "3"
 rfd = "0.10"
 #runas = "0.2" # https://github.com/mitsuhiko/rust-runas/pull/7 https://github.com/midoshouse/ootr-multiworld/security/dependabot/1
 serde_ini = "0.2"
@@ -52,6 +53,11 @@ branch = "chore/update-which-dep"
 [dependencies.serde]
 version = "1"
 features = ["derive"]
+
+[dependencies.serenity]
+version = "0.11"
+default-features = false
+features = ["utils"]
 
 [dependencies.tokio]
 version = "1"
