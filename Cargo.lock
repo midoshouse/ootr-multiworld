@@ -2296,9 +2296,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "1.9.1"
+version = "1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10a35a97730320ffe8e2d410b5d3b69279b98d2c14bdb8b70ea89ecf7888d41e"
+checksum = "1885e79c1fc4b10f0e172c475f458b7f7b93061064d98c3293e98c5ba0c8b399"
 dependencies = [
  "autocfg",
  "hashbrown",
@@ -2687,7 +2687,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld"
-version = "7.0.5"
+version = "7.0.6"
 dependencies = [
  "async-proto",
  "async-recursion",
@@ -2714,7 +2714,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-admin-cli"
-version = "7.0.5"
+version = "7.0.6"
 dependencies = [
  "async-proto",
  "clap",
@@ -2731,7 +2731,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-bizhawk"
-version = "7.0.5"
+version = "7.0.6"
 dependencies = [
  "semver 1.0.14",
  "winver",
@@ -2739,7 +2739,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-csharp"
-version = "7.0.5"
+version = "7.0.6"
 dependencies = [
  "async-proto",
  "directories",
@@ -2755,7 +2755,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-derive"
-version = "7.0.5"
+version = "7.0.6"
 dependencies = [
  "quote",
  "syn",
@@ -2763,7 +2763,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-installer"
-version = "7.0.5"
+version = "7.0.6"
 dependencies = [
  "async_zip",
  "clap",
@@ -2796,7 +2796,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-pj64-gui"
-version = "7.0.5"
+version = "7.0.6"
 dependencies = [
  "async-proto",
  "chrono",
@@ -2825,7 +2825,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-updater"
-version = "7.0.5"
+version = "7.0.6"
 dependencies = [
  "async_zip",
  "bytes",
@@ -2855,7 +2855,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-utils"
-version = "7.0.5"
+version = "7.0.6"
 dependencies = [
  "async-trait",
  "clap",
@@ -3223,7 +3223,7 @@ dependencies = [
 
 [[package]]
 name = "ootrmwd"
-version = "7.0.5"
+version = "7.0.6"
 dependencies = [
  "async-proto",
  "chrono",

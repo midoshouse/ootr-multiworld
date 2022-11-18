@@ -2,6 +2,7 @@
 
 use {
     std::{
+        collections::HashMap,
         convert::TryInto as _,
         env,
         ffi::{
@@ -145,6 +146,7 @@ pub struct Client {
     last_world: Option<NonZeroU8>,
     last_name: Filename,
     last_hash: Option<[HashIcon; 5]>,
+    fallback_filenames: HashMap<NonZeroU8, Filename>,
 }
 
 impl Client {
@@ -257,6 +259,7 @@ fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<TcpStream> {
         last_world: None,
         last_name: Filename::default(),
         last_hash: None,
+        fallback_filenames: HashMap::default(),
         tcp_stream,
     }))
 }
@@ -272,6 +275,7 @@ fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<TcpStream> {
         last_world: None,
         last_name: Filename::default(),
         last_hash: None,
+        fallback_filenames: HashMap::default(),
         tcp_stream,
     }))
 }
@@ -888,14 +892,14 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 /// # Panics
 ///
 /// If `client` is not in a room or `world` is `0`.
-#[csharp_ffi] pub unsafe extern "C" fn client_get_player_name(client: *const Client, world: u8) -> *const u8 {
-    let client = &*client;
+#[csharp_ffi] pub unsafe extern "C" fn client_get_player_name(client: *mut Client, world: u8) -> *const u8 {
+    let client = &mut *client;
     let world = NonZeroU8::new(world).expect("tried to get player name for world 0");
     if let SessionState::Room { ref players, .. } = client.session_state {
         if let Some(player) = players.iter().find(|p| p.world == world) {
             player.name.0.as_ptr()
         } else {
-            Filename::fallback(world).0.as_ptr()
+            client.fallback_filenames.entry(world).or_insert_with(|| Filename::fallback(world)).0.as_ptr()
         }
     } else {
         panic!("client is not in a room")
