@@ -12,7 +12,7 @@ async_zip = "0.0.9"
 dark-light = "0.2"
 directories = "4"
 futures = "0.3"
-iced_native = "0.5"
+iced_native = "0.6"
 is_elevated = "0.1"
 itertools = "0.10"
 kuchiki = "0.8"
@@ -29,8 +29,8 @@ version = "4"
 features = ["derive"]
 
 [dependencies.iced]
-version = "0.4"
-features = ["default_system_font", "image", "pure", "tokio"]
+version = "0.5"
+features = ["default_system_font", "image", "tokio"]
 
 [dependencies.image]
 version = "0.24"
@@ -39,7 +39,6 @@ features = ["ico"]
 
 [dependencies.multiworld]
 path = "../multiworld"
-features = ["style"]
 
 [dependencies.reqwest]
 version = "0.11"

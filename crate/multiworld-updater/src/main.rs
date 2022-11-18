@@ -27,14 +27,13 @@ use {
         stream::TryStreamExt as _,
     },
     iced::{
+        Application,
         Command,
+        Element,
         Settings,
+        Theme,
         clipboard,
-        pure::{
-            Application,
-            Element,
-            widget::*,
-        },
+        widget::*,
         window::{
             self,
             Icon,
@@ -75,7 +74,6 @@ use {
             ReleaseAsset,
             Repo,
         },
-        style::Style,
     },
 };
 
@@ -186,6 +184,7 @@ struct App {
 impl Application for App {
     type Executor = iced::executor::Default;
     type Message = Message;
+    type Theme = Theme;
     type Flags = EmuArgs;
 
     fn new(args: EmuArgs) -> (Self, Command<Message>) {
@@ -202,14 +201,14 @@ impl Application for App {
         }))
     }
 
-    fn background_color(&self) -> iced::Color {
+    fn title(&self) -> String { format!("updating Mido's House Multiworld…") }
+
+    fn theme(&self) -> Self::Theme {
         match dark_light::detect() { //TODO automatically update on system theme change
-            Dark => iced::Color::BLACK,
-            Light => iced::Color::WHITE,
+            Dark => Theme::Dark,
+            Light => Theme::Light,
         }
     }
-
-    fn title(&self) -> String { format!("updating Mido's House Multiworld…") }
 
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
@@ -443,57 +442,52 @@ impl Application for App {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let system_theme = dark_light::detect(); //TODO automatically update on system theme change
-        let text_color = match system_theme {
-            Dark => iced::Color::WHITE,
-            Light => iced::Color::BLACK,
-        };
         match self.state {
             State::WaitExit => match self.args {
                 EmuArgs::BizHawk { .. } => Column::new()
-                    .push(Text::new("An update for Mido's House Multiworld for BizHawk is available.").color(text_color))
-                    .push(Text::new("Please close BizHawk to start the update.").color(text_color))
+                    .push(Text::new("An update for Mido's House Multiworld for BizHawk is available."))
+                    .push(Text::new("Please close BizHawk to start the update."))
                     .spacing(8)
                     .padding(8)
                     .into(),
                 EmuArgs::Pj64 { .. } => Column::new()
-                    .push(Text::new("An update for Mido's House Multiworld for Project64 is available.").color(text_color))
-                    .push(Text::new("Waiting to make sure the old version has exited…").color(text_color))
+                    .push(Text::new("An update for Mido's House Multiworld for Project64 is available."))
+                    .push(Text::new("Waiting to make sure the old version has exited…"))
                     .spacing(8)
                     .padding(8)
                     .into(),
             },
-            State::GetMultiworldRelease => Text::new("Checking latest release…").color(text_color).into(),
-            State::DownloadMultiworld => Text::new("Starting download…").color(text_color).into(),
-            State::ExtractMultiworld => Text::new("Downloading and extracting multiworld…").color(text_color).into(),
-            State::GetBizHawkRelease => Text::new("Getting BizHawk download link…").color(text_color).into(),
-            State::StartDownloadBizHawk => Text::new("Starting BizHawk download…").color(text_color).into(),
-            State::DownloadBizHawk => Text::new("Downloading BizHawk…").color(text_color).into(),
-            State::ExtractBizHawk => Text::new("Extracting BizHawk…").color(text_color).into(),
-            State::Replace => Text::new("Downloading update…").color(text_color).into(),
-            State::WaitDownload => Text::new("Finishing download…").color(text_color).into(),
-            State::Launch => Text::new("Starting new version…").color(text_color).into(),
-            State::Done => Text::new("Closing updater…").color(text_color).into(),
+            State::GetMultiworldRelease => Text::new("Checking latest release…").into(),
+            State::DownloadMultiworld => Text::new("Starting download…").into(),
+            State::ExtractMultiworld => Text::new("Downloading and extracting multiworld…").into(),
+            State::GetBizHawkRelease => Text::new("Getting BizHawk download link…").into(),
+            State::StartDownloadBizHawk => Text::new("Starting BizHawk download…").into(),
+            State::DownloadBizHawk => Text::new("Downloading BizHawk…").into(),
+            State::ExtractBizHawk => Text::new("Extracting BizHawk…").into(),
+            State::Replace => Text::new("Downloading update…").into(),
+            State::WaitDownload => Text::new("Finishing download…").into(),
+            State::Launch => Text::new("Starting new version…").into(),
+            State::Done => Text::new("Closing updater…").into(),
             State::Error(ref e, debug_info_copied) => Column::new()
-                .push(Text::new("Error").size(24).color(text_color))
-                .push(Text::new("An error occured while trying to update Mido's House Multiworld:").color(text_color))
-                .push(Text::new(e.to_string()).color(text_color))
+                .push(Text::new("Error").size(24))
+                .push(Text::new("An error occured while trying to update Mido's House Multiworld:"))
+                .push(Text::new(e.to_string()))
                 .push(Row::new()
-                    .push(Button::new(Text::new("Copy debug info").color(text_color)).on_press(Message::CopyDebugInfo).style(Style(system_theme)))
-                    .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }).color(text_color))
+                    .push(Button::new(Text::new("Copy debug info")).on_press(Message::CopyDebugInfo))
+                    .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }))
                     .spacing(8)
                 )
-                .push(Text::new("Support").size(24).color(text_color))
-                .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813.").color(text_color))
+                .push(Text::new("Support").size(24))
+                .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813."))
                 .push(Row::new()
-                    .push(Button::new(Text::new("invite link").color(text_color)).on_press(Message::DiscordInvite).style(Style(system_theme)))
-                    .push(Button::new(Text::new("direct channel link").color(text_color)).on_press(Message::DiscordChannel).style(Style(system_theme)))
+                    .push(Button::new(Text::new("invite link")).on_press(Message::DiscordInvite))
+                    .push(Button::new(Text::new("direct channel link")).on_press(Message::DiscordChannel))
                     .spacing(8)
                 )
-                .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord.").color(text_color))
+                .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord."))
                 .push(Row::new()
-                    .push(Text::new("• Or ").color(text_color))
-                    .push(Button::new(Text::new("open an issue").color(text_color)).on_press(Message::NewIssue).style(Style(system_theme)))
+                    .push(Text::new("• Or "))
+                    .push(Button::new(Text::new("open an issue")).on_press(Message::NewIssue))
                     .spacing(8)
                 )
                 .spacing(8)

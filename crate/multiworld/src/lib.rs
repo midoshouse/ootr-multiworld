@@ -57,7 +57,6 @@ use {
 
 pub mod config;
 pub mod github;
-#[cfg(feature = "style")] pub mod style;
 
 pub const ADDRESS_V4: Ipv4Addr = Ipv4Addr::new(37, 252, 122, 84);
 pub const ADDRESS_V6: Ipv6Addr = Ipv6Addr::new(0x2a02, 0x2770, 0x8, 0, 0x21a, 0x4aff, 0xfee1, 0xf281);

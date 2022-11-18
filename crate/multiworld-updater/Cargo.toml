@@ -12,7 +12,7 @@ async_zip = "0.0.9"
 bytes = "1"
 dark-light = "0.2"
 futures = "0.3"
-iced_native = "0.5"
+iced_native = "0.6"
 itertools = "0.10"
 open = "3"
 #runas = "0.2" # https://github.com/mitsuhiko/rust-runas/pull/7 https://github.com/midoshouse/ootr-multiworld/security/dependabot/1
@@ -28,8 +28,8 @@ version = "4"
 features = ["derive"]
 
 [dependencies.iced]
-version = "0.4"
-features = ["default_system_font", "pure", "tokio"]
+version = "0.5"
+features = ["default_system_font", "tokio"]
 
 [dependencies.image]
 version = "0.24"
@@ -38,7 +38,6 @@ features = ["ico"]
 
 [dependencies.multiworld]
 path = "../multiworld"
-features = ["style"]
 
 [dependencies.reqwest]
 version = "0.11"

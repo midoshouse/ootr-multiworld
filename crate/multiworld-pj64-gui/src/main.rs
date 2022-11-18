@@ -21,16 +21,15 @@ use {
     directories::ProjectDirs,
     futures::future,
     iced::{
+        Application,
         Command,
+        Element,
         Length,
         Settings,
         Subscription,
+        Theme,
         clipboard,
-        pure::{
-            Application,
-            Element,
-            widget::*,
-        },
+        widget::*,
         window::{
             self,
             Icon,
@@ -62,7 +61,6 @@ use {
         SessionStateError,
         format_room_state,
         github::Repo,
-        style::Style,
     },
 };
 
@@ -208,6 +206,7 @@ impl State {
 impl Application for State {
     type Executor = iced::executor::Default;
     type Message = Message;
+    type Theme = Theme;
     type Flags = Args;
 
     fn new(Args { log, port }: Args) -> (Self, Command<Message>) {
@@ -258,14 +257,14 @@ impl Application for State {
         }))
     }
 
-    fn background_color(&self) -> iced::Color {
+    fn should_exit(&self) -> bool { self.should_exit }
+
+    fn theme(&self) -> Self::Theme {
         match dark_light::detect() { //TODO automatically update on system theme change
-            Dark => iced::Color::BLACK,
-            Light => iced::Color::WHITE,
+            Dark => Theme::Dark,
+            Light => Theme::Light,
         }
     }
-
-    fn should_exit(&self) -> bool { self.should_exit }
 
     fn title(&self) -> String { format!("Mido's House Multiworld for Project64") }
 
@@ -576,99 +575,94 @@ impl Application for State {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let system_theme = dark_light::detect(); //TODO automatically update on system theme change
-        let text_color = match system_theme {
-            Dark => iced::Color::WHITE,
-            Light => iced::Color::BLACK,
-        };
         if let Some(ref e) = self.command_error {
-            error_view(system_theme, text_color, "An error occurred:", e, self.debug_info_copied)
+            error_view("An error occurred:", e, self.debug_info_copied)
         } else if let Some(ref e) = self.pj64_subscription_error {
-            error_view(system_theme, text_color, "An error occurred during communication with Project64:", e, self.debug_info_copied)
+            error_view("An error occurred during communication with Project64:", e, self.debug_info_copied)
         } else if !self.updates_checked {
             Column::new()
-                .push(Text::new("Checking for updates…").color(text_color))
+                .push(Text::new("Checking for updates…"))
                 .spacing(8)
                 .padding(8)
                 .into()
         } else if self.pj64_writer.is_none() {
             Column::new()
-                .push(Text::new("Waiting for Project64…\n\n1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.").color(text_color))
+                .push(Text::new("Waiting for Project64…\n\n1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window."))
                 .spacing(8)
                 .padding(8)
                 .into()
         } else {
             match self.server_connection {
-                SessionState::Error { auto_retry: false, ref e } => error_view(system_theme, text_color, "An error occurred during communication with the server:", e, self.debug_info_copied),
+                SessionState::Error { auto_retry: false, ref e } => error_view("An error occurred during communication with the server:", e, self.debug_info_copied),
                 SessionState::Error { auto_retry: true, ref e } => Column::new()
-                    .push(Text::new("A network error occurred:").color(text_color))
-                    .push(Text::new(e.to_string()).color(text_color))
+                    .push(Text::new("A network error occurred:"))
+                    .push(Text::new(e.to_string()))
                     .push(Text::new(if let Ok(retry) = chrono::Duration::from_std(self.retry.duration_since(Instant::now())) {
                         format!("Reconnecting at {}", (Local::now() + retry).format("%H:%M:%S"))
                     } else {
                         format!("Reconnecting…")
-                    }).color(text_color)) //TODO live countdown
+                    })) //TODO live countdown
                     .spacing(8)
                     .padding(8)
                     .into(),
                 SessionState::Init => Column::new()
-                    .push(Text::new("Connecting to server…").color(text_color))
+                    .push(Text::new("Connecting to server…"))
                     .spacing(8)
                     .padding(8)
                     .into(),
                 SessionState::InitAutoRejoin { .. } => Column::new()
-                    .push(Text::new("Reconnecting to room…").color(text_color))
+                    .push(Text::new("Reconnecting to room…"))
                     .spacing(8)
                     .padding(8)
                     .into(),
                 SessionState::Lobby { wrong_password: true, .. } => Column::new()
-                    .push(Text::new("wrong password").color(text_color))
-                    .push(Button::new(Text::new("OK").color(text_color)).on_press(Message::DismissWrongPassword).style(Style(system_theme)))
+                    .push(Text::new("wrong password"))
+                    .push(Button::new(Text::new("OK")).on_press(Message::DismissWrongPassword))
                     .spacing(8)
                     .padding(8)
                     .into(),
                 SessionState::Lobby { wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } => Column::new()
-                    .push(Radio::new(false, "Connect to existing room", Some(create_new_room), Message::SetCreateNewRoom).style(Style(system_theme)))
-                    .push(Radio::new(true, "Create new room", Some(create_new_room), Message::SetCreateNewRoom).style(Style(system_theme)))
+                    .push(Radio::new(false, "Connect to existing room", Some(create_new_room), Message::SetCreateNewRoom))
+                    .push(Radio::new(true, "Create new room", Some(create_new_room), Message::SetCreateNewRoom))
                     .push(if create_new_room {
-                        Element::from(TextInput::new("Room name", new_room_name, Message::SetNewRoomName).on_submit(Message::JoinRoom).padding(5).style(Style(system_theme)))
+                        Element::from(TextInput::new("Room name", new_room_name, Message::SetNewRoomName).on_submit(Message::JoinRoom).padding(5))
                     } else {
                         if rooms.is_empty() {
-                            Text::new("(no rooms currently open)").color(text_color).into()
+                            Text::new("(no rooms currently open)").into()
                         } else {
-                            PickList::new(rooms.iter().cloned().collect_vec(), existing_room_selection.clone(), Message::SetExistingRoomSelection).style(Style(system_theme)).into()
+                            PickList::new(rooms.iter().cloned().collect_vec(), existing_room_selection.clone(), Message::SetExistingRoomSelection).into()
                         }
                     })
-                    .push(TextInput::new("Password", password, Message::SetPassword).password().on_submit(Message::JoinRoom).padding(5).style(Style(system_theme)))
+                    .push(TextInput::new("Password", password, Message::SetPassword).password().on_submit(Message::JoinRoom).padding(5))
                     .push(Row::new()
                         .push({
-                            let mut btn = Button::new(Text::new("Connect").color(text_color)).style(Style(system_theme));
+                            let mut btn = Button::new(Text::new("Connect"));
                             if if create_new_room { !new_room_name.is_empty() } else { existing_room_selection.is_some() } && !password.is_empty() { btn = btn.on_press(Message::JoinRoom) }
                             btn
                         })
                         .push(Space::with_width(Length::Fill))
-                        .push(Text::new(concat!("v", env!("CARGO_PKG_VERSION"))).color(text_color))
+                        .push(Text::new(concat!("v", env!("CARGO_PKG_VERSION"))))
                     )
                     .spacing(8)
                     .padding(8)
                     .into(),
                 SessionState::Room { confirm_deletion: true, .. } => Column::new()
-                    .push(Text::new("Are you sure you want to delete this room? Items that have already been sent will be lost forever!").color(text_color))
+                    .push(Text::new("Are you sure you want to delete this room? Items that have already been sent will be lost forever!"))
                     .push(Row::new()
-                        .push(Button::new(Text::new("Delete").color(text_color)).on_press(Message::ConfirmRoomDeletion).style(Style(system_theme)))
-                        .push(Button::new(Text::new("Back").color(text_color)).on_press(Message::CancelRoomDeletion).style(Style(system_theme)))
+                        .push(Button::new(Text::new("Delete")).on_press(Message::ConfirmRoomDeletion))
+                        .push(Button::new(Text::new("Back")).on_press(Message::CancelRoomDeletion))
                         .spacing(8)
                     )
                     .spacing(8)
                     .padding(8)
                     .into(),
                 SessionState::Room { confirm_deletion: false, wrong_file_hash: true, .. } => Column::new()
-                    .push(Text::new("This room is for a different seed.").color(text_color))
+                    .push(Text::new("This room is for a different seed."))
                     .push({
                         let mut row = Row::new();
-                        row = row.push(Button::new(Text::new("Delete Room").color(text_color)).on_press(Message::DeleteRoom).style(Style(system_theme)));
+                        row = row.push(Button::new(Text::new("Delete Room")).on_press(Message::DeleteRoom));
                         if let Some(my_id) = self.last_world {
-                            row = row.push(Button::new(Text::new("Leave Room").color(text_color)).on_press(Message::Kick(my_id)).style(Style(system_theme)));
+                            row = row.push(Button::new(Text::new("Leave Room")).on_press(Message::Kick(my_id)));
                         }
                         row.spacing(8)
                     })
@@ -677,23 +671,23 @@ impl Application for State {
                     .into(),
                 SessionState::Room { confirm_deletion: false, wrong_file_hash: false, ref players, num_unassigned_clients, .. } => {
                     let mut col = Column::new()
-                        .push(Button::new(Text::new("Delete Room").color(text_color)).on_press(Message::DeleteRoom).style(Style(system_theme)));
+                        .push(Button::new(Text::new("Delete Room")).on_press(Message::DeleteRoom));
                     let (players, other) = format_room_state(players, num_unassigned_clients, self.last_world);
                     for (player_id, player) in players.into_iter() {
                         col = col.push(Row::new()
-                            .push(Text::new(player).color(text_color))
-                            .push(Button::new(Text::new(if self.last_world.map_or(false, |my_id| my_id == player_id) { "Leave" } else { "Kick" }).color(text_color)).on_press(Message::Kick(player_id)).style(Style(system_theme)))
+                            .push(Text::new(player))
+                            .push(Button::new(Text::new(if self.last_world.map_or(false, |my_id| my_id == player_id) { "Leave" } else { "Kick" })).on_press(Message::Kick(player_id)))
                         );
                     }
                     col
-                        .push(Text::new(other).color(text_color))
+                        .push(Text::new(other))
                         .spacing(8)
                         .padding(8)
                         .into()
                 }
                 SessionState::Closed => Column::new()
-                    .push(Text::new("You have been disconnected.").color(text_color))
-                    .push(Button::new(Text::new("Reconnect").color(text_color)).on_press(Message::ReconnectToLobby).style(Style(system_theme)))
+                    .push(Text::new("You have been disconnected."))
+                    .push(Button::new(Text::new("Reconnect")).on_press(Message::ReconnectToLobby))
                     .spacing(8)
                     .padding(8)
                     .into(),
@@ -713,27 +707,27 @@ impl Application for State {
     }
 }
 
-fn error_view(system_theme: dark_light::Mode, text_color: iced::Color, context: &str, e: &impl ToString, debug_info_copied: bool) -> Element<'static, Message> {
+fn error_view<'a>(context: &'a str, e: &impl ToString, debug_info_copied: bool) -> Element<'a, Message> {
     Column::new()
-        .push(Text::new("Error").size(24).color(text_color))
-        .push(Text::new(context).color(text_color))
-        .push(Text::new(e.to_string()).color(text_color))
+        .push(Text::new("Error").size(24))
+        .push(Text::new(context))
+        .push(Text::new(e.to_string()))
         .push(Row::new()
-            .push(Button::new(Text::new("Copy debug info").color(text_color)).on_press(Message::CopyDebugInfo).style(Style(system_theme)))
-            .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }).color(text_color))
+            .push(Button::new(Text::new("Copy debug info")).on_press(Message::CopyDebugInfo))
+            .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }))
             .spacing(8)
         )
-        .push(Text::new("Support").size(24).color(text_color))
-        .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813.").color(text_color))
+        .push(Text::new("Support").size(24))
+        .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813."))
         .push(Row::new()
-            .push(Button::new(Text::new("invite link").color(text_color)).on_press(Message::DiscordInvite).style(Style(system_theme)))
-            .push(Button::new(Text::new("direct channel link").color(text_color)).on_press(Message::DiscordChannel).style(Style(system_theme)))
+            .push(Button::new(Text::new("invite link")).on_press(Message::DiscordInvite))
+            .push(Button::new(Text::new("direct channel link")).on_press(Message::DiscordChannel))
             .spacing(8)
         )
-        .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord.").color(text_color))
+        .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord."))
         .push(Row::new()
-            .push(Text::new("• Or ").color(text_color))
-            .push(Button::new(Text::new("open an issue").color(text_color)).on_press(Message::NewIssue).style(Style(system_theme)))
+            .push(Text::new("• Or "))
+            .push(Button::new(Text::new("open an issue")).on_press(Message::NewIssue))
             .spacing(8)
         )
         .spacing(8)
