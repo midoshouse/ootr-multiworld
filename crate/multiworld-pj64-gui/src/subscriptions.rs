@@ -66,13 +66,14 @@ pub(crate) enum ClientMessage {
     FileHash([HashIcon; 5]),
 }
 
-pub(crate) struct Pj64Listener;
+pub(crate) struct Pj64Listener(pub(crate) u8);
 
 impl<H: Hasher, I> Recipe<H, I> for Pj64Listener {
     type Output = Message;
 
     fn hash(&self, state: &mut H) {
         TypeId::of::<Self>().hash(state);
+        self.0.hash(state);
     }
 
     fn stream(self: Box<Self>, _: BoxStream<'_, I>) -> BoxStream<'_, Message> {

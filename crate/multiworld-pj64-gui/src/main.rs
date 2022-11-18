@@ -135,6 +135,7 @@ enum Message {
     Pj64Connected(Arc<Mutex<OwnedWriteHalf>>),
     Pj64SubscriptionError(Arc<Error>),
     Plugin(subscriptions::ClientMessage),
+    ReconnectPj64,
     ReconnectToLobby,
     ReconnectToRoom(String, String),
     Server(ServerMessage),
@@ -160,6 +161,7 @@ struct State {
     debug_info_copied: bool,
     command_error: Option<Arc<Error>>,
     pj64_subscription_error: Option<Arc<Error>>,
+    pj64_connection_id: u8,
     pj64_writer: Option<LoggingWriter>,
     log: bool,
     port: u16,
@@ -214,6 +216,7 @@ impl Application for State {
             debug_info_copied: false,
             command_error: None,
             pj64_subscription_error: None,
+            pj64_connection_id: 0,
             pj64_writer: None,
             server_connection: SessionState::Init,
             server_writer: None,
@@ -453,6 +456,7 @@ impl Application for State {
                     }
                 }
             }
+            Message::ReconnectPj64 => self.pj64_connection_id = self.pj64_connection_id.wrapping_add(1),
             Message::ReconnectToLobby => self.server_connection = SessionState::Init,
             Message::ReconnectToRoom(room_name, room_password) => self.server_connection = SessionState::InitAutoRejoin { room_name, room_password },
             Message::Server(msg) => {
@@ -578,7 +582,21 @@ impl Application for State {
         if let Some(ref e) = self.command_error {
             error_view("An error occurred:", e, self.debug_info_copied)
         } else if let Some(ref e) = self.pj64_subscription_error {
-            error_view("An error occurred during communication with Project64:", e, self.debug_info_copied)
+            if let Error::Io(ref e) = **e {
+                if e.kind() == io::ErrorKind::AddrInUse {
+                    Column::new()
+                        .push(Text::new("Connection Busy").size(24))
+                        .push("Could not connect to Project64 because the connection is already in use. Maybe you still have another instance of this app open?")
+                        .push(Button::new(Text::new("Retry")).on_press(Message::ReconnectPj64))
+                        .spacing(8)
+                        .padding(8)
+                        .into()
+                } else {
+                    error_view("An error occurred during communication with Project64:", e, self.debug_info_copied)
+                }
+            } else {
+                error_view("An error occurred during communication with Project64:", e, self.debug_info_copied)
+            }
         } else if !self.updates_checked {
             Column::new()
                 .push(Text::new("Checking for updates…"))
@@ -698,7 +716,7 @@ impl Application for State {
     fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = Vec::with_capacity(2);
         if self.updates_checked {
-            subscriptions.push(Subscription::from_recipe(subscriptions::Pj64Listener));
+            subscriptions.push(Subscription::from_recipe(subscriptions::Pj64Listener(self.pj64_connection_id)));
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
                 subscriptions.push(Subscription::from_recipe(subscriptions::Client(self.port)));
             }
