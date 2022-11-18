@@ -456,7 +456,10 @@ impl Application for State {
                     }
                 }
             }
-            Message::ReconnectPj64 => self.pj64_connection_id = self.pj64_connection_id.wrapping_add(1),
+            Message::ReconnectPj64 => {
+                self.pj64_subscription_error = None;
+                self.pj64_connection_id = self.pj64_connection_id.wrapping_add(1);
+            }
             Message::ReconnectToLobby => self.server_connection = SessionState::Init,
             Message::ReconnectToRoom(room_name, room_password) => self.server_connection = SessionState::InitAutoRejoin { room_name, room_password },
             Message::Server(msg) => {
