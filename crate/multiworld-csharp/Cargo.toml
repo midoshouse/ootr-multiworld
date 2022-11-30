@@ -9,7 +9,7 @@ name = "multiworld"
 crate-type = ["cdylib"]
 
 [dependencies]
-async-proto = "0.15.1"
+async-proto = "0.16"
 directories = "4"
 libc = "0.2"
 once_cell = "1"
