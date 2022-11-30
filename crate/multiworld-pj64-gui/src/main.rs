@@ -43,7 +43,10 @@ use {
     tokio::{
         fs,
         io,
-        net::tcp::OwnedWriteHalf,
+        net::tcp::{
+            OwnedReadHalf,
+            OwnedWriteHalf,
+        },
         sync::Mutex,
         time::{
             Instant,
@@ -68,21 +71,50 @@ mod subscriptions;
 
 const MW_PJ64_PROTO_VERSION: u8 = 2; //TODO sync with JS code
 
-static LOG: Lazy<std::fs::File> = Lazy::new(|| {
+static LOG: Lazy<Mutex<std::fs::File>> = Lazy::new(|| {
     let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
     std::fs::create_dir_all(project_dirs.data_dir()).expect("failed to create log dir");
-    std::fs::File::create(project_dirs.data_dir().join("pj64.log")).expect("failed to create log file")
+    Mutex::new(std::fs::File::create(project_dirs.data_dir().join("pj64.log")).expect("failed to create log file"))
 });
 
+struct LoggingReader {
+    log: bool,
+    context: &'static str,
+    inner: OwnedReadHalf,
+}
+
+impl LoggingReader {
+    async fn read<T: Protocol + fmt::Debug>(&mut self) -> Result<T, async_proto::ReadError> {
+        let msg = T::read(&mut self.inner).await?;
+        if self.log {
+            writeln!(&*LOG.lock().await, "{}: {msg:?}", self.context)?;
+        }
+        Ok(msg)
+    }
+
+    async fn read_owned<T: Protocol + fmt::Debug>(self) -> Result<(Self, T), async_proto::ReadError> {
+        let Self { log, context, inner } = self;
+        let (inner, msg) = T::read_owned(inner).await?;
+        if log {
+            writeln!(&*LOG.lock().await, "{}: {msg:?}", context)?;
+        }
+        Ok((Self { log, context, inner }, msg))
+    }
+}
+
 #[derive(Clone)]
-struct LoggingWriter(bool, Arc<Mutex<OwnedWriteHalf>>);
+struct LoggingWriter {
+    log: bool,
+    context: &'static str,
+    inner: Arc<Mutex<OwnedWriteHalf>>,
+}
 
 impl LoggingWriter {
     async fn write(&self, msg: impl Protocol + fmt::Debug) -> Result<(), async_proto::WriteError> {
-        if self.0 {
-            writeln!(&*LOG, "{msg:?}")?;
+        if self.log {
+            writeln!(&*LOG.lock().await, "{}: {msg:?}", self.context)?;
         }
-        msg.write(&mut *self.1.lock().await).await
+        msg.write(&mut *self.inner.lock().await).await
     }
 }
 
@@ -342,7 +374,7 @@ impl Application for State {
             }
             Message::Nop => {}
             Message::Pj64Connected(writer) => {
-                let writer = LoggingWriter(self.log, Arc::clone(&writer));
+                let writer = LoggingWriter { log: self.log, context: "to PJ64", inner: Arc::clone(&writer) };
                 self.pj64_writer = Some(writer.clone());
                 if let SessionState::Room { ref players, ref item_queue, .. } = self.server_connection {
                     let players = players.clone();
@@ -542,7 +574,7 @@ impl Application for State {
                     _ => {}
                 }
             }
-            Message::ServerConnected(writer) => self.server_writer = Some(LoggingWriter(self.log, writer)),
+            Message::ServerConnected(writer) => self.server_writer = Some(LoggingWriter { log: self.log, context: "to server", inner: writer }),
             Message::ServerSubscriptionError(e) => if !matches!(self.server_connection, SessionState::Error { .. }) {
                 if e.is_network_error() {
                     if self.retry.elapsed() >= Duration::from_secs(60 * 60 * 24) {
@@ -719,9 +751,9 @@ impl Application for State {
     fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = Vec::with_capacity(2);
         if self.updates_checked {
-            subscriptions.push(Subscription::from_recipe(subscriptions::Pj64Listener(self.pj64_connection_id)));
+            subscriptions.push(Subscription::from_recipe(subscriptions::Pj64Listener { log: self.log, connection_id: self.pj64_connection_id }));
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
-                subscriptions.push(Subscription::from_recipe(subscriptions::Client(self.port)));
+                subscriptions.push(Subscription::from_recipe(subscriptions::Client { log: self.log, port: self.port }));
             }
         }
         Subscription::batch(subscriptions)

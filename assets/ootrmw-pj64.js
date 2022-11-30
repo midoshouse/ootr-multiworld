@@ -39,6 +39,7 @@ if (typeof PJ64_JSAPI_VERSION === 'undefined') {
             events.remove(drawCallback);
             drawCallback = null;
         }
+        console.log('Connection to multiworld app lost');
         throw 'connection to multiworld app lost';
     });
     sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
