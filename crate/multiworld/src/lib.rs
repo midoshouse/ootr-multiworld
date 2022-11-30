@@ -19,6 +19,7 @@ use {
         },
         num::NonZeroU8,
         sync::Arc,
+        time::Duration,
     },
     async_proto::Protocol,
     async_recursion::async_recursion,
@@ -42,9 +43,9 @@ use {
         },
         sync::{
             Mutex,
+            broadcast,
             oneshot,
         },
-        time::Instant,
     },
 };
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
@@ -230,7 +231,9 @@ pub struct Room {
     pub file_hash: Option<[HashIcon; 5]>,
     pub base_queue: Vec<Item>,
     pub player_queues: HashMap<NonZeroU8, Vec<Item>>,
-    pub last_saved: Instant, //TODO delete rooms after some time of inactivity, make configurable
+    pub last_saved: DateTime<Utc>,
+    pub autodelete_delta: Duration,
+    pub autodelete_tx: broadcast::Sender<(String, DateTime<Utc>)>,
     #[cfg(feature = "sqlx")]
     pub db_pool: PgPool,
     #[cfg(feature = "tokio-tungstenite")]
@@ -516,14 +519,34 @@ impl Room {
         Ok(())
     }
 
+    pub fn autodelete_at(&self) -> DateTime<Utc> {
+        self.last_saved + chrono::Duration::from_std(self.autodelete_delta).expect("autodelete delta too long")
+    }
+
     #[cfg(feature = "sqlx")]
     pub async fn save(&mut self) -> sqlx::Result<()> {
         let mut base_queue = Vec::default();
         self.base_queue.write_sync(&mut base_queue).expect("failed to write base queue to buffer");
         let mut player_queues = Vec::default();
         self.player_queues.write_sync(&mut player_queues).expect("failed to write player queues to buffer");
-        sqlx::query!("INSERT INTO rooms (name, password_hash, password_salt, base_queue, player_queues) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO UPDATE SET password_hash = EXCLUDED.password_hash, password_salt = EXCLUDED.password_salt, base_queue = EXCLUDED.base_queue, player_queues = EXCLUDED.player_queues", &self.name, &self.password_hash, &self.password_salt, base_queue, player_queues).execute(&self.db_pool).await?;
-        self.last_saved = Instant::now();
+        self.last_saved = Utc::now();
+        let _ = self.autodelete_tx.send((self.name.clone(), self.autodelete_at()));
+        sqlx::query!("INSERT INTO rooms (
+            name,
+            password_hash,
+            password_salt,
+            base_queue,
+            player_queues,
+            last_saved,
+            autodelete_delta
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (name) DO UPDATE SET
+            password_hash = EXCLUDED.password_hash,
+            password_salt = EXCLUDED.password_salt,
+            base_queue = EXCLUDED.base_queue,
+            player_queues = EXCLUDED.player_queues,
+            last_saved = EXCLUDED.last_saved,
+            autodelete_delta = EXCLUDED.autodelete_delta
+        ", &self.name, &self.password_hash, &self.password_salt, base_queue, player_queues, self.last_saved, self.autodelete_delta as _).execute(&self.db_pool).await?;
         Ok(())
     }
 }
