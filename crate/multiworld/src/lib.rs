@@ -395,10 +395,13 @@ impl Room {
     async fn queue_item_inner(&mut self, source_world: NonZeroU8, key: u32, kind: u16, target_world: NonZeroU8) -> Result<(), async_proto::WriteError> {
         if kind == TRIFORCE_PIECE {
             if !self.base_queue.iter().any(|item| item.source == source_world && item.key == key) {
+                self.player_queues.entry(source_world).or_insert_with(|| self.base_queue.clone()); // make sure the sender doesn't get a duplicate of this piece from the base queue
                 let item = Item { source: source_world, key, kind };
                 self.base_queue.push(item);
-                for queue in self.player_queues.values_mut() {
-                    queue.push(item);
+                for (&target_world, queue) in &mut self.player_queues {
+                    if source_world != target_world {
+                        queue.push(item);
+                    }
                 }
                 let msg = ServerMessage::GetItem(kind);
                 let player_clients = self.clients.iter()
