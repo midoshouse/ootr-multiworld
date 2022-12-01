@@ -2,6 +2,7 @@ use {
     std::{
         fs,
         num::NonZeroU8,
+        time::Duration,
     },
     itertools::Itertools as _,
     syn::{
@@ -129,6 +130,23 @@ impl<T: FromExpr, const N: usize> FromExpr for [T; N] {
     }
 }
 
+impl FromExpr for Duration {
+    fn from_expr(expr: Expr) -> Result<Self, Error> {
+        match expr {
+            Expr::Call(call) => match *call.func {
+                Expr::Path(path) => if path.path.segments.into_iter().map(|seg| seg.ident.to_string()).eq(["Duration", "new"]) {
+                    let (secs, nanos) = call.args.into_iter().collect_tuple().ok_or(Error::FromExpr)?;
+                    Ok(Self::new(u64::from_expr(secs)?, u32::from_expr(nanos)?))
+                } else {
+                    Err(Error::FromExpr) //TODO support other Duration constructors
+                },
+                _ => Err(Error::FromExpr),
+            },
+            _ => Err(Error::FromExpr),
+        }
+    }
+}
+
 impl FromExpr for Filename {
     fn from_expr(expr: Expr) -> Result<Self, Error> {
         match expr {
@@ -215,6 +233,10 @@ impl FromExpr for ClientMessage {
                         "FileHash" => {
                             let hash = call.args.into_iter().exactly_one()?;
                             Ok(Self::FileHash(<[HashIcon; 5]>::from_expr(hash)?))
+                        }
+                        "AutoDeleteDelta" => {
+                            let interval = call.args.into_iter().exactly_one()?;
+                            Ok(Self::AutoDeleteDelta(Duration::from_expr(interval)?))
                         }
                         _ => Err(Error::FromExpr),
                     }

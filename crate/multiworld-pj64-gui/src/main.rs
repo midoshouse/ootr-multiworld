@@ -56,9 +56,11 @@ use {
     url::Url,
     multiworld::{
         ClientMessage,
+        DurationFormatter,
         Filename,
         HashIcon,
         IsNetworkError,
+        RoomView,
         ServerMessage,
         SessionState,
         SessionStateError,
@@ -151,11 +153,9 @@ impl IsNetworkError for Error {
 
 #[derive(Debug, Clone)]
 enum Message {
-    CancelRoomDeletion,
     CommandError(Arc<Error>),
     ConfirmRoomDeletion,
     CopyDebugInfo,
-    DeleteRoom,
     DiscordChannel,
     DiscordInvite,
     DismissWrongPassword,
@@ -173,10 +173,12 @@ enum Message {
     Server(ServerMessage),
     ServerConnected(Arc<Mutex<OwnedWriteHalf>>),
     ServerSubscriptionError(Arc<Error>),
+    SetAutoDeleteDelta(DurationFormatter),
     SetCreateNewRoom(bool),
     SetExistingRoomSelection(String),
     SetNewRoomName(String),
     SetPassword(String),
+    SetRoomView(RoomView),
     UpToDate,
 }
 
@@ -305,8 +307,8 @@ impl Application for State {
 
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
-            Message::CancelRoomDeletion => if let SessionState::Room { ref mut confirm_deletion, .. } = self.server_connection {
-                *confirm_deletion = false;
+            Message::SetRoomView(new_view) => if let SessionState::Room { ref mut view, .. } = self.server_connection {
+                *view = new_view;
             },
             Message::CommandError(e) => { self.command_error.get_or_insert(e); }
             Message::ConfirmRoomDeletion => if let Some(writer) = self.server_writer.clone() {
@@ -320,9 +322,6 @@ impl Application for State {
                 return clipboard::write(error_md)
             } else {
                 return cmd(future::err(Error::CopyDebugInfo))
-            },
-            Message::DeleteRoom => if let SessionState::Room { ref mut confirm_deletion, .. } = self.server_connection {
-                *confirm_deletion = true;
             },
             Message::DiscordChannel => if let Err(e) = open("https://discord.com/channels/274180765816848384/476723801032491008") {
                 return cmd(future::err(e.into()))
@@ -604,6 +603,12 @@ impl Application for State {
                     };
                 }
             },
+            Message::SetAutoDeleteDelta(DurationFormatter(new_delta)) => if let Some(writer) = self.server_writer.clone() {
+                return cmd(async move {
+                    writer.write(ClientMessage::AutoDeleteDelta(new_delta)).await?;
+                    Ok(Message::Nop)
+                })
+            },
             Message::SetCreateNewRoom(new_val) => if let SessionState::Lobby { ref mut create_new_room, .. } = self.server_connection { *create_new_room = new_val },
             Message::SetExistingRoomSelection(name) => if let SessionState::Lobby { ref mut existing_room_selection, .. } = self.server_connection { *existing_room_selection = Some(name) },
             Message::SetNewRoomName(name) => if let SessionState::Lobby { ref mut new_room_name, .. } = self.server_connection { *new_room_name = name },
@@ -699,21 +704,21 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                SessionState::Room { confirm_deletion: true, .. } => Column::new()
+                SessionState::Room { view: RoomView::ConfirmDeletion, .. } => Column::new()
                     .push(Text::new("Are you sure you want to delete this room? Items that have already been sent will be lost forever!"))
                     .push(Row::new()
                         .push(Button::new(Text::new("Delete")).on_press(Message::ConfirmRoomDeletion))
-                        .push(Button::new(Text::new("Back")).on_press(Message::CancelRoomDeletion))
+                        .push(Button::new(Text::new("Back")).on_press(Message::SetRoomView(RoomView::Normal)))
                         .spacing(8)
                     )
                     .spacing(8)
                     .padding(8)
                     .into(),
-                SessionState::Room { confirm_deletion: false, wrong_file_hash: true, .. } => Column::new()
+                SessionState::Room { wrong_file_hash: true, .. } => Column::new()
                     .push(Text::new("This room is for a different seed."))
                     .push({
                         let mut row = Row::new();
-                        row = row.push(Button::new(Text::new("Delete Room")).on_press(Message::DeleteRoom));
+                        row = row.push(Button::new(Text::new("Delete Room")).on_press(Message::SetRoomView(RoomView::ConfirmDeletion)));
                         if let Some(my_id) = self.last_world {
                             row = row.push(Button::new(Text::new("Leave Room")).on_press(Message::Kick(my_id)));
                         }
@@ -722,9 +727,28 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                SessionState::Room { confirm_deletion: false, wrong_file_hash: false, ref players, num_unassigned_clients, .. } => {
+                SessionState::Room { view: RoomView::Options, wrong_file_hash: false, autodelete_delta, .. } => Column::new()
+                    .push(Button::new(Text::new("Back")).on_press(Message::SetRoomView(RoomView::Normal)))
+                    .push(Text::new("Automatically delete this room if no items are sent for:"))
+                    .push({
+                        let mut values = vec![
+                            DurationFormatter(Duration::from_secs(60 * 60 * 24)),
+                            DurationFormatter(Duration::from_secs(60 * 60 * 24 * 7)),
+                            DurationFormatter(Duration::from_secs(60 * 60 * 24 * 90)),
+                        ];
+                        if let Err(idx) = values.binary_search(&DurationFormatter(autodelete_delta)) {
+                            values.insert(idx, DurationFormatter(autodelete_delta));
+                        }
+                        PickList::new(values, Some(DurationFormatter(autodelete_delta)), Message::SetAutoDeleteDelta)
+                    })
+                    .into(),
+                SessionState::Room { view: RoomView::Normal, wrong_file_hash: false, ref players, num_unassigned_clients, .. } => {
                     let mut col = Column::new()
-                        .push(Button::new(Text::new("Delete Room")).on_press(Message::DeleteRoom));
+                        .push(Row::new()
+                            .push(Button::new(Text::new("Delete Room")).on_press(Message::SetRoomView(RoomView::ConfirmDeletion)))
+                            .push(Button::new(Text::new("Options")).on_press(Message::SetRoomView(RoomView::Options)))
+                            .spacing(8)
+                        );
                     let (players, other) = format_room_state(players, num_unassigned_clients, self.last_world);
                     for (player_id, player) in players.into_iter() {
                         col = col.push(Row::new()

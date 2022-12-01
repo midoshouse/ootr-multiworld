@@ -190,7 +190,10 @@ async fn lobby_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket
                                     num_unassigned_clients += 1;
                                 }
                             }
-                            ServerMessage::EnterRoom { players, num_unassigned_clients }.write(&mut *writer.lock().await).await?;
+                            ServerMessage::EnterRoom {
+                                autodelete_delta: room.autodelete_delta,
+                                players, num_unassigned_clients,
+                            }.write(&mut *writer.lock().await).await?;
                             break (reader, Arc::clone(room_arc), end_rx)
                         } else {
                             ServerMessage::StructuredError(ServerError::WrongPassword).write(&mut *writer.lock().await).await?;
@@ -223,23 +226,24 @@ async fn lobby_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket
                             save_data: None,
                             end_tx,
                         });
+                        let autodelete_delta = Duration::from_secs(60 * 60 * 24 * 7);
                         let room = Arc::new(RwLock::new(Room {
                             name: name.clone(),
                             file_hash: None,
                             base_queue: Vec::default(),
                             player_queues: HashMap::default(),
                             last_saved: Utc::now(),
-                            autodelete_delta: Duration::from_secs(60 * 60 * 24 * 7),
                             autodelete_tx: rooms.0.lock().await.autodelete_tx.clone(),
                             db_pool: db_pool.clone(),
                             tracker_state: None,
-                            password_hash, password_salt, clients,
+                            password_hash, password_salt, clients, autodelete_delta,
                         }));
                         if !rooms.add(room.clone()).await { error!("a room with this name already exists") }
                         //TODO automatically delete rooms after 7 days of inactivity
                         ServerMessage::EnterRoom {
                             players: Vec::default(),
                             num_unassigned_clients: 1,
+                            autodelete_delta,
                         }.write(&mut *writer.lock().await).await?;
                         break (reader, room, end_rx)
                     }
@@ -301,6 +305,7 @@ async fn lobby_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket
                     ClientMessage::SaveData(_) => error!("received a SaveData message, which only works in a room, but you're in the lobby"),
                     ClientMessage::SaveDataError { .. } => error!("received a SaveDataError message, which only works in a room, but you're in the lobby"),
                     ClientMessage::FileHash(_) => error!("received a FileHash message, which only works in a room, but you're in the lobby"),
+                    ClientMessage::AutoDeleteDelta(_) => error!("received an AutoDeleteDelta message, which only works in a room, but you're in the lobby"),
                 }
                 read = next_message(reader);
             }
@@ -374,6 +379,7 @@ async fn room_session(db_pool: PgPool, rooms: Rooms, room: Arc<RwLock<Room>>, so
                             return Err(e.into())
                         }
                     },
+                    ClientMessage::AutoDeleteDelta(new_delta) => room.write().await.set_autodelete_delta(new_delta).await,
                 }
                 read = next_message(reader);
             },
@@ -510,7 +516,8 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                     ServerMessage::ItemQueue(_) |
                     ServerMessage::GetItem(_) |
                     ServerMessage::Goodbye |
-                    ServerMessage::PlayerFileHash(_, _) => unreachable!(),
+                    ServerMessage::PlayerFileHash(_, _) |
+                    ServerMessage::AutoDeleteDelta(_) => unreachable!(),
                 }
             }
             ClientMessage::Stop.write(&mut tcp_stream).await?;
@@ -540,7 +547,8 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                     ServerMessage::ItemQueue(_) |
                     ServerMessage::GetItem(_) |
                     ServerMessage::Goodbye |
-                    ServerMessage::PlayerFileHash(_, _) => unreachable!(),
+                    ServerMessage::PlayerFileHash(_, _) |
+                    ServerMessage::AutoDeleteDelta(_) => unreachable!(),
                 }
             };
             if active_connections.into_values().all(|(players, _)| players.is_empty()) {

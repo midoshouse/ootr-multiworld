@@ -106,6 +106,48 @@ impl IsNetworkError for async_proto::WriteError {
     }
 }
 
+fn natjoin<T: fmt::Display>(elts: impl IntoIterator<Item = T>) -> Option<String> {
+    let mut elts = elts.into_iter().fuse();
+    match (elts.next(), elts.next(), elts.next()) {
+        (None, _, _) => None,
+        (Some(elt), None, _) => Some(elt.to_string()),
+        (Some(elt1), Some(elt2), None) => Some(format!("{elt1} and {elt2}")),
+        (Some(elt1), Some(elt2), Some(elt3)) => {
+            let mut rest = [elt2, elt3].into_iter().chain(elts).collect_vec();
+            let last = rest.pop().expect("rest contains at least elt2 and elt3");
+            Some(format!("{elt1}, {}, and {last}", rest.into_iter().format(", ")))
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DurationFormatter(pub Duration);
+
+impl fmt::Display for DurationFormatter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let secs = self.0.as_secs();
+
+        let mins = secs / 60;
+        let secs = secs % 60;
+
+        let hours = mins / 60;
+        let mins = mins % 60;
+
+        let days = hours / 24;
+        let hours = hours % 24;
+
+        let parts = (days > 0).then(|| format!("{days} day{}", if days == 1 { "" } else { "s" })).into_iter()
+            .chain((hours > 0).then(|| format!("{hours} hour{}", if hours == 1 { "" } else { "s" })))
+            .chain((mins > 0).then(|| format!("{mins} minute{}", if mins == 1 { "" } else { "s" })))
+            .chain((secs > 0).then(|| format!("{secs} second{}", if secs == 1 { "" } else { "s" })));
+        if let Some(formatted) = natjoin(parts) {
+            write!(f, "{formatted}")
+        } else {
+            write!(f, "0 seconds")
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Protocol)]
 pub struct Filename(pub [u8; 8]);
 
@@ -549,6 +591,17 @@ impl Room {
         ", &self.name, &self.password_hash, &self.password_salt, base_queue, player_queues, self.last_saved, self.autodelete_delta as _).execute(&self.db_pool).await?;
         Ok(())
     }
+
+    pub async fn set_autodelete_delta(&mut self, new_delta: Duration) {
+        self.autodelete_delta = new_delta;
+        #[cfg(feature = "sqlx")] {
+            // saving also notifies the room deletion waiter
+            if let Err(e) = self.save().await {
+                eprintln!("failed to save room state: {e} ({e:?})");
+            }
+        }
+        self.write_all(&ServerMessage::AutoDeleteDelta(new_delta)).await;
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Protocol)]
@@ -774,6 +827,8 @@ pub enum ClientMessage {
     },
     /// Reports the loaded seed's file hash icons, allowing the server to ensure that all players are on the same seed. Only works after [`ServerMessage::PlayerId`].
     FileHash([HashIcon; 5]),
+    /// Sets the time after which the room should be automatically deleted. Only works after [`ServerMessage::EnterRoom`].
+    AutoDeleteDelta(Duration),
 }
 
 macro_rules! server_errors {
@@ -839,6 +894,7 @@ pub enum ServerMessage {
     EnterRoom {
         players: Vec<Player>,
         num_unassigned_clients: u8,
+        autodelete_delta: Duration,
     },
     /// A previously unassigned world has been taken by a client.
     PlayerId(NonZeroU8),
@@ -866,6 +922,8 @@ pub enum ServerMessage {
     Goodbye,
     /// A player has sent their file select hash icons.
     PlayerFileHash(NonZeroU8, [HashIcon; 5]),
+    /// Sets the time after which the room will be automatically deleted has been changed.
+    AutoDeleteDelta(Duration),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -911,6 +969,13 @@ pub enum SessionStateError<E> {
     Server(String),
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum RoomView {
+    Normal,
+    ConfirmDeletion,
+    Options,
+}
+
 #[derive(Debug)]
 pub enum SessionState<E> {
     Error {
@@ -937,7 +1002,8 @@ pub enum SessionState<E> {
         players: Vec<Player>,
         num_unassigned_clients: u8,
         item_queue: Vec<u16>,
-        confirm_deletion: bool,
+        autodelete_delta: Duration,
+        view: RoomView,
         wrong_file_hash: bool,
     },
     Closed,
@@ -1014,7 +1080,7 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::EnterRoom { players, num_unassigned_clients } => {
+            ServerMessage::EnterRoom { players, num_unassigned_clients, autodelete_delta } => {
                 let (room_name, room_password) = match self {
                     SessionState::Lobby { create_new_room: false, existing_room_selection, password, .. } => (existing_room_selection.clone().unwrap_or_default(), password.clone()),
                     SessionState::Lobby { create_new_room: true, new_room_name, password, .. } => (new_room_name.clone(), password.clone()),
@@ -1022,9 +1088,9 @@ impl<E> SessionState<E> {
                 };
                 *self = SessionState::Room {
                     item_queue: Vec::default(),
-                    confirm_deletion: false,
+                    view: RoomView::Normal,
                     wrong_file_hash: false,
-                    room_name, room_password, players, num_unassigned_clients,
+                    room_name, room_password, players, num_unassigned_clients, autodelete_delta,
                 };
             }
             ServerMessage::PlayerId(world) => if let SessionState::Room { players, num_unassigned_clients, .. } = self {
@@ -1116,6 +1182,14 @@ impl<E> SessionState<E> {
                 if let Ok(idx) = players.binary_search_by_key(&world, |p| p.world) {
                     players[idx].file_hash = Some(hash);
                 }
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::AutoDeleteDelta(new_delta) => if let SessionState::Room { autodelete_delta, .. } = self {
+                *autodelete_delta = new_delta;
             } else {
                 *self = Self::Error {
                     e: SessionStateError::Mismatch,
