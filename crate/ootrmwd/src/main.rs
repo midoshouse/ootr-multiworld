@@ -233,7 +233,10 @@ async fn lobby_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket
                             base_queue: Vec::default(),
                             player_queues: HashMap::default(),
                             last_saved: Utc::now(),
-                            autodelete_tx: rooms.0.lock().await.autodelete_tx.clone(),
+                            autodelete_tx: {
+                                let rooms = rooms.0.lock().await;
+                                rooms.autodelete_tx.clone()
+                            },
                             db_pool: db_pool.clone(),
                             tracker_state: None,
                             password_hash, password_salt, clients, autodelete_delta,
@@ -583,7 +586,10 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                         player_queues: HashMap::read_sync(&mut &*row.player_queues)?,
                         last_saved: row.last_saved,
                         autodelete_delta: decode_pginterval(row.autodelete_delta)?,
-                        autodelete_tx: rooms.0.lock().await.autodelete_tx.clone(),
+                        autodelete_tx: {
+                            let rooms = rooms.0.lock().await;
+                            rooms.autodelete_tx.clone()
+                        },
                         db_pool: db_pool.clone(),
                         tracker_state: None,
                     }))).await);
