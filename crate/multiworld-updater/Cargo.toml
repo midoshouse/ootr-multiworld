@@ -8,16 +8,16 @@ edition.workspace = true
 winres = "0.1"
 
 [dependencies]
-async_zip = "0.0.9"
+async_zip = "0.0.11"
 bytes = "1"
-dark-light = "0.2"
+dark-light = "1"
 futures = "0.3"
-iced_native = "0.6"
+iced_native = "0.8"
 itertools = "0.10"
 open = "3"
 #runas = "0.2" # https://github.com/mitsuhiko/rust-runas/pull/7 https://github.com/midoshouse/ootr-multiworld/security/dependabot/1
 semver = "1"
-sysinfo = "0.26"
+sysinfo = "0.27"
 tempfile = "3"
 thiserror = "1"
 url = "2"
@@ -28,7 +28,7 @@ version = "4"
 features = ["derive"]
 
 [dependencies.iced]
-version = "0.5"
+version = "0.7"
 features = ["default_system_font", "tokio"]
 
 [dependencies.image]

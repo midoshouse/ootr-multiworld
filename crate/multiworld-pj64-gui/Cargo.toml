@@ -10,11 +10,11 @@ winres = "0.1"
 [dependencies]
 async-proto = "0.16"
 chrono = "0.4"
-dark-light = "0.2"
+dark-light = "1"
 directories = "4"
 futures = "0.3"
 iced_futures = "0.5"
-iced_native = "0.6"
+iced_native = "0.8"
 itertools = "0.10"
 once_cell = "1"
 open = "3"
@@ -27,7 +27,7 @@ version = "4"
 features = ["derive"]
 
 [dependencies.iced]
-version = "0.5"
+version = "0.7"
 features = ["default_system_font", "tokio"]
 
 [dependencies.image]

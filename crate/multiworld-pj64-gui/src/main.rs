@@ -210,7 +210,6 @@ struct State {
     pending_items_before_save: Vec<(u32, u16, NonZeroU8)>,
     pending_items_after_save: Vec<(u32, u16, NonZeroU8)>,
     updates_checked: bool,
-    should_exit: bool,
 }
 
 impl State {
@@ -263,7 +262,6 @@ impl Application for State {
             pending_items_before_save: Vec::default(),
             pending_items_after_save: Vec::default(),
             updates_checked: false,
-            should_exit: false,
             log, port,
         }, cmd(async move {
             let http_client = reqwest::Client::builder()
@@ -294,12 +292,10 @@ impl Application for State {
         }))
     }
 
-    fn should_exit(&self) -> bool { self.should_exit }
-
     fn theme(&self) -> Self::Theme {
         match dark_light::detect() { //TODO automatically update on system theme change
             Dark => Theme::Dark,
-            Light => Theme::Light,
+            Light | Default => Theme::Light,
         }
     }
 
@@ -332,7 +328,7 @@ impl Application for State {
             Message::DismissWrongPassword => if let SessionState::Lobby { ref mut wrong_password, .. } = self.server_connection {
                 *wrong_password = false;
             },
-            Message::Exit => self.should_exit = true,
+            Message::Exit => return window::close(),
             Message::JoinRoom => if let SessionState::Lobby { create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } = self.server_connection {
                 if !password.is_empty() {
                     let existing_room_selection = existing_room_selection.clone();

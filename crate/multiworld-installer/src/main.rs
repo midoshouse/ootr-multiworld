@@ -49,14 +49,14 @@ use {
         Serialize,
     },
     serenity::utils::MessageBuilder,
-    tokio::io,
+    tokio::io::{
+        self,
+        AsyncWriteExt as _,
+    },
     tokio_util::io::StreamReader,
     url::Url,
     wheel::{
-        fs::{
-            self,
-            File,
-        },
+        fs,
         traits::{
             AsyncCommandOutputExt as _,
             IoResultExt as _,
@@ -235,7 +235,6 @@ struct State {
     create_desktop_shortcut: bool,
     // Page::AskLaunch
     open_emulator: bool,
-    should_exit: bool,
 }
 
 impl Application for State {
@@ -259,7 +258,6 @@ impl Application for State {
             },
             create_desktop_shortcut: true,
             open_emulator: true,
-            should_exit: false,
         }, if emulator.is_some() {
             cmd(future::ok(Message::Continue))
         } else {
@@ -267,12 +265,10 @@ impl Application for State {
         })
     }
 
-    fn should_exit(&self) -> bool { self.should_exit }
-
     fn theme(&self) -> Self::Theme {
         match dark_light::detect() { //TODO automatically update on system theme change
             Dark => Theme::Dark,
-            Light => Theme::Light,
+            Light | Default => Theme::Light,
         }
     }
 
@@ -397,12 +393,14 @@ impl Application for State {
                                 let asset = release.assets.into_iter()
                                     .filter(|asset| regex_is_match!(r"^bizhawk_prereqs_v.+\.zip$", &asset.name))
                                     .exactly_one()?;
-                                let mut response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
-                                let mut zip_file = async_zip::read::mem::ZipFileReader::new(&mut response).await?;
-                                let _ = zip_file.entries().iter().exactly_one()?;
+                                let response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
+                                let zip_file = async_zip::read::mem::ZipFileReader::new(response.into()).await?;
+                                let _ = zip_file.file().entries().iter().exactly_one()?;
                                 {
+                                    let mut buf = Vec::default();
+                                    zip_file.entry(0).await?.read_to_end_checked(&mut buf, zip_file.file().entries()[0].entry()).await?;
                                     let prereqs = tempfile::Builder::new().prefix("bizhawk_prereqs_").suffix(".exe").tempfile()?;
-                                    zip_file.entry_reader(0).await?.copy_to_end_crc(&mut tokio::fs::File::from_std(prereqs.reopen()?), 64 * 1024).await?;
+                                    tokio::fs::File::from_std(prereqs.reopen()?).write_all(&buf).await?;
                                     let prereqs_path = prereqs.into_temp_path();
                                     runas::Command::new(&prereqs_path).status().at_command("runas")?.check("BizHawk-Prereqs")?;
                                 }
@@ -411,9 +409,9 @@ impl Application for State {
                                 #[cfg(all(windows, target_arch = "x86_64"))] let asset = release.assets.into_iter()
                                     .filter(|asset| regex_is_match!(r"^BizHawk-.+-win-x64\.zip$", &asset.name))
                                     .exactly_one()?;
-                                let mut response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
-                                let mut zip_file = async_zip::read::mem::ZipFileReader::new(&mut response).await?;
-                                let entries = zip_file.entries().iter().enumerate().map(|(idx, entry)| (idx, entry.filename().ends_with('/'), bizhawk_dir.join(entry.filename()))).collect_vec();
+                                let response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
+                                let zip_file = async_zip::read::mem::ZipFileReader::new(response.into()).await?;
+                                let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), bizhawk_dir.join(entry.entry().filename()))).collect_vec();
                                 for (idx, is_dir, path) in entries {
                                     if is_dir {
                                         fs::create_dir_all(path).await?;
@@ -421,7 +419,9 @@ impl Application for State {
                                         if let Some(parent) = path.parent() {
                                             fs::create_dir_all(parent).await?;
                                         }
-                                        zip_file.entry_reader(idx).await?.copy_to_end_crc(&mut File::create(path).await?, 64 * 1024).await?;
+                                        let mut buf = Vec::default();
+                                        zip_file.entry(idx).await?.read_to_end_checked(&mut buf, zip_file.file().entries()[idx].entry()).await?;
+                                        fs::write(path, &buf).await?;
                                     }
                                 }
                                 Ok(Message::LocateMultiworld)
@@ -490,7 +490,7 @@ impl Application for State {
                             }
                         }
                     }
-                    self.should_exit = true;
+                    return window::close()
                 }
             }
             Message::CopyDebugInfo => if let Page::Error(ref e, ref mut debug_info_copied) = self.page {
@@ -507,7 +507,7 @@ impl Application for State {
             },
             Message::EmulatorPath(new_path) => if let Page::LocateEmulator { ref mut emulator_path, .. } = self.page { *emulator_path = new_path },
             Message::Error(e) => self.page = Page::Error(e, false),
-            Message::Exit => self.should_exit = true,
+            Message::Exit => return window::close(),
             Message::InstallMultiworld => {
                 let (emulator, emulator_path, multiworld_path) = match self.page {
                     Page::LocateEmulator { emulator, ref emulator_path, ref multiworld_path, .. } |
@@ -663,7 +663,7 @@ impl Application for State {
                         .spacing(8)
                     );
                     if install_emulator && matches!(emulator, Emulator::Project64) {
-                        col = col.push(Checkbox::new(self.create_desktop_shortcut, "Create desktop shortcut", Message::SetCreateDesktopShortcut));
+                        col = col.push(Checkbox::new("Create desktop shortcut", self.create_desktop_shortcut, Message::SetCreateDesktopShortcut));
                     }
                     col.spacing(8).into()
                 },
@@ -697,11 +697,11 @@ impl Application for State {
                     match emulator {
                         Emulator::BizHawk => {
                             col = col.push(Text::new("To play multiworld, in BizHawk, select Tools → External Tool → Mido's House Multiworld for BizHawk."));
-                            col = col.push(Checkbox::new(self.open_emulator, "Open BizHawk now", Message::SetOpenEmulator));
+                            col = col.push(Checkbox::new("Open BizHawk now", self.open_emulator, Message::SetOpenEmulator));
                         }
                         Emulator::Project64 => {
                             col = col.push(Text::new("To play multiworld, open the “Mido's House Multiworld for Project64” app and follow its instructions."));
-                            col = col.push(Checkbox::new(self.open_emulator, "Open Multiworld and Project64 now", Message::SetOpenEmulator));
+                            col = col.push(Checkbox::new("Open Multiworld and Project64 now", self.open_emulator, Message::SetOpenEmulator));
                         }
                     }
                     col.spacing(8).into()

@@ -8,11 +8,11 @@ edition.workspace = true
 winres = "0.1"
 
 [dependencies]
-async_zip = "0.0.9"
-dark-light = "0.2"
+async_zip = "0.0.11"
+dark-light = "1"
 directories = "4"
 futures = "0.3"
-iced_native = "0.6"
+iced_native = "0.8"
 is_elevated = "0.1"
 itertools = "0.10"
 kuchiki = "0.8"
@@ -29,7 +29,7 @@ version = "4"
 features = ["derive"]
 
 [dependencies.iced]
-version = "0.5"
+version = "0.7"
 features = ["default_system_font", "image", "tokio"]
 
 [dependencies.image]

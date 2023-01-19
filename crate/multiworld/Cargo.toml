@@ -25,7 +25,7 @@ git = "https://github.com/fenhl/oottracker"
 branch = "main"
 
 [dependencies.pyo3]
-version = "0.17"
+version = "0.18"
 features = ["auto-initialize"]
 optional = true
 

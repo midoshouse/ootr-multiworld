@@ -212,7 +212,7 @@ impl Application for App {
     fn theme(&self) -> Self::Theme {
         match dark_light::detect() { //TODO automatically update on system theme change
             Dark => Theme::Dark,
-            Light => Theme::Light,
+            Light | Default => Theme::Light,
         }
     }
 
@@ -292,12 +292,15 @@ impl Application for App {
                         let mut zip_file = StreamReader::new(response.bytes_stream().map_err(|e| io::Error::new(io::ErrorKind::Other, e)));
                         let mut zip_file = async_zip::read::stream::ZipFileReader::new(&mut zip_file);
                         let mut required_bizhawk_version = None;
-                        while let Some(entry) = zip_file.entry_reader().await? {
+                        while let Some(mut entry) = zip_file.next_entry().await? {
                             match entry.entry().filename() {
                                 "README.txt" => {
                                     let (readme_prefix, _) = include_str!("../../../assets/bizhawk-readme.txt").split_once("{}").expect("failed to parse readme template");
+                                    let mut buf = String::default();
+                                    let entry_info = entry.entry().clone();
+                                    entry.reader().read_to_string_checked(&mut buf, &entry_info).await?;
                                     required_bizhawk_version = Some(
-                                        entry.read_to_string_crc().await?
+                                        buf
                                             .strip_prefix(readme_prefix).ok_or(Error::ReadmeFormat)?
                                             .split_once(". ").ok_or(Error::ReadmeFormat)?
                                             .0.parse()?
@@ -306,15 +309,22 @@ impl Application for App {
                                 "OotrMultiworld.dll" => {
                                     let external_tools = path.join("ExternalTools");
                                     fs::create_dir_all(&external_tools).await?;
-                                    entry.copy_to_end_crc(&mut File::create(external_tools.join("OotrMultiworld.dll")).await?, 64 * 1024).await?;
+                                    let mut buf = Vec::default();
+                                    let entry_info = entry.entry().clone();
+                                    entry.reader().read_to_end_checked(&mut buf, &entry_info).await?;
+                                    fs::write(external_tools.join("OotrMultiworld.dll"), &buf).await?;
                                 }
                                 "multiworld.dll" => {
                                     let external_tools = path.join("ExternalTools");
                                     fs::create_dir_all(&external_tools).await?;
-                                    entry.copy_to_end_crc(&mut File::create(external_tools.join("multiworld.dll")).await?, 64 * 1024).await?;
+                                    let mut buf = Vec::default();
+                                    let entry_info = entry.entry().clone();
+                                    entry.reader().read_to_end_checked(&mut buf, &entry_info).await?;
+                                    fs::write(external_tools.join("multiworld.dll"), &buf).await?;
                                 }
                                 _ => return Err(Error::UnexpectedZipEntry),
                             }
+                            zip_file = entry.done().await?;
                         }
                         let required_bizhawk_version = required_bizhawk_version.ok_or(Error::MissingReadme)?;
                         match local_bizhawk_version.cmp(&required_bizhawk_version) {
@@ -369,12 +379,12 @@ impl Application for App {
                     Ok(Message::BizHawkZip(response.bytes().await?))
                 })
             }
-            Message::BizHawkZip(mut response) => if let EmuArgs::BizHawk { ref path, .. } = self.args {
+            Message::BizHawkZip(response) => if let EmuArgs::BizHawk { ref path, .. } = self.args {
                 self.state = State::ExtractBizHawk;
                 let path = path.clone();
                 return cmd(async move {
-                    let mut zip_file = async_zip::read::mem::ZipFileReader::new(&mut response).await?;
-                    let entries = zip_file.entries().iter().enumerate().map(|(idx, entry)| (idx, entry.filename().ends_with('/'), path.join(entry.filename()))).collect_vec();
+                    let zip_file = async_zip::read::mem::ZipFileReader::new(response.into()).await?;
+                    let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), path.join(entry.entry().filename()))).collect_vec();
                     for (idx, is_dir, path) in entries {
                         if is_dir {
                             fs::create_dir_all(path).await?;
@@ -382,7 +392,9 @@ impl Application for App {
                             if let Some(parent) = path.parent() {
                                 fs::create_dir_all(parent).await?;
                             }
-                            zip_file.entry_reader(idx).await?.copy_to_end_crc(&mut File::create(path).await?, 64 * 1024).await?;
+                            let mut buf = Vec::default();
+                            zip_file.entry(idx).await?.read_to_end_checked(&mut buf, zip_file.file().entries()[idx].entry()).await?;
+                            fs::write(path, &buf).await?;
                         }
                     }
                     Ok(Message::Launch)
@@ -506,10 +518,6 @@ impl Application for App {
                 .padding(8)
                 .into(),
         }
-    }
-
-    fn should_exit(&self) -> bool {
-        matches!(self.state, State::Done)
     }
 }
 
