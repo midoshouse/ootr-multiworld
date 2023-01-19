@@ -9,7 +9,6 @@ use {
             CStr,
             CString,
         },
-        fmt,
         fs::{
             self,
             File,
@@ -99,39 +98,28 @@ impl StringHandle {
     }
 }
 
-pub struct DebugError(String);
-
-impl<E: fmt::Debug> From<E> for DebugError {
-    fn from(e: E) -> DebugError {
-        DebugError(format!("{e:?}"))
-    }
-}
-
-impl fmt::Display for DebugError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-/// A result type where the error has been converted to its `Debug` representation.
-/// Useful because it somewhat deduplicates boilerplate on the C# side.
-pub type DebugResult<T> = Result<T, DebugError>;
-
-trait DebugResultExt {
-    type T;
-
-    fn debug_unwrap(self) -> Self::T;
-}
-
-impl<T> DebugResultExt for DebugResult<T> {
-    type T = T;
-
-    fn debug_unwrap(self) -> T {
-        match self {
-            Ok(x) => x,
-            Err(e) => panic!("{e}"),
-        }
-    }
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)] Client(#[from] multiworld::ClientError),
+    #[error(transparent)] Io(#[from] std::io::Error),
+    #[error(transparent)] Read(#[from] async_proto::ReadError),
+    #[error(transparent)] Reqwest(#[from] reqwest::Error),
+    #[error(transparent)] Semver(#[from] semver::Error),
+    #[error(transparent)] ServerStructured(#[from] ServerError),
+    #[error(transparent)] Winver(#[from] winver::Error),
+    #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error("current executable at filesystem root")]
+    CurrentExeAtRoot,
+    #[error("{0}")]
+    Ffi(String),
+    #[error("user folder not found")]
+    MissingHomeDir,
+    #[error("no releases")]
+    NoReleases,
+    #[error("tried to connect to a room while not in lobby")]
+    NotInLobby,
+    #[error("{0}")]
+    ServerOther(String),
 }
 
 #[derive(Debug)]
@@ -161,6 +149,15 @@ impl Client {
     }
 }
 
+/// # Safety
+///
+/// `msg` must be a null-terminated UTF-8 string.
+#[csharp_ffi] pub unsafe extern "C" fn log(msg: *const c_char) {
+    if CONFIG.log {
+        writeln!(&*LOG, "{}", CStr::from_ptr(msg).to_str().expect("log text was not valid UTF-8")).expect("failed to write log entry");
+    }
+}
+
 #[csharp_ffi] pub extern "C" fn version_string() -> StringHandle {
     StringHandle::from_string(if CONFIG.port == multiworld::PORT {
         format!("v{}", env!("CARGO_PKG_VERSION"))
@@ -169,7 +166,7 @@ impl Client {
     })
 }
 
-#[csharp_ffi] pub extern "C" fn update_available() -> HandleOwned<DebugResult<bool>> {
+#[csharp_ffi] pub extern "C" fn update_available() -> HandleOwned<Result<bool, Error>> {
     let repo = Repo::new("midoshouse", "ootr-multiworld");
     HandleOwned::new(
         reqwest::blocking::Client::builder()
@@ -177,45 +174,75 @@ impl Client {
             .http2_prior_knowledge()
             .use_rustls_tls()
             .https_only(true)
-            .build().map_err(DebugError::from)
-            .and_then(|client| repo.latest_release_sync(&client).map_err(DebugError::from))
-            .and_then(|release| release.ok_or_else(|| DebugError(format!("no releases"))))
+            .build().map_err(Error::from)
+            .and_then(|client| repo.latest_release_sync(&client).map_err(Error::from))
+            .and_then(|release| release.ok_or(Error::NoReleases))
             .and_then(|release| Ok(release.version()? > Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse current version")))
     )
 }
 
 /// # Safety
 ///
-/// `bool_res` must point at a valid `DebugResult<bool>`. This function takes ownership of the `DebugResult`.
-#[csharp_ffi] pub unsafe extern "C" fn bool_result_free(bool_res: HandleOwned<DebugResult<bool>>) {
+/// `bool_res` must point at a valid `Result<bool, Error>`. This function takes ownership of the `Result`.
+#[csharp_ffi] pub unsafe extern "C" fn bool_result_free(bool_res: HandleOwned<Result<bool, Error>>) {
     let _ = bool_res.into_box();
 }
 
 /// # Safety
 ///
-/// `bool_res` must point at a valid `DebugResult<bool>`.
-#[csharp_ffi] pub unsafe extern "C" fn bool_result_is_ok(bool_res: *const DebugResult<bool>) -> FfiBool {
+/// `bool_res` must point at a valid `Result<bool, Error>`.
+#[csharp_ffi] pub unsafe extern "C" fn bool_result_is_ok(bool_res: *const Result<bool, Error>) -> FfiBool {
     (&*bool_res).is_ok().into()
 }
 
 /// # Safety
 ///
-/// `bool_res` must point at a valid `DebugResult<bool>`. This function takes ownership of the `DebugResult`.
-#[csharp_ffi] pub unsafe extern "C" fn bool_result_unwrap(bool_res: HandleOwned<DebugResult<bool>>) -> FfiBool {
-    bool_res.into_box().debug_unwrap().into()
+/// `bool_res` must point at a valid `Result<bool, Error>`. This function takes ownership of the `Result`.
+#[csharp_ffi] pub unsafe extern "C" fn bool_result_unwrap(bool_res: HandleOwned<Result<bool, Error>>) -> FfiBool {
+    bool_res.into_box().unwrap().into()
 }
 
 /// # Safety
 ///
-/// `bool_res` must point at a valid `DebugResult<bool>`. This function takes ownership of the `DebugResult`.
-#[csharp_ffi] pub unsafe extern "C" fn bool_result_debug_err(bool_res: HandleOwned<DebugResult<bool>>) -> StringHandle {
-    StringHandle::from_string(bool_res.into_box().unwrap_err())
+/// `bool_res` must point at a valid `Result<bool>`. This function takes ownership of the `Result`.
+#[csharp_ffi] pub unsafe extern "C" fn bool_result_unwrap_err(bool_res: HandleOwned<Result<bool, Error>>) -> HandleOwned<Error> {
+    HandleOwned::new(bool_res.into_box().unwrap_err())
 }
 
-#[csharp_ffi] pub extern "C" fn run_updater() -> HandleOwned<DebugResult<()>> {
-    #[cfg(target_os = "windows")] fn inner() -> DebugResult<()> {
+/// # Safety
+///
+/// `error` must point at a valid `Error`. This function takes ownership of the `Error`.
+#[csharp_ffi] pub unsafe extern "C" fn error_free(error: HandleOwned<Error>) {
+    let _ = error.into_box();
+}
+
+/// # Safety
+///
+/// `text` must be a null-terminated UTF-8 string.
+#[csharp_ffi] pub unsafe extern "C" fn error_from_string(text: *const c_char) -> HandleOwned<Error> {
+    HandleOwned::new(Error::Ffi(CStr::from_ptr(text).to_str().expect("error text was not valid UTF-8").to_owned()))
+}
+
+/// # Safety
+///
+/// `error` must point at a valid `Error`.
+#[csharp_ffi] pub unsafe extern "C" fn error_debug(error: *const Error) -> StringHandle {
+    let error = &*error;
+    StringHandle::from_string(format!("{error:?}"))
+}
+
+/// # Safety
+///
+/// `error` must point at a valid `Error`.
+#[csharp_ffi] pub unsafe extern "C" fn error_display(error: *const Error) -> StringHandle {
+    let error = &*error;
+    StringHandle::from_string(error)
+}
+
+#[csharp_ffi] pub extern "C" fn run_updater() -> HandleOwned<Result<(), Error>> {
+    #[cfg(target_os = "windows")] fn inner() -> Result<(), Error> {
         let [major, minor, patch, _] = winver::get_file_version_info("EmuHawk.exe")?;
-        let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or("user folder not found")?;
+        let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::MissingHomeDir)?;
         let cache_dir = project_dirs.cache_dir();
         fs::create_dir_all(cache_dir)?;
         let updater_path = cache_dir.join("updater.exe");
@@ -223,7 +250,7 @@ impl Client {
         fs::write(&updater_path, updater_data)?;
         Command::new(updater_path)
             .arg("bizhawk")
-            .arg(env::current_exe()?.canonicalize()?.parent().ok_or(DebugError(format!("current executable at filesystem root")))?)
+            .arg(env::current_exe()?.canonicalize()?.parent().ok_or(Error::CurrentExeAtRoot)?)
             .arg(process::id().to_string())
             .arg(format!("{major}.{minor}.{patch}"))
             .spawn()?;
@@ -237,9 +264,9 @@ impl Client {
     CONFIG.port
 }
 
-fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<TcpStream> {
+fn connect_inner(addr: impl ToSocketAddrs) -> Result<TcpStream, Error> {
     TcpStream::connect(addr)
-        .map_err(DebugError::from)
+        .map_err(Error::from)
         .and_then(|mut tcp_stream| {
             tcp_stream.set_read_timeout(Some(Duration::from_secs(30)))?;
             tcp_stream.set_write_timeout(Some(Duration::from_secs(30)))?;
@@ -248,7 +275,7 @@ fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<TcpStream> {
         })
 }
 
-#[csharp_ffi] pub extern "C" fn connect_ipv4(port: u16) -> HandleOwned<DebugResult<Client>> {
+#[csharp_ffi] pub extern "C" fn connect_ipv4(port: u16) -> HandleOwned<Result<Client, Error>> {
     HandleOwned::new(connect_inner((multiworld::ADDRESS_V4, port)).map(|tcp_stream| Client {
         session_state: SessionState::Init,
         buf: Vec::default(),
@@ -264,7 +291,7 @@ fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<TcpStream> {
     }))
 }
 
-#[csharp_ffi] pub extern "C" fn connect_ipv6(port: u16) -> HandleOwned<DebugResult<Client>> {
+#[csharp_ffi] pub extern "C" fn connect_ipv6(port: u16) -> HandleOwned<Result<Client, Error>> {
     HandleOwned::new(connect_inner((multiworld::ADDRESS_V6, port)).map(|tcp_stream| Client {
         session_state: SessionState::Init,
         buf: Vec::default(),
@@ -321,49 +348,49 @@ fn connect_inner(addr: impl ToSocketAddrs) -> DebugResult<TcpStream> {
 
 /// # Safety
 ///
-/// `str_res` must point at a valid `DebugResult<String>`. This function takes ownership of the `DebugResult`.
-#[csharp_ffi] pub unsafe extern "C" fn string_result_free(str_res: HandleOwned<DebugResult<String>>) {
+/// `str_res` must point at a valid `Result<String, Error>`. This function takes ownership of the `Result`.
+#[csharp_ffi] pub unsafe extern "C" fn string_result_free(str_res: HandleOwned<Result<String, Error>>) {
     let _ = str_res.into_box();
 }
 
 /// # Safety
 ///
-/// `str_res` must point at a valid `DebugResult<String>`.
-#[csharp_ffi] pub unsafe extern "C" fn string_result_is_ok(str_res: *const DebugResult<String>) -> FfiBool {
+/// `str_res` must point at a valid `Result<String, Error>`.
+#[csharp_ffi] pub unsafe extern "C" fn string_result_is_ok(str_res: *const Result<String, Error>) -> FfiBool {
     (&*str_res).is_ok().into()
 }
 
 /// # Safety
 ///
-/// `str_res` must point at a valid `DebugResult<String>`. This function takes ownership of the `DebugResult`.
-#[csharp_ffi] pub unsafe extern "C" fn string_result_unwrap(str_res: HandleOwned<DebugResult<String>>) -> StringHandle {
-    StringHandle::from_string(str_res.into_box().debug_unwrap())
+/// `str_res` must point at a valid `Result<String, Error>`. This function takes ownership of the `Result`.
+#[csharp_ffi] pub unsafe extern "C" fn string_result_unwrap(str_res: HandleOwned<Result<String, Error>>) -> StringHandle {
+    StringHandle::from_string(str_res.into_box().unwrap())
 }
 
 /// # Safety
 ///
-/// `str_res` must point at a valid `DebugResult<String>`. This function takes ownership of the `DebugResult`.
-#[csharp_ffi] pub unsafe extern "C" fn string_result_debug_err(str_res: HandleOwned<DebugResult<String>>) -> StringHandle {
-    StringHandle::from_string(str_res.into_box().unwrap_err())
+/// `str_res` must point at a valid `Result<String, Error>`. This function takes ownership of the `Result`.
+#[csharp_ffi] pub unsafe extern "C" fn string_result_unwrap_err(str_res: HandleOwned<Result<String, Error>>) -> HandleOwned<Error> {
+    HandleOwned::new(str_res.into_box().unwrap_err())
 }
 
-fn client_room_connect_inner(client: &mut Client, room_name: String, room_password: String) -> DebugResult<()> {
+fn client_room_connect_inner(client: &mut Client, room_name: String, room_password: String) -> Result<(), Error> {
     if let SessionState::Lobby { ref rooms, .. } = client.session_state {
         if rooms.contains(&room_name) {
             client.write(&ClientMessage::JoinRoom { name: room_name.clone(), password: Some(room_password.clone()) })?;
         } else {
             client.write(&ClientMessage::CreateRoom { name: room_name.clone(), password: room_password.clone() })?;
         }
+        Ok(())
     } else {
-        return Err(DebugError(format!("tried to connect to a room while not in lobby")))
+        Err(Error::NotInLobby)
     }
-    Ok(())
 }
 
 /// # Safety
 ///
 /// `client` must point at a valid `Client`. `room_name` and `password` must be null-terminated UTF-8 strings.
-#[csharp_ffi] pub unsafe extern "C" fn client_room_connect(client: *mut Client, room_name: *const c_char, room_password: *const c_char) -> HandleOwned<DebugResult<()>> {
+#[csharp_ffi] pub unsafe extern "C" fn client_room_connect(client: *mut Client, room_name: *const c_char, room_password: *const c_char) -> HandleOwned<Result<(), Error>> {
     HandleOwned::new(client_room_connect_inner(
         &mut *client,
         CStr::from_ptr(room_name).to_str().expect("room name was not valid UTF-8").to_owned(),
@@ -373,23 +400,23 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 
 /// # Safety
 ///
-/// `client_res` must point at a valid `DebugResult<Client>`. This function takes ownership of the `DebugResult`.
-#[csharp_ffi] pub unsafe extern "C" fn client_result_free(client_res: HandleOwned<DebugResult<Client>>) {
+/// `client_res` must point at a valid `Result<Client>`. This function takes ownership of the `Result`.
+#[csharp_ffi] pub unsafe extern "C" fn client_result_free(client_res: HandleOwned<Result<Client, Error>>) {
     let _ = client_res.into_box();
 }
 
 /// # Safety
 ///
-/// `client_res` must point at a valid `DebugResult<Client>`.
-#[csharp_ffi] pub unsafe extern "C" fn client_result_is_ok(client_res: *const DebugResult<Client>) -> FfiBool {
+/// `client_res` must point at a valid `Result<Client>`.
+#[csharp_ffi] pub unsafe extern "C" fn client_result_is_ok(client_res: *const Result<Client, Error>) -> FfiBool {
     (&*client_res).is_ok().into()
 }
 
 /// # Safety
 ///
-/// `client_res` must point at a valid `DebugResult<Client>`. This function takes ownership of the `DebugResult`.
-#[csharp_ffi] pub unsafe extern "C" fn client_result_unwrap(client_res: HandleOwned<DebugResult<Client>>) -> HandleOwned<Client> {
-    HandleOwned::new(client_res.into_box().debug_unwrap())
+/// `client_res` must point at a valid `Result<Client>`. This function takes ownership of the `Result`.
+#[csharp_ffi] pub unsafe extern "C" fn client_result_unwrap(client_res: HandleOwned<Result<Client, Error>>) -> HandleOwned<Client> {
+    HandleOwned::new(client_res.into_box().unwrap())
 }
 
 /// # Safety
@@ -422,6 +449,17 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 ///
 /// `client` must point at a valid `Client`.
 #[csharp_ffi] pub unsafe extern "C" fn client_debug_err(client: *const Client) -> StringHandle {
+    let client = &*client;
+    match client.session_state {
+        SessionState::Error { ref e, .. } => StringHandle::from_string(format!("{e:?}")),
+        _ => StringHandle::from_string("tried to check session error when there was none"),
+    }
+}
+
+/// # Safety
+///
+/// `client` must point at a valid `Client`.
+#[csharp_ffi] pub unsafe extern "C" fn client_display_err(client: *const Client) -> StringHandle {
     let client = &*client;
     match client.session_state {
         SessionState::Error { ref e, .. } => StringHandle::from_string(e),
@@ -478,9 +516,9 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 
 /// # Safety
 ///
-/// `client_res` must point at a valid `DebugResult<Client>`. This function takes ownership of the `DebugResult`.
-#[csharp_ffi] pub unsafe extern "C" fn client_result_debug_err(client_res: HandleOwned<DebugResult<Client>>) -> StringHandle {
-    StringHandle::from_string(client_res.into_box().unwrap_err())
+/// `client_res` must point at a valid `Result<Client, Error>`. This function takes ownership of the `Result`.
+#[csharp_ffi] pub unsafe extern "C" fn client_result_unwrap_err(client_res: HandleOwned<Result<Client, Error>>) -> HandleOwned<Error> {
+    HandleOwned::new(client_res.into_box().unwrap_err())
 }
 
 /// # Safety
@@ -490,7 +528,7 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 /// # Panics
 ///
 /// If `id` is `0`.
-#[csharp_ffi] pub unsafe extern "C" fn client_set_player_id(client: *mut Client, id: u8) -> HandleOwned<DebugResult<()>> {
+#[csharp_ffi] pub unsafe extern "C" fn client_set_player_id(client: *mut Client, id: u8) -> HandleOwned<Result<(), Error>> {
     let client = &mut *client;
     let id = NonZeroU8::new(id).expect("tried to claim world 0");
 
@@ -524,33 +562,33 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 
 /// # Safety
 ///
-/// `unit_res` must point at a valid `DebugResult<()>`. This function takes ownership of the `DebugResult`.
-#[csharp_ffi] pub unsafe extern "C" fn unit_result_free(unit_res: HandleOwned<DebugResult<()>>) {
+/// `unit_res` must point at a valid `Result<(), Error>`. This function takes ownership of the `Result`.
+#[csharp_ffi] pub unsafe extern "C" fn unit_result_free(unit_res: HandleOwned<Result<(), Error>>) {
     let _ = unit_res.into_box();
 }
 
 /// # Safety
 ///
-/// `unit_res` must point at a valid `DebugResult<()>`.
-#[csharp_ffi] pub unsafe extern "C" fn unit_result_is_ok(unit_res: *const DebugResult<()>) -> FfiBool {
+/// `unit_res` must point at a valid `Result<(), Error>`.
+#[csharp_ffi] pub unsafe extern "C" fn unit_result_is_ok(unit_res: *const Result<(), Error>) -> FfiBool {
     (&*unit_res).is_ok().into()
 }
 
 /// # Safety
 ///
-/// `unit_res` must point at a valid `DebugResult<()>`. This function takes ownership of the `DebugResult`.
-#[csharp_ffi] pub unsafe extern "C" fn unit_result_debug_err(unit_res: HandleOwned<DebugResult<()>>) -> StringHandle {
-    StringHandle::from_string(unit_res.into_box().unwrap_err())
+/// `unit_res` must point at a valid `Result<(), Error>`. This function takes ownership of the `Result`.
+#[csharp_ffi] pub unsafe extern "C" fn unit_result_unwrap_err(unit_res: HandleOwned<Result<(), Error>>) -> HandleOwned<Error> {
+    HandleOwned::new(unit_res.into_box().unwrap_err())
 }
 
 /// # Safety
 ///
 /// `client` must point at a valid `Client`.
-#[csharp_ffi] pub unsafe extern "C" fn client_reset_player_id(client: *mut Client) -> HandleOwned<DebugResult<()>> {
+#[csharp_ffi] pub unsafe extern "C" fn client_reset_player_id(client: *mut Client) -> HandleOwned<Result<(), Error>> {
     let client = &mut *client;
     HandleOwned::new(if client.last_world != None {
         client.last_world = None;
-        client.write(&ClientMessage::ResetPlayerId).map_err(DebugError::from)
+        client.write(&ClientMessage::ResetPlayerId).map_err(Error::from)
     } else {
         Ok(())
     })
@@ -559,7 +597,7 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 /// # Safety
 ///
 /// `client` must point at a valid `Client`. `name` must point at a byte slice of length 8.
-#[csharp_ffi] pub unsafe extern "C" fn client_set_player_name(client: *mut Client, name: *const u8) -> HandleOwned<DebugResult<()>> {
+#[csharp_ffi] pub unsafe extern "C" fn client_set_player_name(client: *mut Client, name: *const u8) -> HandleOwned<Result<(), Error>> {
     let client = &mut *client;
     let name = slice::from_raw_parts(name, 8);
 
@@ -579,7 +617,7 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 /// # Safety
 ///
 /// `client` must point at a valid `Client`. `hash` must point at a byte slice of length 5.
-#[csharp_ffi] pub unsafe extern "C" fn client_set_file_hash(client: *mut Client, hash: *const HashIcon) -> HandleOwned<DebugResult<()>> {
+#[csharp_ffi] pub unsafe extern "C" fn client_set_file_hash(client: *mut Client, hash: *const HashIcon) -> HandleOwned<Result<(), Error>> {
     let client = &mut *client;
     let hash = slice::from_raw_parts(hash, 5);
 
@@ -604,7 +642,7 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 /// # Panics
 ///
 /// If `save` does not represent valid OoT save sata.
-#[csharp_ffi] pub unsafe extern "C" fn client_set_save_data(client: *mut Client, save: *const u8) -> HandleOwned<DebugResult<()>> {
+#[csharp_ffi] pub unsafe extern "C" fn client_set_save_data(client: *mut Client, save: *const u8) -> HandleOwned<Result<(), Error>> {
     let client = &mut *client;
     let save = slice::from_raw_parts(save, oottracker::save::SIZE);
     if let SessionState::Room { .. } = client.session_state {
@@ -692,11 +730,11 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 /// # Panics
 ///
 /// If `client` is not in a room.
-#[csharp_ffi] pub unsafe extern "C" fn client_kick_player(client: *mut Client, player_idx: u8) -> HandleOwned<DebugResult<()>> {
+#[csharp_ffi] pub unsafe extern "C" fn client_kick_player(client: *mut Client, player_idx: u8) -> HandleOwned<Result<(), Error>> {
     let client = &mut *client;
     if let SessionState::Room { ref players, .. } = client.session_state {
         let target_world = players[usize::from(player_idx)].world;
-        HandleOwned::new(client.write(&ClientMessage::KickPlayer(target_world)).map_err(DebugError::from))
+        HandleOwned::new(client.write(&ClientMessage::KickPlayer(target_world)).map_err(Error::from))
     } else {
         panic!("client is not in a room")
     }
@@ -705,9 +743,9 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 /// # Safety
 ///
 /// `client` must point at a valid `Client`.
-#[csharp_ffi] pub unsafe extern "C" fn client_delete_room(client: *mut Client) -> HandleOwned<DebugResult<()>> {
+#[csharp_ffi] pub unsafe extern "C" fn client_delete_room(client: *mut Client) -> HandleOwned<Result<(), Error>> {
     let client = &mut *client;
-    HandleOwned::new(client.write(&ClientMessage::DeleteRoom).map_err(DebugError::from))
+    HandleOwned::new(client.write(&ClientMessage::DeleteRoom).map_err(Error::from))
 }
 
 /// Attempts to read a message from the server if one is available, without blocking if there is not.
@@ -715,7 +753,7 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 /// # Safety
 ///
 /// `client` must point at a valid `Client`.
-#[csharp_ffi] pub unsafe extern "C" fn client_try_recv_message(client: *mut Client, port: u16) -> HandleOwned<DebugResult<Option<ServerMessage>>> {
+#[csharp_ffi] pub unsafe extern "C" fn client_try_recv_message(client: *mut Client, port: u16) -> HandleOwned<Result<Option<ServerMessage>, Error>> {
     let client = &mut *client;
     HandleOwned::new(if let SessionState::Error { auto_retry: true, .. } = client.session_state {
         if client.retry <= Instant::now() {
@@ -737,7 +775,7 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
     } else {
         if client.last_ping.elapsed() >= Duration::from_secs(30) {
             if let Err(e) = client.write(&ClientMessage::Ping) {
-                return HandleOwned::new(Err(DebugError::from(e)))
+                return HandleOwned::new(Err(Error::from(e)))
             }
             client.last_ping = Instant::now();
         }
@@ -753,16 +791,16 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
                     },
                     ServerMessage::EnterRoom { .. } => if let Some(last_world) = client.last_world {
                         if let Err(e) = client.write(&ClientMessage::PlayerId(last_world)) {
-                            return HandleOwned::new(Err(DebugError::from(e)))
+                            return HandleOwned::new(Err(Error::from(e)))
                         }
                         if client.last_name != Filename::default() {
                             if let Err(e) = client.write(&ClientMessage::PlayerName(client.last_name)) {
-                                return HandleOwned::new(Err(DebugError::from(e)))
+                                return HandleOwned::new(Err(Error::from(e)))
                             }
                         }
                         if let Some(hash) = client.last_hash {
                             if let Err(e) = client.write(&ClientMessage::FileHash(hash)) {
-                                return HandleOwned::new(Err(DebugError::from(e)))
+                                return HandleOwned::new(Err(Error::from(e)))
                             }
                         }
                     },
@@ -790,30 +828,30 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
                 };
                 Ok(None)
             }
-            Err(e) => Err(DebugError::from(e)),
+            Err(e) => Err(Error::from(e)),
         }
     })
 }
 
 /// # Safety
 ///
-/// `opt_msg_res` must point at a valid `DebugResult<Option<ServerMessage>>`. This function takes ownership of the `DebugResult`.
-#[csharp_ffi] pub unsafe extern "C" fn opt_message_result_free(opt_msg_res: HandleOwned<DebugResult<Option<ServerMessage>>>) {
+/// `opt_msg_res` must point at a valid `Result<Option<ServerMessage>, Error>`. This function takes ownership of the `Result`.
+#[csharp_ffi] pub unsafe extern "C" fn opt_message_result_free(opt_msg_res: HandleOwned<Result<Option<ServerMessage>, Error>>) {
     let _ = opt_msg_res.into_box();
 }
 
 /// # Safety
 ///
-/// `opt_msg_res` must point at a valid `DebugResult<Option<ServerMessage>>`.
-#[csharp_ffi] pub unsafe extern "C" fn opt_message_result_is_ok_some(opt_msg_res: *const DebugResult<Option<ServerMessage>>) -> FfiBool {
+/// `opt_msg_res` must point at a valid `Result<Option<ServerMessage>, Error>`.
+#[csharp_ffi] pub unsafe extern "C" fn opt_message_result_is_ok_some(opt_msg_res: *const Result<Option<ServerMessage>, Error>) -> FfiBool {
     (&*opt_msg_res).as_ref().map_or(false, |opt_msg| opt_msg.is_some()).into()
 }
 
 /// # Safety
 ///
-/// `opt_msg_res` must point at a valid `DebugResult<Option<ServerMessage>>>`. This function takes ownership of the `DebugResult`.
-#[csharp_ffi] pub unsafe extern "C" fn opt_message_result_unwrap_unwrap(opt_msg_res: HandleOwned<DebugResult<Option<ServerMessage>>>) -> HandleOwned<ServerMessage> {
-    HandleOwned::new(opt_msg_res.into_box().debug_unwrap().unwrap())
+/// `opt_msg_res` must point at a valid `Result<Option<ServerMessage>, Error>`. This function takes ownership of the `Result`.
+#[csharp_ffi] pub unsafe extern "C" fn opt_message_result_unwrap_unwrap(opt_msg_res: HandleOwned<Result<Option<ServerMessage>, Error>>) -> HandleOwned<ServerMessage> {
+    HandleOwned::new(opt_msg_res.into_box().unwrap().unwrap())
 }
 
 /// # Safety
@@ -825,32 +863,30 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 
 /// # Safety
 ///
-/// `opt_msg_res` must point at a valid `DebugResult<Option<ServerMessage>>`.
-#[csharp_ffi] pub unsafe extern "C" fn opt_message_result_is_err(opt_msg_res: *const DebugResult<Option<ServerMessage>>) -> FfiBool {
+/// `opt_msg_res` must point at a valid `Result<Option<ServerMessage>, Error>`.
+#[csharp_ffi] pub unsafe extern "C" fn opt_message_result_is_err(opt_msg_res: *const Result<Option<ServerMessage>, Error>) -> FfiBool {
     matches!(&*opt_msg_res, Ok(Some(ServerMessage::StructuredError(_) | ServerMessage::OtherError(_))) | Err(_)).into()
 }
 
 /// # Safety
 ///
-/// `opt_msg_res` must point at a valid `DebugResult<Option<ServerMessage>>>`. This function takes ownership of the `DebugResult`.
-#[csharp_ffi] pub unsafe extern "C" fn opt_message_result_debug_err(opt_msg_res: HandleOwned<DebugResult<Option<ServerMessage>>>) -> StringHandle {
-    StringHandle::from_string(match *opt_msg_res.into_box() {
-        Ok(Some(ServerMessage::StructuredError(ServerError::WrongPassword))) => format!("wrong password"),
-        Ok(Some(ServerMessage::StructuredError(ServerError::WrongFileHash))) => format!("wrong file hash"),
-        Ok(Some(ServerMessage::StructuredError(ServerError::Future(discrim)))) => format!("server error #{discrim}"),
-        Ok(Some(ServerMessage::OtherError(e))) => e,
-        Ok(value) => panic!("tried to debug_err an Ok({value:?})"),
-        Err(e) => e.0,
+/// `opt_msg_res` must point at a valid `Result<Option<ServerMessage>, Error>`. This function takes ownership of the `Result`.
+#[csharp_ffi] pub unsafe extern "C" fn opt_message_result_unwrap_err(opt_msg_res: HandleOwned<Result<Option<ServerMessage>, Error>>) -> HandleOwned<Error> {
+    HandleOwned::new(match *opt_msg_res.into_box() {
+        Ok(Some(ServerMessage::StructuredError(e))) => Error::ServerStructured(e),
+        Ok(Some(ServerMessage::OtherError(e))) => Error::ServerOther(e),
+        Ok(value) => panic!("tried to unwrap_err an Ok({value:?})"),
+        Err(e) => e,
     })
 }
 
 /// # Safety
 ///
 /// `client` must point at a valid `Client`.
-#[csharp_ffi] pub unsafe extern "C" fn client_send_item(client: *mut Client, key: u32, kind: u16, target_world: u8) -> HandleOwned<DebugResult<()>> {
+#[csharp_ffi] pub unsafe extern "C" fn client_send_item(client: *mut Client, key: u32, kind: u16, target_world: u8) -> HandleOwned<Result<(), Error>> {
     let client = &mut *client;
     let target_world = NonZeroU8::new(target_world).expect("tried to send an item to world 0");
-    HandleOwned::new(client.write(&ClientMessage::SendItem { key, kind, target_world }).map_err(DebugError::from))
+    HandleOwned::new(client.write(&ClientMessage::SendItem { key, kind, target_world }).map_err(Error::from))
 }
 
 /// # Safety
@@ -904,4 +940,28 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
     } else {
         panic!("client is not in a room")
     }
+}
+
+/// # Safety
+///
+/// `client` must point at a valid `Client`.
+///
+/// # Panics
+///
+/// If `client` is not in a room.
+#[csharp_ffi] pub unsafe extern "C" fn client_get_autodelete_seconds(client: *const Client) -> u64 {
+    let client = &*client;
+    if let SessionState::Room { autodelete_delta, .. } = client.session_state {
+        autodelete_delta.as_secs()
+    } else {
+        panic!("client is not in a room")
+    }
+}
+
+/// # Safety
+///
+/// `client` must point at a valid `Client`.
+#[csharp_ffi] pub unsafe extern "C" fn client_set_autodelete_seconds(client: *mut Client, seconds: u64) -> HandleOwned<Result<(), Error>> {
+    let client = &mut *client;
+    HandleOwned::new(client.write(&ClientMessage::AutoDeleteDelta(Duration::from_secs(seconds))).map_err(Error::Write))
 }

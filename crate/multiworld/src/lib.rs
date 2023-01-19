@@ -832,14 +832,15 @@ pub enum ClientMessage {
 }
 
 macro_rules! server_errors {
-    ($(#[$attr:meta] $variant:ident),* $(,)?) => {
+    ($($(#[$attr:meta])* $variant:ident),* $(,)?) => {
         /// New unit variants on this enum don't cause a major version bump, since the client interprets them as instances of the `Future` variant.
-        #[derive(Debug, Clone, Copy, Protocol)]
+        #[derive(Debug, Clone, Copy, Protocol, thiserror::Error)]
         #[async_proto(via = u8, clone)]
         pub enum ServerError {
             /// The server sent a `ServerError` that the client doesn't know about yet.
+            #[error("server error #{0}")]
             Future(u8),
-            $(#[$attr] $variant,)*
+            $($(#[$attr])* $variant,)*
         }
 
         impl From<u8> for ServerError {
@@ -869,8 +870,10 @@ macro_rules! server_errors {
 
 server_errors! {
     /// The client sent the wrong password for the given room.
+    #[error("wrong password")]
     WrongPassword,
     /// The client has the wrong seed loaded.
+    #[error("wrong file hash")]
     WrongFileHash,
 }
 

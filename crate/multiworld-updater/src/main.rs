@@ -100,6 +100,12 @@ enum Error {
     MissingReadme,
     #[error("there are no released versions")]
     NoReleases,
+    #[error("failed to update Project64 script")]
+    Pj64Script {
+        temp_path: PathBuf,
+        script_path: PathBuf,
+        source: wheel::Error,
+    },
     #[error("failed to locate Program Files folder")]
     ProgramFiles,
     #[error("could not find expected BizHawk version in README.md")]
@@ -262,9 +268,15 @@ impl Application for App {
                             let temp_path = tokio::task::spawn_blocking(|| tempfile::Builder::default().prefix("ootrmw-pj64").suffix(".js").tempfile()).await??;
                             io::copy_buf(&mut &*new_script, &mut tokio::fs::File::from_std(temp_path.reopen()?)).await?;
                             tokio::task::spawn_blocking(move || {
-                                runas::Command::new(env::current_exe()?).arg("pj64script").arg(temp_path.as_ref()).arg(script_path).gui(true).status().at_command("runas")?.check("runas")?;
+                                //TODO config option to log output from this command?
+                                if let Err(source) = runas::Command::new(env::current_exe()?).arg("pj64script").arg(temp_path.as_ref()).arg(&script_path).gui(true).status().at_command("runas")?.check("runas") {
+                                    return Err(Error::Pj64Script {
+                                        temp_path: temp_path.as_ref().to_owned(),
+                                        script_path, source,
+                                    })
+                                }
                                 drop(temp_path);
-                                Ok::<_, Error>(())
+                                Ok(())
                             }).await??;
                         }
                     }

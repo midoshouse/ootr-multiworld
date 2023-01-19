@@ -2808,6 +2808,7 @@ dependencies = [
  "oottracker",
  "reqwest",
  "semver 1.0.14",
+ "thiserror",
  "winver",
 ]
 

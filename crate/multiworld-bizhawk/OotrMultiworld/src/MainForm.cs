@@ -10,12 +10,17 @@ using BizHawk.Client.EmuHawk;
 
 namespace MidosHouse.OotrMultiworld {
     internal class Native {
+        [DllImport("multiworld")] internal static extern void log(OwnedStringHandle msg);
         [DllImport("multiworld")] internal static extern StringHandle version_string();
         [DllImport("multiworld")] internal static extern BoolResult update_available();
         [DllImport("multiworld")] internal static extern void bool_result_free(IntPtr bool_res);
         [DllImport("multiworld")] internal static extern bool bool_result_is_ok(BoolResult bool_res);
         [DllImport("multiworld")] internal static extern bool bool_result_unwrap(IntPtr bool_res);
-        [DllImport("multiworld")] internal static extern StringHandle bool_result_debug_err(IntPtr bool_res);
+        [DllImport("multiworld")] internal static extern Error bool_result_unwrap_err(IntPtr bool_res);
+        [DllImport("multiworld")] internal static extern void error_free(IntPtr error);
+        [DllImport("multiworld")] internal static extern Error error_from_string(OwnedStringHandle text);
+        [DllImport("multiworld")] internal static extern StringHandle error_debug(Error error);
+        [DllImport("multiworld")] internal static extern StringHandle error_display(Error error);
         [DllImport("multiworld")] internal static extern UnitResult run_updater();
         [DllImport("multiworld")] internal static extern ushort default_port();
         [DllImport("multiworld")] internal static extern ClientResult connect_ipv4(ushort port);
@@ -23,26 +28,27 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern void client_result_free(IntPtr client_res);
         [DllImport("multiworld")] internal static extern bool client_result_is_ok(ClientResult client_res);
         [DllImport("multiworld")] internal static extern Client client_result_unwrap(IntPtr client_res);
-        [DllImport("multiworld")] internal static extern void client_set_error(Client client, OwnedStringHandle msg);
+        [DllImport("multiworld")] internal static extern void client_set_error(Client client, IntPtr error);
         [DllImport("multiworld")] internal static extern byte client_session_state(Client client);
         [DllImport("multiworld")] internal static extern StringHandle client_debug_err(Client client);
+        [DllImport("multiworld")] internal static extern StringHandle client_display_err(Client client);
         [DllImport("multiworld")] internal static extern bool client_has_wrong_password(Client client);
         [DllImport("multiworld")] internal static extern void client_reset_wrong_password(Client client);
         [DllImport("multiworld")] internal static extern bool client_has_wrong_file_hash(Client client);
         [DllImport("multiworld")] internal static extern void client_free(IntPtr client);
-        [DllImport("multiworld")] internal static extern StringHandle client_result_debug_err(IntPtr client_res);
+        [DllImport("multiworld")] internal static extern Error client_result_unwrap_err(IntPtr client_res);
         [DllImport("multiworld")] internal static extern void string_free(IntPtr s);
         [DllImport("multiworld")] internal static extern ulong client_num_rooms(Client client);
         [DllImport("multiworld")] internal static extern StringHandle client_room_name(Client client, ulong i);
         [DllImport("multiworld")] internal static extern void string_result_free(IntPtr str_res);
         [DllImport("multiworld")] internal static extern bool string_result_is_ok(StringResult str_res);
         [DllImport("multiworld")] internal static extern StringHandle string_result_unwrap(IntPtr str_res);
-        [DllImport("multiworld")] internal static extern StringHandle string_result_debug_err(IntPtr str_res);
+        [DllImport("multiworld")] internal static extern Error string_result_unwrap_err(IntPtr str_res);
         [DllImport("multiworld")] internal static extern UnitResult client_room_connect(Client client, OwnedStringHandle room_name, OwnedStringHandle room_password);
         [DllImport("multiworld")] internal static extern UnitResult client_set_player_id(Client client, byte id);
         [DllImport("multiworld")] internal static extern void unit_result_free(IntPtr unit_res);
         [DllImport("multiworld")] internal static extern bool unit_result_is_ok(UnitResult unit_res);
-        [DllImport("multiworld")] internal static extern StringHandle unit_result_debug_err(IntPtr unit_res);
+        [DllImport("multiworld")] internal static extern Error unit_result_unwrap_err(IntPtr unit_res);
         [DllImport("multiworld")] internal static extern UnitResult client_reset_player_id(Client client);
         [DllImport("multiworld")] internal static extern UnitResult client_set_player_name(Client client, IntPtr name);
         [DllImport("multiworld")] internal static extern UnitResult client_set_file_hash(Client client, IntPtr hash);
@@ -59,11 +65,13 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern ServerMessage opt_message_result_unwrap_unwrap(IntPtr opt_msg_res);
         [DllImport("multiworld")] internal static extern void message_free(IntPtr msg);
         [DllImport("multiworld")] internal static extern bool opt_message_result_is_err(OptMessageResult opt_msg_res);
-        [DllImport("multiworld")] internal static extern StringHandle opt_message_result_debug_err(IntPtr opt_msg_res);
+        [DllImport("multiworld")] internal static extern Error opt_message_result_unwrap_err(IntPtr opt_msg_res);
         [DllImport("multiworld")] internal static extern UnitResult client_send_item(Client client, uint key, ushort kind, byte target_world);
         [DllImport("multiworld")] internal static extern ushort client_item_queue_len(Client client);
         [DllImport("multiworld")] internal static extern ushort client_item_kind_at_index(Client client, ushort index);
         [DllImport("multiworld")] internal static extern IntPtr client_get_player_name(Client client, byte world);
+        [DllImport("multiworld")] internal static extern ulong client_get_autodelete_seconds(Client client);
+        [DllImport("multiworld")] internal static extern UnitResult client_set_autodelete_seconds(Client client, ulong seconds);
     }
 
     internal class BoolResult : SafeHandle {
@@ -88,9 +96,9 @@ namespace MidosHouse.OotrMultiworld {
             return inner;
         }
 
-        internal StringHandle DebugErr() {
-            var err = Native.bool_result_debug_err(this.handle);
-            this.handle = IntPtr.Zero; // bool_result_debug_err takes ownership
+        internal Error UnwrapErr() {
+            var err = Native.bool_result_unwrap_err(this.handle);
+            this.handle = IntPtr.Zero; // bool_result_unwrap_err takes ownership
             return err;
         }
     }
@@ -132,14 +140,9 @@ namespace MidosHouse.OotrMultiworld {
             return true;
         }
 
-        internal void SetError(string msg) {
-            using (var msgHandle = new OwnedStringHandle(msg)) {
-                Native.client_set_error(this, msgHandle);
-            }
-        }
-
         internal byte SessionState() => Native.client_session_state(this);
         internal StringHandle DebugErr() => Native.client_debug_err(this);
+        internal StringHandle DisplayErr() => Native.client_display_err(this);
 
         internal bool HasWrongPassword() => Native.client_has_wrong_password(this);
         internal void ResetWrongPassword() => Native.client_reset_wrong_password(this);
@@ -203,6 +206,8 @@ namespace MidosHouse.OotrMultiworld {
         internal ushort Item(ushort index) => Native.client_item_kind_at_index(this, index);
         internal UnitResult KickPlayer(byte player_idx) => Native.client_kick_player(this, player_idx);
         internal UnitResult DeleteRoom() => Native.client_delete_room(this);
+        internal ulong AutodeleteSeconds() => Native.client_get_autodelete_seconds(this);
+        internal UnitResult SetAutodeleteSeconds(ulong seconds) => Native.client_set_autodelete_seconds(this, seconds);
     }
 
     internal class ClientResult : SafeHandle {
@@ -227,10 +232,39 @@ namespace MidosHouse.OotrMultiworld {
             return client;
         }
 
-        internal StringHandle DebugErr() {
-            var err = Native.client_result_debug_err(this.handle);
-            this.handle = IntPtr.Zero; // client_result_debug_err takes ownership
+        internal Error UnwrapErr() {
+            var err = Native.client_result_unwrap_err(this.handle);
+            this.handle = IntPtr.Zero; // client_result_unwrap_err takes ownership
             return err;
+        }
+    }
+
+    internal class Error : SafeHandle {
+        internal Error() : base(IntPtr.Zero, true) {}
+
+        static internal Error from_string(string text) {
+            using (var textHandle = new OwnedStringHandle(text)) {
+                return Native.error_from_string(textHandle);
+            }
+        }
+
+        public override bool IsInvalid {
+            get { return this.handle == IntPtr.Zero; }
+        }
+
+        protected override bool ReleaseHandle() {
+            if (!this.IsInvalid) {
+                Native.error_free(this.handle);
+            }
+            return true;
+        }
+
+        internal StringHandle Debug() => Native.error_debug(this);
+        internal StringHandle Display() => Native.error_display(this);
+
+        internal void SetAsClientState(Client client) {
+            Native.client_set_error(client, this.handle);
+            this.handle = IntPtr.Zero; // client_set_error takes ownership of the Error
         }
     }
 
@@ -257,9 +291,9 @@ namespace MidosHouse.OotrMultiworld {
             return msg;
         }
 
-        internal StringHandle DebugErr() {
-            var err = Native.opt_message_result_debug_err(this.handle);
-            this.handle = IntPtr.Zero; // opt_msg_result_debug_err takes ownership
+        internal Error UnwrapErr() {
+            var err = Native.opt_message_result_unwrap_err(this.handle);
+            this.handle = IntPtr.Zero; // opt_msg_result_unwrap_err takes ownership
             return err;
         }
     }
@@ -301,9 +335,9 @@ namespace MidosHouse.OotrMultiworld {
             return s;
         }
 
-        internal StringHandle DebugErr() {
-            var err = Native.string_result_debug_err(this.handle);
-            this.handle = IntPtr.Zero; // string_result_debug_err takes ownership
+        internal Error UnwrapErr() {
+            var err = Native.string_result_unwrap_err(this.handle);
+            this.handle = IntPtr.Zero; // string_result_unwrap_err takes ownership
             return err;
         }
     }
@@ -324,9 +358,9 @@ namespace MidosHouse.OotrMultiworld {
 
         internal bool IsOk() => Native.unit_result_is_ok(this);
 
-        internal StringHandle DebugErr() {
-            var err = Native.unit_result_debug_err(this.handle);
-            this.handle = IntPtr.Zero; // unit_result_debug_err takes ownership
+        internal Error UnwrapErr() {
+            var err = Native.unit_result_unwrap_err(this.handle);
+            this.handle = IntPtr.Zero; // unit_result_unwrap_err takes ownership
             return err;
         }
     }
@@ -351,15 +385,74 @@ namespace MidosHouse.OotrMultiworld {
         }
     }
 
+    internal class DurationFormatter {
+        public string Text { get; set; }
+        public ulong Seconds { get; set; }
+
+        internal DurationFormatter(ulong seconds) {
+            this.Seconds = seconds;
+
+            ulong mins = seconds / 60;
+            ulong secs = seconds % 60;
+
+            ulong hours = mins / 60;
+            mins = mins % 60;
+
+            ulong days = hours / 24;
+            hours = hours % 24;
+
+            List<string> parts = new List<string>();
+            if (days > 0) {
+                string plural = days == 1 ? "" : "s";
+                parts.Add($"{days} day{plural}");
+            }
+            if (hours > 0) {
+                string plural = hours == 1 ? "" : "s";
+                parts.Add($"{hours} hour{plural}");
+            }
+            if (mins > 0) {
+                string plural = mins == 1 ? "" : "s";
+                parts.Add($"{mins} minute{plural}");
+            }
+            if (secs > 0) {
+                string plural = secs == 1 ? "" : "s";
+                parts.Add($"{secs} second{plural}");
+            }
+            switch (parts.Count) {
+                case 0: {
+                    this.Text = "0 seconds";
+                    break;
+                }
+                case 1: {
+                    this.Text = parts[0];
+                    break;
+                }
+                case 2: {
+                    this.Text = $"{parts[0]} and {parts[1]}";
+                    break;
+                }
+                default: {
+                    string last = parts.Last();
+                    parts.RemoveAt(parts.Count - 1);
+                    this.Text = $"{String.Join(", ", parts)}, and {last}";
+                    break;
+                }
+            }
+        }
+    }
+
     [ExternalTool("Mido's House Multiworld", Description = "Play interconnected Ocarina of Time Randomizer seeds")]
     [ExternalToolEmbeddedIcon("MidosHouse.OotrMultiworld.Resources.icon.ico")]
     public sealed class MainForm : ToolFormBase, IExternalToolForm {
         private Label state = new Label();
+        private Label debugInfo = new Label();
         private ComboBox rooms = new ComboBox();
         private TextBox password = new TextBox();
         private Button createJoinButton = new Button();
         private Label version = new Label();
         private Button deleteRoomButton = new Button();
+        private Button roomOptionsButton = new Button();
+        private Form roomOptionsForm = new Form();
         private List<Label> playerStates = new List<Label>();
         private List<Button> kickButtons = new List<Button>();
         private Label otherState = new Label();
@@ -390,7 +483,13 @@ namespace MidosHouse.OotrMultiworld {
             this.state.Location = new Point(12, 9);
             this.Controls.Add(this.state);
 
-            this.rooms.TabIndex = 1;
+            this.debugInfo.TabIndex = 1;
+            this.debugInfo.AutoSize = true;
+            this.debugInfo.Location = new Point(12, 42);
+            this.debugInfo.Visible = false;
+            this.Controls.Add(this.debugInfo);
+
+            this.rooms.TabIndex = 2;
             this.rooms.Location = new Point(12, 42);
             this.rooms.Size = new Size(485, 25);
             this.rooms.Enabled = false;
@@ -410,7 +509,7 @@ namespace MidosHouse.OotrMultiworld {
             };
             this.Controls.Add(this.rooms);
 
-            this.password.TabIndex = 2;
+            this.password.TabIndex = 3;
             this.password.Location = new Point(12, 82);
             this.password.Size = new Size(485, 25);
             this.password.UseSystemPasswordChar = true;
@@ -426,7 +525,7 @@ namespace MidosHouse.OotrMultiworld {
             };
             this.Controls.Add(this.password);
 
-            this.createJoinButton.TabIndex = 3;
+            this.createJoinButton.TabIndex = 4;
             this.createJoinButton.Location = new Point(11, 119);
             this.createJoinButton.AutoSize = true;
             this.createJoinButton.Text = "Create/Join";
@@ -436,7 +535,7 @@ namespace MidosHouse.OotrMultiworld {
             };
             this.Controls.Add(this.createJoinButton);
 
-            this.version.TabIndex = 4;
+            this.version.TabIndex = 5;
             this.version.Location = new Point(162, 119);
             this.version.AutoSize = false;
             this.version.Size = new Size(335, 25);
@@ -446,7 +545,7 @@ namespace MidosHouse.OotrMultiworld {
             }
             this.Controls.Add(this.version);
 
-            this.deleteRoomButton.TabIndex = 5;
+            this.deleteRoomButton.TabIndex = 6;
             this.deleteRoomButton.Location = new Point(11, 42);
             this.deleteRoomButton.AutoSize = true;
             this.deleteRoomButton.Text = "Delete Room";
@@ -456,8 +555,8 @@ namespace MidosHouse.OotrMultiworld {
                     if (this.DialogController.ShowMessageBox2(this, "Are you sure you want to delete this room? Items that have already been sent will be lost forever!", null, EMsgBoxIcon.Question)) {
                         using (var res = this.client.DeleteRoom()) {
                             if (!res.IsOk()) {
-                                using (var err = res.DebugErr()) {
-                                    Error(err.AsString());
+                                using (var err = res.UnwrapErr()) {
+                                    SetError(err);
                                 }
                             }
                         }
@@ -466,7 +565,79 @@ namespace MidosHouse.OotrMultiworld {
             };
             this.Controls.Add(this.deleteRoomButton);
 
-            this.otherState.TabIndex = 5;
+            this.roomOptionsButton.TabIndex = 7;
+            this.roomOptionsButton.Location = new Point(211, 42);
+            this.roomOptionsButton.AutoSize = true;
+            this.roomOptionsButton.Text = "Options";
+            this.roomOptionsButton.Enabled = true;
+            this.roomOptionsButton.Click += (s, e) => {
+                if (this.client != null) {
+                    if (this.roomOptionsForm.Visible) {
+                        this.roomOptionsForm.BringToFront();
+                    } else {
+                        this.roomOptionsForm = new Form();
+                        this.roomOptionsForm.ClientSize = new Size(509, 256);
+                        this.roomOptionsForm.Icon = new Icon(typeof(MainForm).Assembly.GetManifestResourceStream("MidosHouse.OotrMultiworld.Resources.icon.ico"));
+
+                        Label autodeleteDeltaLabel = new Label();
+                        autodeleteDeltaLabel.Text = "Automatically delete this room if no items are sent for:";
+                        autodeleteDeltaLabel.TabIndex = 0;
+                        autodeleteDeltaLabel.AutoSize = true;
+                        autodeleteDeltaLabel.Location = new Point(12, 9);
+                        this.roomOptionsForm.Controls.Add(autodeleteDeltaLabel);
+
+                        ComboBox autodeleteDelta = new ComboBox();
+                        autodeleteDelta.TabIndex = 1;
+                        autodeleteDelta.Location = new Point(12, 42);
+                        autodeleteDelta.Size = new Size(485, 25);
+                        autodeleteDelta.DropDownStyle = ComboBoxStyle.DropDownList;
+                        autodeleteDelta.DisplayMember = "Text";
+                        autodeleteDelta.ValueMember = "Seconds";
+                        autodeleteDelta.Enabled = true;
+                        autodeleteDelta.Items.Add(new DurationFormatter(60 * 60 * 24));
+                        autodeleteDelta.Items.Add(new DurationFormatter(60 * 60 * 24 * 7));
+                        autodeleteDelta.Items.Add(new DurationFormatter(60 * 60 * 24 * 90));
+                        ulong currentSeconds = this.client.AutodeleteSeconds();
+                        switch (currentSeconds) {
+                            case 60 * 60 * 24: {
+                                autodeleteDelta.SelectedIndex = 0;
+                                break;
+                            }
+                            case 60 * 60 * 24 * 7: {
+                                autodeleteDelta.SelectedIndex = 1;
+                                break;
+                            }
+                            case 60 * 60 * 24 * 90: {
+                                autodeleteDelta.SelectedIndex = 2;
+                                break;
+                            }
+                            default: {
+                                autodeleteDelta.Items.Add(new DurationFormatter(currentSeconds));
+                                autodeleteDelta.SelectedIndex = 3;
+                                break;
+                            }
+                        }
+                        autodeleteDelta.SelectedValueChanged += (s, e) => {
+                            if (this.client != null) {
+                                DurationFormatter selected_duration = (DurationFormatter) autodeleteDelta.SelectedItem;
+                                using (var res = this.client.SetAutodeleteSeconds(selected_duration.Seconds)) {
+                                    if (!res.IsOk()) {
+                                        using (var err = res.UnwrapErr()) {
+                                            SetError(err);
+                                        }
+                                    }
+                                }
+                            }
+                        };
+                        this.roomOptionsForm.Controls.Add(autodeleteDelta);
+
+                        this.roomOptionsForm.Show();
+                    }
+                }
+            };
+            this.Controls.Add(this.roomOptionsButton);
+
+            this.otherState.TabIndex = 6;
             this.otherState.Location = new Point(12, 42);
             this.otherState.AutoSize = true;
             this.otherState.Visible = false;
@@ -479,8 +650,8 @@ namespace MidosHouse.OotrMultiworld {
             if (this.client != null) {
                 using (var res = this.client.CreateJoinRoom(this.rooms.Text, this.password.Text)) {
                     if (!res.IsOk()) {
-                        using (var err = res.DebugErr()) {
-                            Error(err.AsString());
+                        using (var err = res.UnwrapErr()) {
+                            SetError(err);
                         }
                     }
                 }
@@ -503,13 +674,17 @@ namespace MidosHouse.OotrMultiworld {
                             this.state.Text = "An update is available";
                             using (var run_updater_res = Native.run_updater()) {
                                 if (!run_updater_res.IsOk()) {
-                                    this.state.Text = run_updater_res.DebugErr().AsString();
+                                    using (var error = run_updater_res.UnwrapErr()) {
+                                        SetError(error);
+                                    }
                                     return;
                                 }
                             }
                         }
                     } else {
-                        this.state.Text = update_available_res.DebugErr().AsString();
+                        using (var error = update_available_res.UnwrapErr()) {
+                            SetError(error);
+                        }
                         return;
                     }
                 }
@@ -523,8 +698,8 @@ namespace MidosHouse.OotrMultiworld {
                                 this.client = res4.Unwrap();
                             } else {
                                 //TODO TCP connections unavailable, try WebSocket instead. If that fails too, offer self-hosting/direct connections
-                                using (var err = res4.DebugErr()) {
-                                    this.state.Text = $"error: {err.AsString()}";
+                                using (var err = res4.UnwrapErr()) {
+                                    SetError(err);
                                 }
                                 this.rooms.Items[0] = "Failed to load room list";
                             }
@@ -563,8 +738,8 @@ namespace MidosHouse.OotrMultiworld {
                                             if (!this.normalGameplay) {
                                                 using (var res = this.client.SendSaveData(APIs.Memory.ReadByteRange(0x11a5d0, 0x1450, "RDRAM"))) {
                                                     if (!res.IsOk()) {
-                                                        using (var err = res.DebugErr()) {
-                                                            Error(err.AsString());
+                                                        using (var err = res.UnwrapErr()) {
+                                                            SetError(err);
                                                         }
                                                     }
                                                 }
@@ -604,8 +779,8 @@ namespace MidosHouse.OotrMultiworld {
                         UpdateUI(client);
                     }
                 } else if (res.IsErr()) {
-                    using (var err = res.DebugErr()) {
-                        Error(err.AsString());
+                    using (var err = res.UnwrapErr()) {
+                        SetError(err);
                     }
                 }
             }
@@ -657,41 +832,50 @@ namespace MidosHouse.OotrMultiworld {
         private void UpdateUI(Client client) {
             switch (client.SessionState()) {
                 case 0: { // Error
-                    using (var err = client.DebugErr()) {
-                        this.state.Text = $"error: {err.AsString()}";
-                        HideLobbyUI();
-                        HideRoomUI();
+                    using (var display = client.DisplayErr()) {
+                        this.state.Text = $"error: {display.AsString()}";
                     }
+                    using (var debug = client.DebugErr()) {
+                        this.debugInfo.Text = $"debug info: {debug.AsString()}";
+                    }
+                    this.debugInfo.Visible = true;
+                    HideLobbyUI();
+                    HideRoomUI();
                     break;
                 }
                 case 1: { // Init
                     this.state.Text = "Loading room list…";
+                    this.debugInfo.Visible = false;
                     HideLobbyUI();
                     HideRoomUI();
                     break;
                 }
                 case 2: { // InitAutoRejoin
                     this.state.Text = "Reconnecting to room…";
+                    this.debugInfo.Visible = false;
                     HideLobbyUI();
                     HideRoomUI();
                     break;
                 }
                 case 3: { // Lobby
                     this.UpdateLobbyState(client, true);
+                    this.debugInfo.Visible = false;
                     break;
                 }
                 case 4: { // Room
                     this.UpdateRoomState(client);
+                    this.debugInfo.Visible = false;
                     break;
                 }
                 case 5: { // Closed
                     this.state.Text = "You have been disconnected. Reopen the tool to reconnect."; //TODO reconnect button
+                    this.debugInfo.Visible = false;
                     HideLobbyUI();
                     HideRoomUI();
                     break;
                 }
                 default: {
-                    Error("received unknown session state type");
+                    SetError(Error.from_string("received unknown session state type"));
                     break;
                 }
             }
@@ -738,8 +922,8 @@ namespace MidosHouse.OotrMultiworld {
                 if (this.DialogController.ShowMessageBox2(this, "This room is for a different seed. Delete this room? (Items that have already been sent will be lost forever!)", null, EMsgBoxIcon.Warning)) {
                     using (var res = client.DeleteRoom()) {
                         if (!res.IsOk()) {
-                            using (var e = res.DebugErr()) {
-                                Error(e.AsString());
+                            using (var e = res.UnwrapErr()) {
+                                SetError(e);
                             }
                         }
                     }
@@ -749,8 +933,8 @@ namespace MidosHouse.OotrMultiworld {
                         if (client.PlayerWorld(player_idx) == this.playerID) {
                             using (var res = client.KickPlayer(player_idx)) {
                                 if (!res.IsOk()) {
-                                    using (var e = res.DebugErr()) {
-                                        Error(e.AsString());
+                                    using (var e = res.UnwrapErr()) {
+                                        SetError(e);
                                     }
                                 }
                             }
@@ -762,11 +946,12 @@ namespace MidosHouse.OotrMultiworld {
             SuspendLayout();
             HideLobbyUI();
             this.deleteRoomButton.Visible = true;
+            this.roomOptionsButton.Visible = true;
             var num_players = client.NumPlayers();
             for (byte player_idx = 0; player_idx < num_players; player_idx++) {
                 if (player_idx >= this.playerStates.Count) {
                     var kickButton = new Button();
-                    kickButton.TabIndex = 2 * player_idx + 5;
+                    kickButton.TabIndex = 2 * player_idx + 6;
                     kickButton.Location = new Point(12, 40 * player_idx + 82);
                     kickButton.AutoSize = true;
                     kickButton.Enabled = true;
@@ -774,8 +959,8 @@ namespace MidosHouse.OotrMultiworld {
                     kickButton.Click += (s, e) => {
                         using (var res = client.KickPlayer(closurePlayerIdx)) {
                             if (!res.IsOk()) {
-                                using (var err = res.DebugErr()) {
-                                    Error(err.AsString());
+                                using (var err = res.UnwrapErr()) {
+                                    SetError(err);
                                 }
                             }
                         }
@@ -784,7 +969,7 @@ namespace MidosHouse.OotrMultiworld {
                     this.kickButtons.Add(kickButton);
 
                     var playerState = new Label();
-                    playerState.TabIndex = 2 * player_idx + 6;
+                    playerState.TabIndex = 2 * player_idx + 7;
                     playerState.Location = new Point(92, 40 * player_idx + 82);
                     playerState.AutoSize = true;
                     this.Controls.Add(playerState);
@@ -797,7 +982,7 @@ namespace MidosHouse.OotrMultiworld {
                 this.kickButtons[player_idx].Text = client.PlayerWorld(player_idx) == this.playerID ? "Leave" : "Kick";
                 this.kickButtons[player_idx].Visible = true;
             }
-            this.otherState.TabIndex = 2 * num_players + 5;
+            this.otherState.TabIndex = 2 * num_players + 6;
             this.otherState.Location = new Point(12, 40 * num_players + 82);
             this.otherState.Visible = true;
             this.otherState.Text = client.OtherState().AsString();
@@ -834,7 +1019,9 @@ namespace MidosHouse.OotrMultiworld {
                             if (newCoopContextAddr >= 0x8000_0000 && newCoopContextAddr != 0xffff_ffff) {
                                 switch (APIs.Memory.ReadU32(newCoopContextAddr, "System Bus")) {
                                     case 0 | 1:
-                                        Error("randomizer version too old (version 5.1.4 or higher required)");
+                                        using (var error = Error.from_string("randomizer version too old (version 5.1.4 or higher required)")) {
+                                            SetError(error);
+                                        }
                                         this.coopContextAddr = null;
                                         return;
                                     case 2:
@@ -848,8 +1035,8 @@ namespace MidosHouse.OotrMultiworld {
                                         if (this.client != null && !Enumerable.SequenceEqual(this.fileHash, newFileHash)) {
                                             using (var res = this.client.SendFileHash(newFileHash)) {
                                                 if (!res.IsOk()) {
-                                                    using (var err = res.DebugErr()) {
-                                                        Error(err.AsString());
+                                                    using (var err = res.UnwrapErr()) {
+                                                        SetError(err);
                                                     }
                                                 }
                                             }
@@ -857,7 +1044,9 @@ namespace MidosHouse.OotrMultiworld {
                                         }
                                         break;
                                     default:
-                                        Error("randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)");
+                                        using (var error = Error.from_string("randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)")) {
+                                            SetError(error);
+                                        }
                                         this.coopContextAddr = null;
                                         return;
                                 }
@@ -880,8 +1069,8 @@ namespace MidosHouse.OotrMultiworld {
                     if (res.IsOk()) {
                         UpdateUI(this.client);
                     } else {
-                        using (var err = res.DebugErr()) {
-                            Error(err.AsString());
+                        using (var err = res.UnwrapErr()) {
+                            SetError(err);
                         }
                     }
                 }
@@ -912,22 +1101,29 @@ namespace MidosHouse.OotrMultiworld {
                     if (res.IsOk()) {
                         UpdateUI(this.client);
                     } else {
-                        using (var err = res.DebugErr()) {
-                            Error(err.AsString());
+                        using (var err = res.UnwrapErr()) {
+                            SetError(err);
                         }
                     }
                 }
             }
         }
 
-        private void Error(string msg) {
+        private void SetError(Error error) {
             if (this.client == null) {
-                this.state.Text = $"error: {msg}";
+                using (var display = error.Display()) {
+                    this.state.Text = $"error: {display.AsString()}";
+                }
+                using (var debug = error.Debug()) {
+                    this.debugInfo.Text = $"debug info: {debug.AsString()}";
+                }
+                this.debugInfo.Visible = true;
+                //TODO more error UI (like in iced GUIs)
                 HideLobbyUI();
                 HideRoomUI();
             } else {
-                this.client.SetError(msg);
-                UpdateUI(this.client);
+                error.SetAsClientState(this.client);
+                UpdateUI(this.client); //TODO more error UI (like in iced GUIs)
             }
         }
 
@@ -940,6 +1136,7 @@ namespace MidosHouse.OotrMultiworld {
 
         private void HideRoomUI() {
             this.deleteRoomButton.Visible = false;
+            this.roomOptionsButton.Visible = false;
             for (var player_idx = 0; player_idx < this.playerStates.Count; player_idx++) {
                 this.playerStates[player_idx].Visible = false;
                 this.kickButtons[player_idx].Visible = false;
