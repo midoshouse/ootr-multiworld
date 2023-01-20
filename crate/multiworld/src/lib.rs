@@ -50,14 +50,13 @@ use {
 };
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
 #[cfg(windows)] use std::os::windows::io::AsRawSocket;
-#[cfg(feature = "pyo3")] use {
-    std::sync::Once,
-    pyo3::prelude::*,
-};
+#[cfg(feature = "pyo3")] use pyo3::prelude::*;
 #[cfg(feature = "sqlx")] use sqlx::PgPool;
 
 pub mod config;
 pub mod github;
+mod rando;
+#[cfg(feature = "pyo3")] mod util;
 
 pub const ADDRESS_V4: Ipv4Addr = Ipv4Addr::new(37, 252, 122, 84);
 pub const ADDRESS_V6: Ipv6Addr = Ipv6Addr::new(0x2a02, 0x2770, 0x8, 0, 0x21a, 0x4aff, 0xfee1, 0xf281);
@@ -509,22 +508,33 @@ impl Room {
         if self.file_hash.map_or(false, |room_hash| spoiler_log.file_hash != room_hash) {
             return Err(SendAllError::FileHash)
         }
-        Ok(if let Some(world_locations) = spoiler_log.locations.get(usize::from(source_world.get() - 1)) {
-            let mut all_sent = true;
-            for (loc, SpoilerLogItem { player, item }) in world_locations {
-                if *player != source_world {
-                    if let Some(key) = override_key(loc)? {
-                        if let Some(kind) = item_kind(item)? {
-                            self.queue_item_inner(source_world, key, kind, *player).await?;
+        let items_to_queue = Python::with_gil(|py| {
+            let py_modules = spoiler_log.version.py_modules(py)?;
+            let mut items_to_queue = Vec::default();
+            PyResult::Ok(if let Some(world_locations) = spoiler_log.locations.get(usize::from(source_world.get() - 1)) {
+                for (loc, SpoilerLogItem { player, item }) in world_locations {
+                    if *player != source_world {
+                        if let Some(key) = py_modules.override_key(loc)? {
+                            if let Some(kind) = py_modules.item_kind(item)? {
+                                items_to_queue.push((source_world, key, kind, *player));
+                            } else {
+                                return Ok(None)
+                            }
                         } else {
-                            all_sent = false;
+                            return Ok(None)
                         }
-                    } else {
-                        all_sent = false;
                     }
                 }
+                Some(items_to_queue)
+            } else {
+                None
+            })
+        })?;
+        Ok(if let Some(items_to_queue) = items_to_queue {
+            for (source_world, key, kind, target_world) in items_to_queue {
+                self.queue_item_inner(source_world, key, kind, target_world).await?;
             }
-            all_sent
+            true
         } else {
             false
         })
@@ -716,57 +726,11 @@ struct SpoilerLogItem {
 
 #[derive(Debug, Deserialize, Protocol)]
 pub struct SpoilerLog {
+    #[serde(rename = ":version")]
+    version: rando::Version,
     file_hash: [HashIcon; 5],
     #[serde(deserialize_with = "deserialize_multiworld")]
     locations: Vec<BTreeMap<String, SpoilerLogItem>>,
-}
-
-#[cfg(feature = "pyo3")]
-fn rando_import<'p>(py: Python<'p>, module: &str) -> PyResult<&'p PyModule> {
-    static PATH_SETUP: Once = Once::new();
-    #[cfg(unix)] const RANDO_PATH: &str = "/usr/local/share/midos-house/rando-dev-6.2.181";
-    #[cfg(windows)] const RANDO_PATH: &str = "C:/Users/fenhl/git/github.com/fenhl/OoT-Randomizer/stage";
-
-    if !PATH_SETUP.is_completed() {
-        let sys = py.import("sys")?;
-        sys.getattr("path")?.call_method1("append", (RANDO_PATH,))?;
-        PATH_SETUP.call_once(|| ());
-    }
-    py.import(module)
-}
-
-#[cfg(feature = "pyo3")]
-fn override_key(location: &str) -> PyResult<Option<u32>> {
-    Python::with_gil(|py| {
-        let mod_location = rando_import(py, "Location")?;
-        let location = mod_location.getattr("LocationFactory")?.call1((location,))?;
-        Ok(if let (Some(scene), Some(mut default)) = (location.getattr("scene")?.extract()?, location.getattr("default")?.extract()?) {
-            let kind = match location.getattr("type")?.extract()? {
-                "NPC" | "Scrub" | "BossHeart" => 0,
-                "Chest" => {
-                    default &= 0x1f;
-                    1
-                }
-                "Collectable" => 2,
-                "GS Token" => 3,
-                "Shop" => 0,
-                "GrottoScrub" => 4,
-                "Song" | "Cutscene" => 5,
-                _ => return Ok(None),
-            };
-            Some(u32::from_be_bytes([0, scene, kind, default]))
-        } else {
-            None
-        })
-    })
-}
-
-#[cfg(feature = "pyo3")]
-fn item_kind(item: &str) -> PyResult<Option<u16>> {
-    Python::with_gil(|py| {
-        let item_list = rando_import(py, "ItemList")?;
-        Ok(item_list.getattr("item_table")?.call_method1("get", (item,))?.extract::<Option<(&PyAny, &PyAny, _, &PyAny)>>()?.map(|(_, _, kind, _)| kind))
-    })
 }
 
 #[derive(Debug, Protocol)]
