@@ -77,12 +77,12 @@ impl Version {
 
     fn dir(&self) -> PathBuf {
         #[cfg(unix)] {
-            BaseDirectories::new().expect("failed to look up xdg base directories").place_data_file(Path::new("midos-house").join(format!(
+            BaseDirectories::new().expect("failed to look up xdg base directories").find_data_file("midos-house").expect("missing data dir").join(format!(
                 "rando-{}-{}{}",
                 self.branch.web_name_known_settings(),
                 self.base,
                 if let Some(supplementary) = self.supplementary { format!("-{supplementary}") } else { String::default() },
-            )))
+            ))
         }
         #[cfg(not(unix))] {
             unimplemented!()

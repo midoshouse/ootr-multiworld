@@ -7,8 +7,8 @@ Wants=network-online.target
 Restart=always
 ExecStart=/home/fenhl/.cargo/bin/cargo run --package=ootrmwd -- --port=18820 --database=ootr_multiworld_dev
 ExecStop=/opt/git/github.com/midoshouse/ootr-multiworld/stage/target/debug/ootrmwd --port=18820 stop
-User=fenhl
-Group=fenhl
+User=mido
+Group=nogroup
 WorkingDirectory=/opt/git/github.com/midoshouse/ootr-multiworld/stage
 
 [Install]
