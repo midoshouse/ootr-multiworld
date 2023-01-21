@@ -503,6 +503,7 @@ enum BuildServer {
     #[default]
     UpdateRepo,
     Build,
+    WaitRestart,
     Restart,
 }
 
@@ -511,6 +512,7 @@ impl fmt::Display for BuildServer {
         match self {
             Self::UpdateRepo => write!(f, "updating repo on Mido's House"),
             Self::Build => write!(f, "building ootrmwd"),
+            Self::WaitRestart => write!(f, "waiting for rooms to be empty"),
             Self::Restart => write!(f, "restarting ootrmwd"),
         }
     }
@@ -521,6 +523,7 @@ impl Progress for BuildServer {
         Percent::new(match self {
             Self::UpdateRepo => 0,
             Self::Build => 10,
+            Self::WaitRestart => 90,
             Self::Restart => 95,
         })
     }
@@ -535,8 +538,12 @@ impl Task<Result<(), Error>> for BuildServer {
                 Ok(Err(Self::Build))
             }).await,
             Self::Build => gres::transpose(async move {
-                Command::new("ssh").arg("midos.house").arg(concat!("cd /opt/git/github.com/midoshouse/ootr-multiworld/master && cargo build --release --package=ootrmwd")).check("ssh").await?;
-                Ok(Err(Self::Restart)) //TODO wait until server is empty before restarting
+                Command::new("ssh").arg("midos.house").arg("cd /opt/git/github.com/midoshouse/ootr-multiworld/master && cargo build --release --package=ootrmwd").check("ssh").await?;
+                Ok(Err(Self::WaitRestart))
+            }).await,
+            Self::WaitRestart => gres::transpose(async move {
+                Command::new("ssh").arg("midos.house").arg("/opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd stop-when-empty").check("ssh").await?; //TODO wait-until-empty (stop handled in next step)
+                Ok(Err(Self::Restart))
             }).await,
             Self::Restart => gres::transpose(async move {
                 Command::new("ssh").arg("midos.house").arg("sudo systemctl restart ootrmw").check("ssh").await?;
