@@ -8,7 +8,6 @@ edition.workspace = true
 winres = "0.1"
 
 [dependencies]
-async_zip = "0.0.11"
 dark-light = "1"
 directories = "4"
 futures = "0.3"
@@ -23,6 +22,10 @@ rfd = "0.10"
 serde_ini = "0.2"
 tempfile = "3"
 thiserror = "1"
+
+[dependencies.async_zip]
+version = "0.0.11"
+features = ["full"]
 
 [dependencies.clap]
 version = "4"
