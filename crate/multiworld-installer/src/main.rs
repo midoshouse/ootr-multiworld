@@ -599,29 +599,33 @@ impl Application for State {
     fn view(&self) -> Element<'_, Message> {
         let (top, next_btn) = match self.page {
             Page::Error(ref e, debug_info_copied) => (
-                Into::<Element<'_, Message>>::into(Column::new()
-                    .push(Text::new("Error").size(24))
-                    .push(Text::new("An error occured while trying to install Mido's House Multiworld:"))
-                    .push(Text::new(e.to_string()))
-                    .push(Row::new()
-                        .push(Button::new(Text::new("Copy debug info")).on_press(Message::CopyDebugInfo))
-                        .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }))
-                        .spacing(8)
-                    )
-                    .push(Text::new("Support").size(24))
-                    .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813."))
-                    .push(Row::new()
-                        .push(Button::new(Text::new("invite link")).on_press(Message::DiscordInvite))
-                        .push(Button::new(Text::new("direct channel link")).on_press(Message::DiscordChannel))
-                        .spacing(8)
-                    )
-                    .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord."))
-                    .push(Row::new()
-                        .push(Text::new("• Or "))
-                        .push(Button::new(Text::new("open an issue")).on_press(Message::NewIssue))
-                        .spacing(8)
-                    )
-                    .spacing(8)),
+                Into::<Element<'_, Message>>::into(Scrollable::new(Row::new()
+                    .push(Column::new()
+                        .push(Text::new("Error").size(24))
+                        .push(Text::new("An error occured while trying to install Mido's House Multiworld:"))
+                        .push(Text::new(e.to_string()))
+                        .push(Row::new()
+                            .push(Button::new(Text::new("Copy debug info")).on_press(Message::CopyDebugInfo))
+                            .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }))
+                            .spacing(8)
+                        )
+                        .push(Text::new("Support").size(24))
+                        .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813."))
+                        .push(Row::new()
+                            .push(Button::new(Text::new("invite link")).on_press(Message::DiscordInvite))
+                            .push(Button::new(Text::new("direct channel link")).on_press(Message::DiscordChannel))
+                            .spacing(8)
+                        )
+                        .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord."))
+                        .push(Row::new()
+                            .push(Text::new("• Or "))
+                            .push(Button::new(Text::new("open an issue")).on_press(Message::NewIssue))
+                            .spacing(8)
+                        )
+                        .spacing(8))
+                    .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
+                    .spacing(16)
+                )),
                 None,
             ),
             Page::Elevated => (
@@ -709,8 +713,10 @@ impl Application for State {
                 Some((Text::new("Finish").into(), true)),
             ),
         };
-        let mut bottom_row = Row::new();
+        let mut view = Column::new()
+            .push(top);
         if let Some((btn_content, enabled)) = next_btn {
+            let mut bottom_row = Row::new();
             if matches!(self.page, Page::SelectEmulator { .. }) {
                 bottom_row = bottom_row.push(Text::new(concat!("v", env!("CARGO_PKG_VERSION"))));
             } else {
@@ -720,11 +726,11 @@ impl Application for State {
             let mut next_btn = Button::new(btn_content);
             if enabled { next_btn = next_btn.on_press(Message::Continue) }
             bottom_row = bottom_row.push(next_btn);
+            view = view
+                .push(Space::with_height(Length::Fill))
+                .push(bottom_row.spacing(8));
         }
-        Column::new()
-            .push(top)
-            .push(Space::with_height(Length::Fill))
-            .push(bottom_row.spacing(8))
+        view
             .spacing(8)
             .padding(8)
             .into()

@@ -30,6 +30,7 @@ use {
         Application,
         Command,
         Element,
+        Length,
         Settings,
         Theme,
         clipboard,
@@ -492,31 +493,35 @@ impl Application for App {
             State::WaitDownload => Text::new("Finishing download…").into(),
             State::Launch => Text::new("Starting new version…").into(),
             State::Done => Text::new("Closing updater…").into(),
-            State::Error(ref e, debug_info_copied) => Column::new()
-                .push(Text::new("Error").size(24))
-                .push(Text::new("An error occured while trying to update Mido's House Multiworld:"))
-                .push(Text::new(e.to_string()))
-                .push(Row::new()
-                    .push(Button::new(Text::new("Copy debug info")).on_press(Message::CopyDebugInfo))
-                    .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }))
+            State::Error(ref e, debug_info_copied) => Scrollable::new(Row::new()
+                .push(Column::new()
+                    .push(Text::new("Error").size(24))
+                    .push(Text::new("An error occured while trying to update Mido's House Multiworld:"))
+                    .push(Text::new(e.to_string()))
+                    .push(Row::new()
+                        .push(Button::new(Text::new("Copy debug info")).on_press(Message::CopyDebugInfo))
+                        .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }))
+                        .spacing(8)
+                    )
+                    .push(Text::new("Support").size(24))
+                    .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813."))
+                    .push(Row::new()
+                        .push(Button::new(Text::new("invite link")).on_press(Message::DiscordInvite))
+                        .push(Button::new(Text::new("direct channel link")).on_press(Message::DiscordChannel))
+                        .spacing(8)
+                    )
+                    .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord."))
+                    .push(Row::new()
+                        .push(Text::new("• Or "))
+                        .push(Button::new(Text::new("open an issue")).on_press(Message::NewIssue))
+                        .spacing(8)
+                    )
                     .spacing(8)
+                    .padding(8)
                 )
-                .push(Text::new("Support").size(24))
-                .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813."))
-                .push(Row::new()
-                    .push(Button::new(Text::new("invite link")).on_press(Message::DiscordInvite))
-                    .push(Button::new(Text::new("direct channel link")).on_press(Message::DiscordChannel))
-                    .spacing(8)
-                )
-                .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord."))
-                .push(Row::new()
-                    .push(Text::new("• Or "))
-                    .push(Button::new(Text::new("open an issue")).on_press(Message::NewIssue))
-                    .spacing(8)
-                )
-                .spacing(8)
-                .padding(8)
-                .into(),
+                .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
+                .spacing(16)
+            ).into(),
         }
     }
 }
