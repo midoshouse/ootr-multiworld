@@ -613,8 +613,11 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                             loop {
                                 select! {
                                     res = &mut session => {
-                                        if let Err(e) = res {
-                                            eprintln!("{} error in client session: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
+                                        match res {
+                                            Ok(()) => {}
+                                            Err(SessionError::Elapsed(_)) => {} // can be caused by network instability, don't log
+                                            Err(SessionError::Read(async_proto::ReadError::Io(e))) if matches!(e.kind(), io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset) => {} // can be caused by network instability, don't log
+                                            Err(e) => eprintln!("{} error in client session: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")),
                                         }
                                         break
                                     }
