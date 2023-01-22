@@ -112,7 +112,9 @@ impl Version {
                 Branch::Dev => {
                     command.arg(format!("--branch={}", self.base));
                 }
-                Branch::DevFenhl => unimplemented!(), //TODO set up automatic tags on dev-fenhl
+                Branch::DevFenhl => {
+                    command.arg(format!("--branch={}-fenhl.{}", self.base, self.supplementary.unwrap()));
+                }
                 Branch::DevR => unimplemented!(), //TODO bisect Dev-R to find the requested version
             }
             command.check("git").await?;
