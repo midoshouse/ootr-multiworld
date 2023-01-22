@@ -442,7 +442,10 @@ impl Application for App {
                     })
                 }
             },
-            Message::Done => self.state = State::Done,
+            Message::Done => {
+                self.state = State::Done;
+                return window::close()
+            }
             Message::DiscordInvite => if let Err(e) = open("https://discord.gg/BGRrKKn") {
                 self.state = State::Error(Arc::new(e.into()), false);
             },
