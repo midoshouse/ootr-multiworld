@@ -302,9 +302,17 @@ pub enum SetHashError {
 #[derive(Debug, thiserror::Error)]
 pub enum SendAllError {
     #[error(transparent)] Python(#[from] PyErr),
+    #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("this room is for a different seed")]
     FileHash,
+}
+
+#[cfg(feature = "pyo3")]
+impl From<pyo3::PyDowncastError<'_>> for SendAllError {
+    fn from(e: pyo3::PyDowncastError<'_>) -> Self {
+        Self::Python(e.into())
+    }
 }
 
 impl Room {
@@ -508,10 +516,11 @@ impl Room {
         if self.file_hash.map_or(false, |room_hash| spoiler_log.file_hash != room_hash) {
             return Err(SendAllError::FileHash)
         }
+        spoiler_log.version.clone().await?;
         let items_to_queue = Python::with_gil(|py| {
             let py_modules = spoiler_log.version.py_modules(py)?;
             let mut items_to_queue = Vec::default();
-            PyResult::Ok(if let Some(world_locations) = spoiler_log.locations.get(usize::from(source_world.get() - 1)) {
+            Ok::<_, SendAllError>(if let Some(world_locations) = spoiler_log.locations.get(usize::from(source_world.get() - 1)) {
                 for (loc, SpoilerLogItem { player, item }) in world_locations {
                     if *player != source_world {
                         if let Some(key) = py_modules.override_key(loc)? {

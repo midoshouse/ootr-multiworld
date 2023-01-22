@@ -1,12 +1,6 @@
-#![allow(unused)] //TODO
-
 use {
     std::{
         fmt,
-        path::{
-            Path,
-            PathBuf,
-        },
         str::FromStr,
     },
     async_proto::Protocol,
@@ -16,10 +10,13 @@ use {
 };
 #[cfg(unix)] use xdg::BaseDirectories;
 #[cfg(feature = "pyo3")] use {
+    std::path::PathBuf,
     pyo3::{
         prelude::*,
         types::PyList,
     },
+    tokio::process::Command,
+    wheel::traits::AsyncCommandOutputExt as _,
     crate::util::PyLazy,
 };
 
@@ -33,6 +30,7 @@ enum Branch {
 }
 
 impl Branch {
+    #[cfg(feature = "pyo3")]
     fn github_username(&self) -> &'static str {
         match self {
             Self::Dev => "TestRunnerSRL",
@@ -41,6 +39,7 @@ impl Branch {
         }
     }
 
+    #[cfg(feature = "pyo3")]
     fn web_name_known_settings(&self) -> &'static str {
         match self {
             Self::Dev => "dev",
@@ -75,14 +74,10 @@ impl Version {
         }
     }
 
-    fn dir(&self) -> PathBuf {
+    #[cfg(feature = "pyo3")]
+    fn dir_parent(&self) -> PathBuf {
         #[cfg(unix)] {
-            BaseDirectories::new().expect("failed to look up xdg base directories").find_data_file("midos-house").expect("missing data dir").join(format!(
-                "rando-{}-{}{}",
-                self.branch.web_name_known_settings(),
-                self.base,
-                if let Some(supplementary) = self.supplementary { format!("-{supplementary}") } else { String::default() },
-            ))
+            BaseDirectories::new().expect("failed to look up xdg base directories").find_data_file("midos-house").expect("missing data dir")
         }
         #[cfg(not(unix))] {
             unimplemented!()
@@ -90,16 +85,48 @@ impl Version {
     }
 
     #[cfg(feature = "pyo3")]
-    pub(crate) fn py_modules<'p>(&self, py: Python<'p>) -> PyResult<PyModules<'p>> {
-        let dir = self.dir();
-        if !dir.exists() {
-            unimplemented!() //TODO clone randomizer
+    fn dir_name(&self) -> String {
+        format!(
+            "rando-{}-{}{}",
+            self.branch.web_name_known_settings(),
+            self.base,
+            if let Some(supplementary) = self.supplementary { format!("-{supplementary}") } else { String::default() },
+        )
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn dir(&self) -> PathBuf {
+        self.dir_parent().join(self.dir_name())
+    }
+
+    #[cfg(feature = "pyo3")]
+    pub(crate) async fn clone(&self) -> wheel::Result<()> {
+        if !self.dir().exists() {
+            let mut command = Command::new("git");
+            command.arg("clone");
+            command.arg("--depth=1"); //TODO don't use for branches that have to be bisected
+            command.arg(format!("https://github.com/{}/OoT-Randomizer.git", self.branch.github_username()));
+            command.arg(self.dir_name());
+            command.current_dir(self.dir_parent());
+            match self.branch {
+                Branch::Dev => {
+                    command.arg(format!("--branch={}", self.base));
+                }
+                Branch::DevFenhl => unimplemented!(), //TODO set up automatic tags on dev-fenhl
+                Branch::DevR => unimplemented!(), //TODO bisect Dev-R to find the requested version
+            }
+            command.check("git").await?;
         }
+        Ok(())
+    }
+
+    #[cfg(feature = "pyo3")]
+    pub(crate) fn py_modules<'p>(&self, py: Python<'p>) -> PyResult<PyModules<'p>> {
         let mut new_path = match MODULE_SEARCH_PATH.get(py) {
             Ok(path) => path.clone(),
             Err(e) => return Err(e.clone_ref(py)),
         };
-        new_path.push(dir.into_os_string().into_string().expect("non-UTF-8 randomizer path"));
+        new_path.push(self.dir().into_os_string().into_string().expect("non-UTF-8 randomizer path"));
         py.import("sys")?.getattr("path")?.downcast::<PyList>()?.set_slice(0, py.import("sys")?.getattr("path")?.downcast::<PyList>()?.len(), new_path.into_py(py).as_ref(py))?;
         Ok(PyModules(py))
     }
