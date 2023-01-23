@@ -486,7 +486,7 @@ impl Room {
             }
         }
         #[cfg(feature = "sqlx")] {
-            if let Err(e) = self.save().await {
+            if let Err(e) = self.save(true).await {
                 eprintln!("failed to save room state: {e} ({e:?})");
             }
         }
@@ -585,13 +585,15 @@ impl Room {
     }
 
     #[cfg(feature = "sqlx")]
-    pub async fn save(&mut self) -> sqlx::Result<()> {
+    pub async fn save(&mut self, update_last_saved: bool) -> sqlx::Result<()> {
         let mut base_queue = Vec::default();
         self.base_queue.write_sync(&mut base_queue).expect("failed to write base queue to buffer");
         let mut player_queues = Vec::default();
         self.player_queues.write_sync(&mut player_queues).expect("failed to write player queues to buffer");
-        self.last_saved = Utc::now();
-        let _ = self.autodelete_tx.send((self.name.clone(), self.autodelete_at()));
+        if update_last_saved {
+            self.last_saved = Utc::now();
+            let _ = self.autodelete_tx.send((self.name.clone(), self.autodelete_at()));
+        }
         sqlx::query!("INSERT INTO rooms (
             name,
             password_hash,
@@ -615,7 +617,7 @@ impl Room {
         self.autodelete_delta = new_delta;
         #[cfg(feature = "sqlx")] {
             // saving also notifies the room deletion waiter
-            if let Err(e) = self.save().await {
+            if let Err(e) = self.save(true).await {
                 eprintln!("failed to save room state: {e} ({e:?})");
             }
         }

@@ -291,7 +291,7 @@ async fn lobby_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket
                     ClientMessage::Stop => if logged_in_as_admin {
                         //TODO close TCP connections and listener
                         for room in rooms.0.lock().await.list.values() {
-                            room.write().await.save().await?;
+                            room.write().await.save(false).await?;
                         }
                         process::exit(0)
                     } else {
@@ -598,9 +598,9 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                 password_salt AS "password_salt: [u8; CREDENTIAL_LEN]",
                 base_queue,
                 player_queues,
-                last_saved AS "last_saved!",
-                autodelete_delta AS "autodelete_delta!"
-            FROM rooms"#).fetch(&db_pool); //TODO mark last_saved and autodelete_delta as NOT NULL in the database
+                last_saved,
+                autodelete_delta
+            FROM rooms"#).fetch(&db_pool);
             while let Some(row) = query.try_next().await? {
                 assert!(rooms.add(Arc::new(RwLock::new(Room {
                     name: row.name.clone(),
