@@ -28,6 +28,7 @@ use {
             TryStreamExt as _,
         },
     },
+    pyo3::prelude::*,
     ring::{
         pbkdf2,
         rand::{
@@ -71,6 +72,7 @@ use {
         EndRoomSession,
         Player,
         Room,
+        SendAllError,
         ServerError,
         ServerMessage,
     },
@@ -102,7 +104,7 @@ enum SessionError {
     #[error(transparent)] OneshotRecv(#[from] oneshot::error::RecvError),
     #[error(transparent)] QueueItem(#[from] multiworld::QueueItemError),
     #[error(transparent)] Ring(#[from] ring::error::Unspecified),
-    #[error(transparent)] SendAll(#[from] multiworld::SendAllError),
+    #[error(transparent)] SendAll(#[from] SendAllError),
     #[error(transparent)] SetHashError(#[from] multiworld::SetHashError),
     #[error(transparent)] Sql(#[from] sqlx::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
@@ -643,7 +645,11 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                                         Ok(()) => {}
                                         Err(SessionError::Elapsed(_)) => {} // can be caused by network instability, don't log
                                         Err(SessionError::Read(async_proto::ReadError::Io(e))) if matches!(e.kind(), io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset) => {} // can be caused by network instability, don't log
-                                        Err(e) => eprintln!("{} error in client session: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")),
+                                        Err(SessionError::SendAll(SendAllError::Python(e))) => {
+                                            eprintln!("Python error in SendAll command:");
+                                            Python::with_gil(|py| e.print(py));
+                                        }
+                                        Err(e) => eprintln!("error in client session: {e} ({e:?})"),
                                     }
                                     break
                                 }

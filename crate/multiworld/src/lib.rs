@@ -320,7 +320,7 @@ impl Room {
         if let Some(client) = self.clients.get(&client_id) {
             let mut writer = client.writer.lock().await;
             if let Err(e) = msg.write(&mut *writer).await {
-                eprintln!("{} error sending message: {:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), e);
+                eprintln!("error sending message: {e} ({e:?})");
                 drop(writer);
                 self.remove_client(client_id, EndRoomSession::Disconnect).await;
             }
@@ -332,7 +332,7 @@ impl Room {
         while let Some((&client_id, client)) = self.clients.iter().find(|&(client_id, _)| !notified.contains(client_id)) {
             let mut writer = client.writer.lock().await;
             if let Err(e) = msg.write(&mut *writer).await {
-                eprintln!("{} error sending message: {:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), e);
+                eprintln!("error sending message: {e} ({e:?})");
                 drop(writer);
                 self.remove_client(client_id, EndRoomSession::Disconnect).await;
             }

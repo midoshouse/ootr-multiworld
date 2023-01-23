@@ -18,6 +18,10 @@ features = ["derive"]
 path = "../multiworld"
 features = ["pyo3", "sqlx", "tokio-tungstenite"]
 
+[dependencies.pyo3]
+version = "0.18"
+features = ["auto-initialize"]
+
 [dependencies.ring]
 version = "0.16"
 features = ["std"]
