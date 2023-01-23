@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Restart=always
-ExecStartPre=/usr/bin/git pull
+ExecStartPre=+/usr/bin/git pull
 ExecStart=/home/fenhl/.cargo/bin/cargo run --release --package=ootrmwd
 ExecStop=/opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd stop
 User=mido
