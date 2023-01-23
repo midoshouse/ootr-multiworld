@@ -119,7 +119,9 @@ async fn client_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socke
     let mut read = next_message(reader);
     Ok(loop {
         let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), rooms.clone(), socket_id, read, writer.clone()).await?;
+        let _ = rooms.0.lock().await.change_tx.send(RoomListChange::Join);
         let (lobby_reader, end) = room_session(db_pool.clone(), rooms.clone(), room, socket_id, room_reader, writer.clone(), end_rx).await?;
+        let _ = rooms.0.lock().await.change_tx.send(RoomListChange::Leave);
         match end {
             EndRoomSession::ToLobby => read = lobby_reader,
             EndRoomSession::Disconnect => {
@@ -146,6 +148,7 @@ async fn lobby_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket
     }
 
     let mut logged_in_as_admin = false;
+    let mut waiting_until_empty = false;
     let mut room_stream = {
         let lock = rooms.0.lock().await;
         let stream = lock.change_tx.subscribe();
@@ -154,12 +157,27 @@ async fn lobby_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket
     };
     Ok(loop {
         select! {
-            room_list_change = room_stream.recv() => match room_list_change {
-                Ok(RoomListChange::New(room)) => ServerMessage::NewRoom(room.read().await.name.clone()).write(&mut *writer.lock().await).await?,
-                Ok(RoomListChange::Delete(room_name)) => ServerMessage::DeleteRoom(room_name).write(&mut *writer.lock().await).await?,
-                Err(broadcast::error::RecvError::Closed) => unreachable!("room list should be maintained indefinitely"),
-                Err(broadcast::error::RecvError::Lagged(_)) => room_stream = rooms.0.lock().await.change_tx.subscribe(),
-            },
+            room_list_change = room_stream.recv() => {
+                match room_list_change {
+                    Ok(RoomListChange::New(room)) => ServerMessage::NewRoom(room.read().await.name.clone()).write(&mut *writer.lock().await).await?,
+                    Ok(RoomListChange::Delete(room_name)) => ServerMessage::DeleteRoom(room_name).write(&mut *writer.lock().await).await?,
+                    Ok(RoomListChange::Join | RoomListChange::Leave) => {}
+                    Err(broadcast::error::RecvError::Closed) => unreachable!("room list should be maintained indefinitely"),
+                    Err(broadcast::error::RecvError::Lagged(_)) => room_stream = rooms.0.lock().await.change_tx.subscribe(),
+                }
+                if waiting_until_empty {
+                    let mut any_players = false;
+                    for room in rooms.0.lock().await.list.values() {
+                        if room.read().await.clients.values().any(|client| client.player.is_some()) {
+                            any_players = true;
+                            break
+                        }
+                    }
+                    if !any_players {
+                        ServerMessage::RoomsEmpty.write(&mut *writer.lock().await).await?;
+                    }
+                }
+            }
             res = &mut read => {
                 let (reader, msg) = res??;
                 match msg {
@@ -299,6 +317,11 @@ async fn lobby_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket
                     } else {
                         error!("SendAll command requires admin login")
                     },
+                    ClientMessage::WaitUntilEmpty => if logged_in_as_admin {
+                        waiting_until_empty = true;
+                    } else {
+                        error!("WaitUntilEmpty command requires admin login")
+                    },
                     ClientMessage::PlayerId(_) => error!("received a PlayerId message, which only works in a room, but you're in the lobby"),
                     ClientMessage::ResetPlayerId => error!("received a ResetPlayerId message, which only works in a room, but you're in the lobby"),
                     ClientMessage::PlayerName(_) => error!("received a PlayerName message, which only works in a room, but you're in the lobby"),
@@ -339,6 +362,7 @@ async fn room_session(db_pool: PgPool, rooms: Rooms, room: Arc<RwLock<Room>>, so
                     ClientMessage::Stop => error!("received a Stop message, which only works in the lobby, but you're in a room"),
                     ClientMessage::Track { .. } => error!("received a Track message, which only works in the lobby, but you're in a room"),
                     ClientMessage::SendAll { .. } => error!("received a SendAll message, which only works in the lobby, but you're in a room"),
+                    ClientMessage::WaitUntilEmpty => error!("received a WaitUntilEmpty message, which only works in the lobby, but you're in a room"),
                     ClientMessage::PlayerId(id) => if !room.write().await.load_player(socket_id, id).await? {
                         error!("world {id} is already taken")
                     },
@@ -392,8 +416,14 @@ async fn room_session(db_pool: PgPool, rooms: Rooms, room: Arc<RwLock<Room>>, so
 
 #[derive(Clone)]
 enum RoomListChange {
+    /// A new room has been created.
     New(Arc<RwLock<Room>>),
+    /// A room has been deleted.
     Delete(String),
+    /// A player has joined a room.
+    Join,
+    /// A player has left (or been kicked from) a room.
+    Leave,
 }
 
 struct RoomsInner {
@@ -475,6 +505,7 @@ struct Args {
 enum Subcommand {
     Stop,
     StopWhenEmpty,
+    WaitUntilEmpty,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -493,19 +524,47 @@ enum Error {
 
 #[wheel::main]
 async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
-    match subcommand {
-        Some(Subcommand::Stop) => {
-            let mut tcp_stream = TcpStream::connect((Ipv6Addr::LOCALHOST, port)).await?;
-            multiworld::handshake(&mut tcp_stream).await?;
-            ClientMessage::Login { id: 14571800683221815449, api_key: *include_bytes!("../../../assets/admin-api-key.bin") }.write(&mut tcp_stream).await?;
+    if let Some(subcommand) = subcommand {
+        let mut tcp_stream = TcpStream::connect((Ipv6Addr::LOCALHOST, port)).await?;
+        multiworld::handshake(&mut tcp_stream).await?;
+        ClientMessage::Login { id: 14571800683221815449, api_key: *include_bytes!("../../../assets/admin-api-key.bin") }.write(&mut tcp_stream).await?;
+        loop {
+            match ServerMessage::read(&mut tcp_stream).await? {
+                ServerMessage::OtherError(msg) => return Err(Error::Server(msg)),
+                ServerMessage::Ping => ClientMessage::Ping.write(&mut tcp_stream).await?,
+                ServerMessage::EnterLobby { .. } |
+                ServerMessage::NewRoom(_) |
+                ServerMessage::DeleteRoom(_) => {}
+                ServerMessage::AdminLoginSuccess { .. } => break,
+                ServerMessage::StructuredError(ServerError::Future(_)) |
+                ServerMessage::StructuredError(ServerError::WrongPassword) |
+                ServerMessage::StructuredError(ServerError::WrongFileHash) |
+                ServerMessage::EnterRoom { .. } |
+                ServerMessage::PlayerId(_) |
+                ServerMessage::ResetPlayerId(_) |
+                ServerMessage::ClientConnected |
+                ServerMessage::PlayerDisconnected(_) |
+                ServerMessage::UnregisteredClientDisconnected |
+                ServerMessage::PlayerName(_, _) |
+                ServerMessage::ItemQueue(_) |
+                ServerMessage::GetItem(_) |
+                ServerMessage::Goodbye |
+                ServerMessage::PlayerFileHash(_, _) |
+                ServerMessage::AutoDeleteDelta(_) |
+                ServerMessage::RoomsEmpty => unreachable!(),
+            }
+        }
+        if let Subcommand::StopWhenEmpty | Subcommand::WaitUntilEmpty = subcommand {
+            ClientMessage::WaitUntilEmpty.write(&mut tcp_stream).await?;
             loop {
                 match ServerMessage::read(&mut tcp_stream).await? {
                     ServerMessage::OtherError(msg) => return Err(Error::Server(msg)),
-                    ServerMessage::Ping |
+                    ServerMessage::Ping => ClientMessage::Ping.write(&mut tcp_stream).await?,
                     ServerMessage::EnterLobby { .. } |
                     ServerMessage::NewRoom(_) |
                     ServerMessage::DeleteRoom(_) => {}
-                    ServerMessage::AdminLoginSuccess { .. } => break,
+                    ServerMessage::RoomsEmpty => break,
+                    ServerMessage::AdminLoginSuccess { .. } |
                     ServerMessage::StructuredError(ServerError::Future(_)) |
                     ServerMessage::StructuredError(ServerError::WrongPassword) |
                     ServerMessage::StructuredError(ServerError::WrongFileHash) |
@@ -523,128 +582,94 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                     ServerMessage::AutoDeleteDelta(_) => unreachable!(),
                 }
             }
+        }
+        if let Subcommand::Stop | Subcommand::StopWhenEmpty = subcommand {
             ClientMessage::Stop.write(&mut tcp_stream).await?;
         }
-        Some(Subcommand::StopWhenEmpty) => loop {
-            let mut tcp_stream = TcpStream::connect((Ipv6Addr::LOCALHOST, port)).await?;
-            multiworld::handshake(&mut tcp_stream).await?;
-            ClientMessage::Login { id: 14571800683221815449, api_key: *include_bytes!("../../../assets/admin-api-key.bin") }.write(&mut tcp_stream).await?;
-            let active_connections = loop {
-                match ServerMessage::read(&mut tcp_stream).await? {
-                    ServerMessage::OtherError(msg) => return Err(Error::Server(msg)),
-                    ServerMessage::Ping |
-                    ServerMessage::EnterLobby { .. } |
-                    ServerMessage::NewRoom(_) |
-                    ServerMessage::DeleteRoom(_) => {}
-                    ServerMessage::AdminLoginSuccess { active_connections } => break active_connections,
-                    ServerMessage::StructuredError(ServerError::Future(_)) |
-                    ServerMessage::StructuredError(ServerError::WrongPassword) |
-                    ServerMessage::StructuredError(ServerError::WrongFileHash) |
-                    ServerMessage::EnterRoom { .. } |
-                    ServerMessage::PlayerId(_) |
-                    ServerMessage::ResetPlayerId(_) |
-                    ServerMessage::ClientConnected |
-                    ServerMessage::PlayerDisconnected(_) |
-                    ServerMessage::UnregisteredClientDisconnected |
-                    ServerMessage::PlayerName(_, _) |
-                    ServerMessage::ItemQueue(_) |
-                    ServerMessage::GetItem(_) |
-                    ServerMessage::Goodbye |
-                    ServerMessage::PlayerFileHash(_, _) |
-                    ServerMessage::AutoDeleteDelta(_) => unreachable!(),
-                }
-            };
-            if active_connections.into_values().all(|(players, _)| players.is_empty()) {
-                ClientMessage::Stop.write(&mut tcp_stream).await?;
-                break
+    } else {
+        let rng = Arc::new(SystemRandom::new());
+        let listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, port)).await?;
+        let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database(&database).application_name("ootrmwd")).await?;
+        let rooms = Rooms::default();
+        {
+            let mut query = sqlx::query!(r#"SELECT
+                name,
+                password_hash AS "password_hash: [u8; CREDENTIAL_LEN]",
+                password_salt AS "password_salt: [u8; CREDENTIAL_LEN]",
+                base_queue,
+                player_queues,
+                last_saved AS "last_saved!",
+                autodelete_delta AS "autodelete_delta!"
+            FROM rooms"#).fetch(&db_pool); //TODO mark last_saved and autodelete_delta as NOT NULL in the database
+            while let Some(row) = query.try_next().await? {
+                assert!(rooms.add(Arc::new(RwLock::new(Room {
+                    name: row.name.clone(),
+                    password_hash: row.password_hash,
+                    password_salt: row.password_salt,
+                    clients: HashMap::default(),
+                    file_hash: None,
+                    base_queue: Vec::read_sync(&mut &*row.base_queue)?,
+                    player_queues: HashMap::read_sync(&mut &*row.player_queues)?,
+                    last_saved: row.last_saved,
+                    autodelete_delta: decode_pginterval(row.autodelete_delta)?,
+                    autodelete_tx: {
+                        let rooms = rooms.0.lock().await;
+                        rooms.autodelete_tx.clone()
+                    },
+                    db_pool: db_pool.clone(),
+                    tracker_state: None,
+                }))).await);
             }
-            sleep(Duration::from_secs(60)).await; //TODO replace sleep loop by having the server report changes to room connections to admins
-        },
-        None => {
-            let rng = Arc::new(SystemRandom::new());
-            let listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, port)).await?;
-            let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database(&database).application_name("ootrmwd")).await?;
-            let rooms = Rooms::default();
-            {
-                let mut query = sqlx::query!(r#"SELECT
-                    name,
-                    password_hash AS "password_hash: [u8; CREDENTIAL_LEN]",
-                    password_salt AS "password_salt: [u8; CREDENTIAL_LEN]",
-                    base_queue,
-                    player_queues,
-                    last_saved AS "last_saved!",
-                    autodelete_delta AS "autodelete_delta!"
-                FROM rooms"#).fetch(&db_pool); //TODO mark last_saved and autodelete_delta as NOT NULL in the database
-                while let Some(row) = query.try_next().await? {
-                    assert!(rooms.add(Arc::new(RwLock::new(Room {
-                        name: row.name.clone(),
-                        password_hash: row.password_hash,
-                        password_salt: row.password_salt,
-                        clients: HashMap::default(),
-                        file_hash: None,
-                        base_queue: Vec::read_sync(&mut &*row.base_queue)?,
-                        player_queues: HashMap::read_sync(&mut &*row.player_queues)?,
-                        last_saved: row.last_saved,
-                        autodelete_delta: decode_pginterval(row.autodelete_delta)?,
-                        autodelete_tx: {
-                            let rooms = rooms.0.lock().await;
-                            rooms.autodelete_tx.clone()
-                        },
-                        db_pool: db_pool.clone(),
-                        tracker_state: None,
-                    }))).await);
-                }
-            }
-            loop {
-                select! {
-                    res = listener.accept() => {
-                        let (socket, _) = res?;
-                        let socket_id = multiworld::socket_id(&socket);
-                        let (reader, writer) = socket.into_split();
-                        let writer = Arc::new(Mutex::new(writer));
-                        let rng = Arc::clone(&rng);
-                        let db_pool = db_pool.clone();
-                        let rooms = rooms.clone();
-                        tokio::spawn(async move {
-                            pin! {
-                                let session = client_session(&rng, db_pool, rooms.clone(), socket_id, reader, writer.clone());
-                            }
-                            let mut interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
-                            loop {
-                                select! {
-                                    res = &mut session => {
-                                        match res {
-                                            Ok(()) => {}
-                                            Err(SessionError::Elapsed(_)) => {} // can be caused by network instability, don't log
-                                            Err(SessionError::Read(async_proto::ReadError::Io(e))) if matches!(e.kind(), io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset) => {} // can be caused by network instability, don't log
-                                            Err(e) => eprintln!("{} error in client session: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")),
-                                        }
-                                        break
-                                    }
-                                    _ = interval.tick() => if let Err(_) = ServerMessage::Ping.write(&mut *writer.lock().await).await { break },
-                                }
-                            }
-                            for room in rooms.0.lock().await.list.values() {
-                                if room.read().await.has_client(socket_id) {
-                                    room.write().await.remove_client(socket_id, EndRoomSession::Disconnect).await;
-                                }
-                            }
-                        });
-                    }
-                    res = rooms.wait_cleanup() => {
-                        let () = res?;
-                        let now = Utc::now();
-                        while let Some(room) = {
-                            let rooms = rooms.0.lock().await;
-                            pin! {
-                                let rooms_to_delete = stream::iter(rooms.list.values()).filter(|room| async { room.read().await.autodelete_at() <= now });
-                            }
-                            rooms_to_delete.next().await.cloned()
-                        } {
-                            let mut room = room.write().await;
-                            room.delete().await;
-                            rooms.remove(room.name.clone()).await;
+        }
+        loop {
+            select! {
+                res = listener.accept() => {
+                    let (socket, _) = res?;
+                    let socket_id = multiworld::socket_id(&socket);
+                    let (reader, writer) = socket.into_split();
+                    let writer = Arc::new(Mutex::new(writer));
+                    let rng = Arc::clone(&rng);
+                    let db_pool = db_pool.clone();
+                    let rooms = rooms.clone();
+                    tokio::spawn(async move {
+                        pin! {
+                            let session = client_session(&rng, db_pool, rooms.clone(), socket_id, reader, writer.clone());
                         }
+                        let mut interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
+                        loop {
+                            select! {
+                                res = &mut session => {
+                                    match res {
+                                        Ok(()) => {}
+                                        Err(SessionError::Elapsed(_)) => {} // can be caused by network instability, don't log
+                                        Err(SessionError::Read(async_proto::ReadError::Io(e))) if matches!(e.kind(), io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset) => {} // can be caused by network instability, don't log
+                                        Err(e) => eprintln!("{} error in client session: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")),
+                                    }
+                                    break
+                                }
+                                _ = interval.tick() => if let Err(_) = ServerMessage::Ping.write(&mut *writer.lock().await).await { break },
+                            }
+                        }
+                        for room in rooms.0.lock().await.list.values() {
+                            if room.read().await.has_client(socket_id) {
+                                room.write().await.remove_client(socket_id, EndRoomSession::Disconnect).await;
+                            }
+                        }
+                    });
+                }
+                res = rooms.wait_cleanup() => {
+                    let () = res?;
+                    let now = Utc::now();
+                    while let Some(room) = {
+                        let rooms = rooms.0.lock().await;
+                        pin! {
+                            let rooms_to_delete = stream::iter(rooms.list.values()).filter(|room| async { room.read().await.autodelete_at() <= now });
+                        }
+                        rooms_to_delete.next().await.cloned()
+                    } {
+                        let mut room = room.write().await;
+                        room.delete().await;
+                        rooms.remove(room.name.clone()).await;
                     }
                 }
             }

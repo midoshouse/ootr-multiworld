@@ -802,6 +802,8 @@ pub enum ClientMessage {
     FileHash([HashIcon; 5]),
     /// Sets the time after which the room should be automatically deleted. Only works after [`ServerMessage::EnterRoom`].
     AutoDeleteDelta(Duration),
+    /// Requests a [`ServerMessage::RoomsEmpty`] when no players with claimed worlds are in any rooms. Only works after [`ServerMessage::AdminLoginSuccess`].
+    WaitUntilEmpty,
 }
 
 macro_rules! server_errors {
@@ -900,6 +902,8 @@ pub enum ServerMessage {
     PlayerFileHash(NonZeroU8, [HashIcon; 5]),
     /// Sets the time after which the room will be automatically deleted has been changed.
     AutoDeleteDelta(Duration),
+    /// There are no active players in any rooms. Sent after [`ClientMessage::WaitUntilEmpty`].
+    RoomsEmpty,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1172,6 +1176,7 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
+            ServerMessage::RoomsEmpty => {}
         }
     }
 }
