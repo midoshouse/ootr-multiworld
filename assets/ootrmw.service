@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Restart=always
 TimeoutStartSec=30min
-ExecStartPre=+/usr/bin/git pull
+ExecStartPre=+sudo -u fenhl /usr/bin/git pull
 #TODO compile as part of release script
 ExecStartPre=+sudo -u fenhl /home/fenhl/.cargo/bin/cargo build --release --package=ootrmwd
 ExecStart=/opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd
