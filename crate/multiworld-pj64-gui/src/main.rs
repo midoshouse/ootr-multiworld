@@ -554,11 +554,13 @@ impl Application for State {
                             Ok(Message::Nop)
                         })
                     },
-                    ServerMessage::ItemQueue(queue) => if let Some(writer) = self.pj64_writer.clone() {
-                        return cmd(async move {
-                            writer.write(subscriptions::ServerMessage::ItemQueue(queue)).await?;
-                            Ok(Message::Nop)
-                        })
+                    ServerMessage::ItemQueue(queue) => if let SessionState::Room { wrong_file_hash: false, .. } = self.server_connection {
+                        if let Some(writer) = self.pj64_writer.clone() {
+                            return cmd(async move {
+                                writer.write(subscriptions::ServerMessage::ItemQueue(queue)).await?;
+                                Ok(Message::Nop)
+                            })
+                        }
                     },
                     ServerMessage::GetItem(item) => if let SessionState::Room { wrong_file_hash: false, .. } = self.server_connection {
                         if let Some(writer) = self.pj64_writer.clone() {
