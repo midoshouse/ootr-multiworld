@@ -501,15 +501,15 @@ impl Application for State {
                 };
                 self.server_connection.apply(msg.clone());
                 match msg {
-                    ServerMessage::EnterLobby { .. } => if room_still_exists {
+                    ServerMessage::EnterLobby { .. } => {
                         let pj64_writer = self.pj64_writer.clone();
                         return cmd(async move {
                             if let Some(pj64_writer) = pj64_writer {
                                 pj64_writer.write(subscriptions::ServerMessage::ItemQueue(Vec::default())).await?;
                             }
-                            Ok(Message::JoinRoom)
+                            Ok(if room_still_exists { Message::JoinRoom } else { Message::Nop })
                         })
-                    },
+                    }
                     ServerMessage::EnterRoom { players, .. } => {
                         let server_writer = self.server_writer.clone().expect("join room button only appears when connected to server");
                         let pj64_writer = self.pj64_writer.clone().expect("join room button only appears when connected to PJ64");
