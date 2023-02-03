@@ -321,6 +321,16 @@ async fn lobby_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket
                     },
                     ClientMessage::WaitUntilEmpty => if logged_in_as_admin {
                         waiting_until_empty = true;
+                        let mut any_players = false;
+                        for room in rooms.0.lock().await.list.values() {
+                            if room.read().await.clients.values().any(|client| client.player.is_some()) {
+                                any_players = true;
+                                break
+                            }
+                        }
+                        if !any_players {
+                            ServerMessage::RoomsEmpty.write(&mut *writer.lock().await).await?;
+                        }
                     } else {
                         error!("WaitUntilEmpty command requires admin login")
                     },
