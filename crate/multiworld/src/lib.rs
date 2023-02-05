@@ -26,6 +26,7 @@ use {
     chrono::prelude::*,
     itertools::Itertools as _,
     lazy_regex::regex_captures,
+    oottracker::websocket::MwItem as Item,
     semver::Version,
     serde::{
         Deserialize,
@@ -67,7 +68,7 @@ pub const CREDENTIAL_LEN: usize = ring::digest::SHA512_OUTPUT_LEN;
 pub fn version() -> Version { Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version") }
 pub fn proto_version() -> u8 { version().major.try_into().expect("version number does not fit into u8") }
 
-const TRIFORCE_PIECE: u16 = 0xca;
+const TRIFORCE_PIECE: u16 = 0x00ca;
 
 #[cfg(unix)] pub type SocketId = std::os::unix::io::RawFd;
 #[cfg(windows)] pub type SocketId = std::os::windows::io::RawSocket;
@@ -240,13 +241,6 @@ impl Player {
             file_hash: None,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, Protocol)]
-pub struct Item {
-    pub source: NonZeroU8,
-    pub key: u32,
-    pub kind: u16,
 }
 
 #[derive(Debug)]
@@ -445,6 +439,13 @@ impl Room {
     }
 
     async fn queue_item_inner(&mut self, source_world: NonZeroU8, key: u32, kind: u16, target_world: NonZeroU8) -> Result<(), async_proto::WriteError> {
+        #[cfg(feature = "tokio-tungstenite")]
+        if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
+            oottracker::websocket::ClientMessage::MwQueueItem {
+                room: tracker_room_name.clone(),
+                source_world, key, kind, target_world,
+            }.write_ws(sock).await?;
+        }
         if kind == TRIFORCE_PIECE {
             if !self.base_queue.iter().any(|item| item.source == source_world && item.key == key) {
                 self.player_queues.entry(source_world).or_insert_with(|| self.base_queue.clone()); // make sure the sender doesn't get a duplicate of this piece from the base queue
@@ -462,26 +463,14 @@ impl Room {
                 for target_client in player_clients {
                     self.write(target_client, &msg).await;
                 }
-                #[cfg(feature = "tokio-tungstenite")]
-                if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
-                    oottracker::websocket::ClientMessage::MwGetItemAll { room: tracker_room_name.clone(), item: kind }.write_ws(sock).await?;
-                }
             }
         } else if source_world == target_world {
             // don't send own item back to sender
-            #[cfg(feature = "tokio-tungstenite")]
-            if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
-                oottracker::websocket::ClientMessage::MwGetItem { room: tracker_room_name.clone(), world: target_world, item: kind }.write_ws(sock).await?;
-            }
         } else {
             if !self.player_queues.get(&target_world).map_or(false, |queue| queue.iter().any(|item| item.source == source_world && item.key == key)) {
                 self.player_queues.entry(target_world).or_insert_with(|| self.base_queue.clone()).push(Item { source: source_world, key, kind });
                 if let Some((&target_client, _)) = self.clients.iter().find(|(_, c)| c.player.map_or(false, |p| p.world == target_world)) {
                     self.write(target_client, &ServerMessage::GetItem(kind)).await;
-                }
-                #[cfg(feature = "tokio-tungstenite")]
-                if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
-                    oottracker::websocket::ClientMessage::MwGetItem { room: tracker_room_name.clone(), world: target_world, item: kind }.write_ws(sock).await?;
                 }
             }
         }
@@ -566,7 +555,7 @@ impl Room {
         let mut worlds = (1..=world_count.get())
             .map(|player_id| (
                 None,
-                self.player_queues.get(&NonZeroU8::new(player_id).expect("range starts at 1")).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>(),
+                self.player_queues.get(&NonZeroU8::new(player_id).expect("range starts at 1")).unwrap_or(&self.base_queue).clone(),
             ))
             .collect::<Vec<_>>();
         for client in self.clients.values() {
@@ -784,8 +773,8 @@ pub enum ClientMessage {
     /// Configures the given room to be visible on oottracker.fenhl.net. Only works after [`ServerMessage::AdminLoginSuccess`].
     Track {
         mw_room_name: String,
-        tracker_room_name: String,
-        world_count: NonZeroU8,
+        tracker_room_name: String, //TODO remove this parameter, generate a random name instead and reply with it
+        world_count: NonZeroU8, //TODO this parameter can also be removed if oottracker is changed to use the base queue system
     },
     /// Only works after [`ServerMessage::EnterRoom`].
     SaveData(oottracker::Save),

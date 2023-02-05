@@ -16,7 +16,7 @@ version = "4"
 features = ["derive"]
 
 [dependencies.crossterm]
-version = "0.25"
+version = "0.26"
 features = ["event-stream"]
 
 [dependencies.multiworld]

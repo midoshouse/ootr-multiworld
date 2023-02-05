@@ -809,6 +809,7 @@ namespace MidosHouse.OotrMultiworld {
             var stateMain = APIs.Memory.ReadS8(0x11b92f, "RDRAM");
             var stateMenu = APIs.Memory.ReadS8(0x1d8dd5, "RDRAM");
             var currentScene = APIs.Memory.ReadU8(0x1c8545, "RDRAM");
+            // The following conditional will be made redundant by https://github.com/TestRunnerSRL/OoT-Randomizer/pull/1867. Keep it for back-compat for now.
             if (
                 stateLogo != 0x802c_5880 && stateLogo != 0 && stateMain != 1 && stateMain != 2 && stateMenu == 0 && (
                     (currentScene < 0x2c || currentScene > 0x33) && currentScene != 0x42 && currentScene != 0x4b // don't receive items in shops to avoid a softlock when buying an item at the same time as receiving one
@@ -821,7 +822,7 @@ namespace MidosHouse.OotrMultiworld {
                         var item = client.Item((ushort) internalCount);
                         //Debug($"P{playerID}: Received an item {item} from another player");
                         APIs.Memory.WriteU16(coopContextAddr + 0x8, item, "System Bus");
-                        APIs.Memory.WriteU16(coopContextAddr + 0x6, item == 0xca ? (playerID == 1 ? 2u : 1) : playerID, "System Bus");
+                        APIs.Memory.WriteU16(coopContextAddr + 0x6, item == 0x00ca ? (playerID == 1 ? 2u : 1) : playerID, "System Bus");
                     } else if (internalCount > externalCount) {
                         // warning: gap in received items
                     }
