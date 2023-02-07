@@ -1344,9 +1344,9 @@ dependencies = [
 
 [[package]]
 name = "exr"
-version = "1.5.2"
+version = "1.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8eb5f255b5980bb0c8cf676b675d1a99be40f316881444f44e0462eaf5df5ded"
+checksum = "e8af5ef47e2ed89d23d0ecbc1b681b30390069de70260937877514377fc24feb"
 dependencies = [
  "bit_field",
  "flume",
@@ -1355,6 +1355,7 @@ dependencies = [
  "miniz_oxide",
  "smallvec",
  "threadpool",
+ "zune-inflate",
 ]
 
 [[package]]
@@ -2765,6 +2766,7 @@ dependencies = [
  "itertools",
  "lazy-regex",
  "once_cell",
+ "ootr-utils",
  "oottracker",
  "pyo3",
  "reqwest",
@@ -2772,14 +2774,11 @@ dependencies = [
  "semver 1.0.16",
  "serde",
  "serde_json",
- "serde_plain",
  "sqlx",
  "thiserror",
  "tokio",
  "tokio-tungstenite",
  "url",
- "wheel",
- "xdg",
 ]
 
 [[package]]
@@ -3284,6 +3283,25 @@ dependencies = [
  "serde",
  "syn",
  "zip",
+]
+
+[[package]]
+name = "ootr-utils"
+version = "0.1.0"
+source = "git+https://github.com/midoshouse/rust-ootr-utils?branch=main#d7749b06e370628e758e976c8026e9091e976699"
+dependencies = [
+ "async-proto",
+ "directories",
+ "itertools",
+ "lazy-regex",
+ "pyo3",
+ "semver 1.0.16",
+ "serde",
+ "serde_plain",
+ "thiserror",
+ "tokio",
+ "wheel",
+ "xdg",
 ]
 
 [[package]]
@@ -4565,6 +4583,12 @@ checksum = "e51e73328dc4ac0c7ccbda3a494dfa03df1de2f46018127f60c693f2648455b0"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "simd-adler32"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14a5df39617d7c8558154693a1bb8157a4aab8179209540cc0b10e5dc24e0b18"
 
 [[package]]
 name = "siphasher"
@@ -6204,6 +6228,15 @@ dependencies = [
  "cc",
  "libc",
  "pkg-config",
+]
+
+[[package]]
+name = "zune-inflate"
+version = "0.2.42"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c473377c11c4a3ac6a2758f944cd336678e9c977aa0abf54f6450cf77e902d6d"
+dependencies = [
+ "simd-adler32",
 ]
 
 [[package]]

@@ -56,8 +56,6 @@ use {
 
 pub mod config;
 pub mod github;
-mod rando;
-#[cfg(feature = "pyo3")] mod util;
 
 pub const ADDRESS_V4: Ipv4Addr = Ipv4Addr::new(37, 252, 122, 84);
 pub const ADDRESS_V6: Ipv6Addr = Ipv6Addr::new(0x2a02, 0x2770, 0x8, 0, 0x21a, 0x4aff, 0xfee1, 0xf281);
@@ -295,18 +293,11 @@ pub enum SetHashError {
 #[cfg(feature = "pyo3")]
 #[derive(Debug, thiserror::Error)]
 pub enum SendAllError {
+    #[error(transparent)] Clone(#[from] ootr_utils::CloneError),
     #[error(transparent)] Python(#[from] PyErr),
-    #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("this room is for a different seed")]
     FileHash,
-}
-
-#[cfg(feature = "pyo3")]
-impl From<pyo3::PyDowncastError<'_>> for SendAllError {
-    fn from(e: pyo3::PyDowncastError<'_>) -> Self {
-        Self::Python(e.into())
-    }
 }
 
 impl Room {
@@ -505,7 +496,7 @@ impl Room {
         if self.file_hash.map_or(false, |room_hash| spoiler_log.file_hash != room_hash) {
             return Err(SendAllError::FileHash)
         }
-        spoiler_log.version.clone().await?;
+        spoiler_log.version.clone_repo().await?;
         let items_to_queue = Python::with_gil(|py| {
             let py_modules = spoiler_log.version.py_modules(py)?;
             let mut items_to_queue = Vec::default();
@@ -727,7 +718,7 @@ struct SpoilerLogItem {
 #[derive(Debug, Deserialize, Protocol)]
 pub struct SpoilerLog {
     #[serde(rename = ":version")]
-    version: rando::Version,
+    version: ootr_utils::Version,
     file_hash: [HashIcon; 5],
     #[serde(deserialize_with = "deserialize_multiworld")]
     locations: Vec<BTreeMap<String, SpoilerLogItem>>,
