@@ -503,7 +503,7 @@ impl Room {
             Ok::<_, SendAllError>(if let Some(world_locations) = spoiler_log.locations.get(usize::from(source_world.get() - 1)) {
                 for (loc, SpoilerLogItem { player, item }) in world_locations {
                     if *player != source_world {
-                        if let Some(key) = py_modules.override_key(loc)? {
+                        if let Some(key) = py_modules.override_key(loc, item)? {
                             if let Some(kind) = py_modules.item_kind(item)? {
                                 items_to_queue.push((source_world, key, kind, *player));
                             } else {
@@ -665,7 +665,6 @@ pub enum HashIcon {
 fn deserialize_multiworld<'de, D: Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> Result<Vec<T>, D::Error> {
     struct MultiworldVisitor<'de, T: Deserialize<'de>> {
         _marker: PhantomData<(&'de (), T)>,
-
     }
 
     impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for MultiworldVisitor<'de, T> {

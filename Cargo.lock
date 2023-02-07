@@ -3288,7 +3288,7 @@ dependencies = [
 [[package]]
 name = "ootr-utils"
 version = "0.1.0"
-source = "git+https://github.com/midoshouse/rust-ootr-utils?branch=main#d7749b06e370628e758e976c8026e9091e976699"
+source = "git+https://github.com/midoshouse/rust-ootr-utils?branch=main#9004c24800a0e5f4029f88a1a3bcad707f5b3622"
 dependencies = [
  "async-proto",
  "directories",
