@@ -20,6 +20,7 @@ use {
             EventStream,
             KeyCode,
             KeyEvent,
+            KeyEventKind,
             KeyModifiers,
         },
         style::Print,
@@ -165,25 +166,27 @@ async fn cli(Args { server_ip, port, id, api_key }: Args) -> Result<(), Error> {
                     break
                 } else {
                     match key_event.code {
-                        KeyCode::Enter => {
-                            ClientMessage::from_expr(syn::parse_str(&cmd_buf)?)?.write(&mut writer).await?;
+                        KeyCode::Enter => if key_event.kind == KeyEventKind::Press {
+                            if !cmd_buf.is_empty() {
+                                ClientMessage::from_expr(syn::parse_str(&cmd_buf)?)?.write(&mut writer).await?;
+                            }
                             cmd_buf.clear();
                             crossterm::execute!(stdout,
                                 Print(format_args!("\r\n{}> ", prompt(&session_state))),
                             )?;
-                        }
-                        KeyCode::Backspace => if cmd_buf.pop().is_some() {
+                        },
+                        KeyCode::Backspace => if matches!(key_event.kind, KeyEventKind::Press | KeyEventKind::Repeat) && cmd_buf.pop().is_some() {
                             crossterm::execute!(stdout,
                                 MoveLeft(1),
                                 Clear(ClearType::UntilNewLine),
                             )?;
                         },
-                        KeyCode::Char(c) => {
+                        KeyCode::Char(c) => if matches!(key_event.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
                             cmd_buf.push(c);
                             crossterm::execute!(stdout,
                                 Print(c),
                             )?;
-                        }
+                        },
                         _ => {}
                     }
                 },
