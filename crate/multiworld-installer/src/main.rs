@@ -6,6 +6,7 @@
 use {
     std::{
         borrow::Cow,
+        cmp::Ordering::*,
         collections::BTreeMap,
         env,
         fmt,
@@ -44,6 +45,7 @@ use {
     lazy_regex::regex_is_match,
     open::that as open,
     rfd::AsyncFileDialog,
+    semver::Version,
     serde::{
         Deserialize,
         Serialize,
@@ -69,6 +71,8 @@ use {
     },
 };
 
+#[cfg(target_arch = "x86_64")] const BIZHAWK_PLATFORM_SUFFIX: &str = "-win-x64.zip";
+
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error(transparent)] Config(#[from] multiworld::config::SaveError),
@@ -79,13 +83,18 @@ enum Error {
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
     #[error(transparent)] Url(#[from] url::ParseError),
     #[error(transparent)] Wheel(#[from] wheel::Error),
+    #[error(transparent)] Winver(#[from] winver::Error),
     #[error(transparent)] Zip(#[from] async_zip::error::ZipError),
+    #[error("The installer requires an older version of BizHawk. Install manually at your own risk, or ask Fenhl to release a new version.")]
+    BizHawkVersionRegression,
     #[error("tried to copy debug info or open a GitHub issue with no active error")]
     CopyDebugInfo,
     #[error("got zero elements when exactly one was expected")]
     ExactlyOneEmpty,
     #[error("got at least 2 elements when exactly one was expected")]
     ExactlyOneMultiple,
+    #[error("latest release does not have a download for this platform")]
+    MissingBizHawkAsset,
     #[error("no BizHawk releases found")]
     NoBizHawkReleases,
     #[error("failed to parse Project64 website")]
@@ -189,7 +198,12 @@ enum Page {
         emulator_path: String,
         multiworld_path: Option<String>,
     },
+    AskBizHawkUpdate {
+        emulator_path: String,
+        multiworld_path: Option<String>,
+    },
     InstallEmulator {
+        update: bool,
         emulator: Emulator,
         emulator_path: String,
         multiworld_path: Option<String>,
@@ -280,6 +294,7 @@ impl Application for State {
                 Page::Error(_, _) | Page::Elevated | Page::SelectEmulator { .. } => unreachable!(),
                 Page::LocateEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => Page::SelectEmulator { emulator: Some(emulator), install_emulator: Some(install_emulator), emulator_path: Some(emulator_path.clone()), multiworld_path: multiworld_path.clone() },
                 Page::InstallEmulator { .. } => unreachable!(),
+                Page::AskBizHawkUpdate { ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator: Emulator::BizHawk, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
                 Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
                 Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path, .. } | Page::AskLaunch { emulator, ref emulator_path, ref multiworld_path } => match emulator {
                     Emulator::BizHawk => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
@@ -380,7 +395,7 @@ impl Application for State {
                 }
                 Page::LocateEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => if install_emulator {
                     let emulator_path = emulator_path.clone();
-                    self.page = Page::InstallEmulator { emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
+                    self.page = Page::InstallEmulator { update: false, emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
                     match emulator {
                         Emulator::BizHawk => {
                             //TODO indicate progress
@@ -469,9 +484,57 @@ impl Application for State {
                         }
                     }
                 } else {
-                    //TODO make sure emulator is up to date
+                    match emulator {
+                        Emulator::BizHawk => {
+                            let [major, minor, patch, _] = match winver::get_file_version_info(emulator_path) {
+                                Ok(version) => version,
+                                Err(e) => return cmd(future::err(e.into())),
+                            };
+                            let local_bizhawk_version = Version::new(major.into(), minor.into(), patch.into());
+                            let required_bizhawk_version = include!(concat!(env!("OUT_DIR"), "/bizhawk_version.rs"));
+                            match local_bizhawk_version.cmp(&required_bizhawk_version) {
+                                Less => {
+                                    self.page = Page::AskBizHawkUpdate { emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
+                                    return Command::none()
+                                }
+                                Equal => {}
+                                Greater => return cmd(future::err(Error::BizHawkVersionRegression)),
+                            }
+                        }
+                        Emulator::Project64 => {} //TODO make sure emulator is up to date
+                    }
                     return cmd(future::ok(Message::LocateMultiworld))
                 },
+                Page::AskBizHawkUpdate { ref emulator_path, ref multiworld_path } => {
+                    let client = self.http_client.clone();
+                    let emulator_path_buf = PathBuf::from(emulator_path.clone());
+                    self.page = Page::InstallEmulator { update: true, emulator: Emulator::BizHawk, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
+                    return cmd(async move {
+                        //TODO also update prereqs
+                        let version_str = include!(concat!(env!("OUT_DIR"), "/bizhawk_version.rs")).to_string();
+                        let version_str = version_str.trim_end_matches(".0");
+                        let release = Repo::new("TASEmulators", "BizHawk").release_by_tag(&client, version_str).await?.ok_or(Error::NoBizHawkReleases)?;
+                        let (asset,) = release.assets.into_iter()
+                            .filter(|asset| asset.name.ends_with(BIZHAWK_PLATFORM_SUFFIX))
+                            .collect_tuple().ok_or(Error::MissingBizHawkAsset)?;
+                        let response = client.get(asset.browser_download_url).send().await?.error_for_status()?;
+                        let zip_file = async_zip::read::mem::ZipFileReader::new(response.bytes().await?.into()).await?;
+                        let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), emulator_path_buf.join(entry.entry().filename()))).collect_vec();
+                        for (idx, is_dir, path) in entries {
+                            if is_dir {
+                                fs::create_dir_all(path).await?;
+                            } else {
+                                if let Some(parent) = path.parent() {
+                                    fs::create_dir_all(parent).await?;
+                                }
+                                let mut buf = Vec::default();
+                                zip_file.entry(idx).await?.read_to_end_checked(&mut buf, zip_file.file().entries()[idx].entry()).await?;
+                                fs::write(path, &buf).await?;
+                            }
+                        }
+                        Ok(Message::LocateMultiworld)
+                    })
+                }
                 Page::InstallEmulator { .. } => unreachable!(),
                 Page::LocateMultiworld { .. } | Page::InstallMultiworld { .. } => return cmd(future::ok(Message::InstallMultiworld)),
                 Page::AskLaunch { emulator, ref emulator_path, ref multiworld_path } => {
@@ -511,7 +574,7 @@ impl Application for State {
             Message::InstallMultiworld => {
                 let (emulator, emulator_path, multiworld_path) = match self.page {
                     Page::LocateEmulator { emulator, ref emulator_path, ref multiworld_path, .. } |
-                    Page::InstallEmulator { emulator, ref emulator_path, ref multiworld_path } |
+                    Page::InstallEmulator { emulator, ref emulator_path, ref multiworld_path, .. } |
                     Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, emulator_path.clone(), multiworld_path.clone()),
                     Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => (emulator, emulator_path.clone(), Some(multiworld_path.clone())),
                     _ => unreachable!(),
@@ -563,7 +626,7 @@ impl Application for State {
             Message::LocateMultiworld => {
                 let (emulator, emulator_path, multiworld_path) = match self.page {
                     Page::LocateEmulator { emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, emulator_path.clone(), multiworld_path.clone()),
-                    Page::InstallEmulator { emulator, ref emulator_path, ref multiworld_path } => (emulator, emulator_path.clone(), multiworld_path.clone()),
+                    Page::InstallEmulator { emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, emulator_path.clone(), multiworld_path.clone()),
                     _ => unreachable!(),
                 };
                 match emulator {
@@ -676,7 +739,12 @@ impl Application for State {
                     !emulator_path.is_empty(),
                 )),
             ),
-            Page::InstallEmulator { emulator, .. } => (Text::new(format!("Installing {emulator}, please wait…")).into(), None),
+            Page::AskBizHawkUpdate { .. } => (
+                Text::new("The selected copy of BizHawk is too old to run Mido's House Multiworld. Do you want to update it to the latest version?").into(),
+                Some((Text::new("Update BizHawk").into(), true))
+            ),
+            Page::InstallEmulator { update: true, emulator, .. } => (Text::new(format!("Updating {emulator}, please wait…")).into(), None),
+            Page::InstallEmulator { update: false, emulator, .. } => (Text::new(format!("Installing {emulator}, please wait…")).into(), None),
             Page::LocateMultiworld { ref multiworld_path, .. } => (
                 Column::new()
                     .push(Text::new("Install Multiworld to:"))
@@ -687,11 +755,11 @@ impl Application for State {
                     )
                     .spacing(8)
                     .into(),
-                Some((Text::new(format!("Install Multiworld")).into(), !multiworld_path.is_empty())),
+                Some((Text::new("Install Multiworld").into(), !multiworld_path.is_empty())),
             ),
             Page::InstallMultiworld { config_write_failed: true, emulator, .. } => (
                 Text::new(format!("Could not adjust {emulator} settings. Please close {emulator} and try again.")).into(),
-                Some((Text::new(format!("Try Again")).into(), true)),
+                Some((Text::new("Try Again").into(), true)),
             ),
             Page::InstallMultiworld { config_write_failed: false, .. } => (Text::new("Installing multiworld, please wait…").into(), None),
             Page::AskLaunch { emulator, .. } => (

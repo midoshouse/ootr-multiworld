@@ -5,7 +5,11 @@ authors.workspace = true
 edition.workspace = true
 
 [build-dependencies]
+thiserror = "1"
 winres = "0.1"
+
+[build-dependencies.multiworld-bizhawk]
+path = "../multiworld-bizhawk"
 
 [dependencies]
 dark-light = "1"
@@ -19,6 +23,7 @@ lazy-regex = "2"
 open = "3"
 rfd = "0.11"
 #runas = "0.2" # https://github.com/mitsuhiko/rust-runas/pull/7 https://github.com/midoshouse/ootr-multiworld/security/dependabot/1
+semver = "1"
 serde_ini = "0.2"
 tempfile = "3"
 thiserror = "1"
@@ -75,4 +80,8 @@ features = ["serde"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
+branch = "main"
+
+[dependencies.winver]
+git = "https://github.com/fenhl/winver"
 branch = "main"
