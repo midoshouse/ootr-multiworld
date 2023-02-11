@@ -154,11 +154,13 @@ async fn cli(Args { server_ip, port, id, api_key }: Args) -> Result<(), Error> {
             res = &mut read => {
                 let (reader, msg) = res??;
                 session_state.apply(msg.clone());
-                crossterm::execute!(stdout,
-                    MoveToColumn(0),
-                    Clear(ClearType::UntilNewLine),
-                    Print(format_args!("{msg:#?}\r\n{}> {cmd_buf}", prompt(&session_state))),
-                )?;
+                if !matches!(msg, ServerMessage::Ping) {
+                    crossterm::execute!(stdout,
+                        MoveToColumn(0),
+                        Clear(ClearType::UntilNewLine),
+                        Print(format_args!("{msg:#?}\r\n{}> {cmd_buf}", prompt(&session_state))),
+                    )?;
+                }
                 read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_owned(reader)));
             },
             cli_event = cli_events.select_next_some() => match cli_event? {
