@@ -11,19 +11,19 @@ winres = "0.1"
 bytes = "1"
 dark-light = "1"
 futures = "0.3"
-iced_native = "0.8"
+iced_native = "0.9"
 itertools = "0.10"
 open = "3"
-#runas = "0.2" # https://github.com/mitsuhiko/rust-runas/pull/7 https://github.com/midoshouse/ootr-multiworld/security/dependabot/1
+runas = "1"
 semver = "1"
-sysinfo = "0.27"
+sysinfo = "0.28"
 tempfile = "3"
 thiserror = "1"
 url = "2"
 winapi = "0.3"
 
 [dependencies.async_zip]
-version = "0.0.11"
+version = "0.0.12"
 features = ["full"]
 
 [dependencies.clap]
@@ -31,7 +31,7 @@ version = "4"
 features = ["derive"]
 
 [dependencies.iced]
-version = "0.7"
+version = "0.8"
 features = ["default_system_font", "tokio"]
 
 [dependencies.image]
@@ -46,10 +46,6 @@ path = "../multiworld"
 version = "0.11"
 default-features = false
 features = ["rustls-tls", "stream"]
-
-[dependencies.runas]
-git = "https://github.com/lucasfernog/rust-runas"
-branch = "chore/update-which-dep"
 
 [dependencies.serenity]
 version = "0.11"

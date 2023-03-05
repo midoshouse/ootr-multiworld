@@ -15,21 +15,21 @@ path = "../multiworld-bizhawk"
 dark-light = "1"
 directories = "4"
 futures = "0.3"
-iced_native = "0.8"
+iced_native = "0.9"
 is_elevated = "0.1"
 itertools = "0.10"
 kuchiki = "0.8"
 lazy-regex = "2"
 open = "3"
 rfd = "0.11"
-#runas = "0.2" # https://github.com/mitsuhiko/rust-runas/pull/7 https://github.com/midoshouse/ootr-multiworld/security/dependabot/1
+runas = "1"
 semver = "1"
 serde_ini = "0.2"
 tempfile = "3"
 thiserror = "1"
 
 [dependencies.async_zip]
-version = "0.0.11"
+version = "0.0.12"
 features = ["full"]
 
 [dependencies.clap]
@@ -37,7 +37,7 @@ version = "4"
 features = ["derive"]
 
 [dependencies.iced]
-version = "0.7"
+version = "0.8"
 features = ["default_system_font", "image", "tokio"]
 
 [dependencies.image]
@@ -52,10 +52,6 @@ path = "../multiworld"
 version = "0.11"
 default-features = false
 features = ["json", "rustls-tls", "stream"]
-
-[dependencies.runas]
-git = "https://github.com/lucasfernog/rust-runas"
-branch = "chore/update-which-dep"
 
 [dependencies.serde]
 version = "1"

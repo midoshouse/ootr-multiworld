@@ -706,7 +706,7 @@ impl Application for State {
                 Some({
                     let mut row = Row::new();
                     if matches!(emulator, Some(Emulator::Project64)) && !is_elevated() {
-                        row = row.push(Image::new(image::Handle::from_memory(include_bytes!("../../../assets/uac.png").to_vec())).height(Length::Units(20)));
+                        row = row.push(Image::new(image::Handle::from_memory(include_bytes!("../../../assets/uac.png").to_vec())).height(Length::Fixed(20.0)));
                     }
                     row = row.push(Text::new("Continue"));
                     (Into::<Element<'_, Message>>::into(row.spacing(8)), emulator.is_some())
