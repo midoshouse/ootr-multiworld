@@ -278,7 +278,8 @@ impl Application for State {
                     let cache_dir = project_dirs.cache_dir();
                     fs::create_dir_all(cache_dir).await?;
                     let updater_path = cache_dir.join("updater.exe");
-                    #[cfg(target_arch = "x86_64")] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
+                    #[cfg(all(target_arch = "x86_64", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater.exe");
+                    #[cfg(all(target_arch = "x86_64", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
                     fs::write(&updater_path, updater_data).await?;
                     let _ = std::process::Command::new(updater_path)
                         .arg("pj64")

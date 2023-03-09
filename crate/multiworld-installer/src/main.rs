@@ -586,7 +586,8 @@ impl Application for State {
                         let external_tools_dir = emulator_dir.join("ExternalTools");
                         fs::create_dir(&external_tools_dir).await.exist_ok()?;
                         //TODO download latest release instead of embedding in installer
-                        fs::write(external_tools_dir.join("multiworld.dll"), include_bytes!("../../../target/release/multiworld.dll")).await?;
+                        #[cfg(debug_assertions)] fs::write(external_tools_dir.join("multiworld.dll"), include_bytes!("../../../target/debug/multiworld.dll")).await?;
+                        #[cfg(not(debug_assertions))] fs::write(external_tools_dir.join("multiworld.dll"), include_bytes!("../../../target/release/multiworld.dll")).await?;
                         fs::write(external_tools_dir.join("OotrMultiworld.dll"), include_bytes!("../../multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/OotrMultiworld.dll")).await?;
                         Ok(Message::MultiworldInstalled)
                     }),
@@ -595,7 +596,8 @@ impl Application for State {
                         return cmd(async move {
                             fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
                             //TODO download latest release instead of embedding in installer
-                            fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-pj64-gui.exe")).await?;
+                            #[cfg(debug_assertions)] fs::write(multiworld_path, include_bytes!("../../../target/debug/multiworld-pj64-gui.exe")).await?;
+                            #[cfg(not(debug_assertions))] fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-pj64-gui.exe")).await?;
                             let scripts_path = emulator_dir.join("Scripts");
                             fs::create_dir(&scripts_path).await.exist_ok()?;
                             let script_path = scripts_path.join("ootrmw.js");

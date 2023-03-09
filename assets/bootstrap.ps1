@@ -7,10 +7,19 @@ function ThrowOnNativeFailure {
     }
 }
 
+cargo build --package=multiworld-updater
+ThrowOnNativeFailure
 cargo build --release --package=multiworld-updater
+ThrowOnNativeFailure
+cargo build --package=multiworld-pj64-gui
 ThrowOnNativeFailure
 cargo build --release --package=multiworld-pj64-gui
 ThrowOnNativeFailure
+cargo build --package=multiworld-csharp
+ThrowOnNativeFailure
 cargo build --release --package=multiworld-csharp
 ThrowOnNativeFailure
+cargo build --package=multiworld-bizhawk
+ThrowOnNativeFailure
 cargo build --release --package=multiworld-bizhawk
+ThrowOnNativeFailure
