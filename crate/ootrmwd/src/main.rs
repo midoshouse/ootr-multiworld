@@ -308,17 +308,6 @@ async fn lobby_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket
                     } else {
                         error!("Track command requires admin login")
                     },
-                    ClientMessage::SendAll { room, source_world, spoiler_log } => if logged_in_as_admin {
-                        if let Some(room) = rooms.0.lock().await.list.get(&room) {
-                            if !room.write().await.send_all(source_world, &spoiler_log).await? {
-                                error!("failed to send some items")
-                            }
-                        } else {
-                            error!("there is no room named {room:?}")
-                        }
-                    } else {
-                        error!("SendAll command requires admin login")
-                    },
                     ClientMessage::WaitUntilEmpty => if logged_in_as_admin {
                         waiting_until_empty = true;
                         let mut any_players = false;
@@ -341,6 +330,7 @@ async fn lobby_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket
                     ClientMessage::KickPlayer(_) => error!("received a KickPlayer message, which only works in a room, but you're in the lobby"),
                     ClientMessage::DeleteRoom => error!("received a DeleteRoom message, which only works in a room, but you're in the lobby"),
                     ClientMessage::SaveData(_) => error!("received a SaveData message, which only works in a room, but you're in the lobby"),
+                    ClientMessage::SendAll { .. } => error!("received a SendAll message, which only works in a room, but you're in the lobby"),
                     ClientMessage::SaveDataError { .. } => error!("received a SaveDataError message, which only works in a room, but you're in the lobby"),
                     ClientMessage::FileHash(_) => error!("received a FileHash message, which only works in a room, but you're in the lobby"),
                     ClientMessage::AutoDeleteDelta(_) => error!("received an AutoDeleteDelta message, which only works in a room, but you're in the lobby"),
@@ -373,7 +363,6 @@ async fn room_session(db_pool: PgPool, rooms: Rooms, room: Arc<RwLock<Room>>, so
                     ClientMessage::Login { .. } => error!("received a Login message, which only works in the lobby, but you're in a room"),
                     ClientMessage::Stop => error!("received a Stop message, which only works in the lobby, but you're in a room"),
                     ClientMessage::Track { .. } => error!("received a Track message, which only works in the lobby, but you're in a room"),
-                    ClientMessage::SendAll { .. } => error!("received a SendAll message, which only works in the lobby, but you're in a room"),
                     ClientMessage::WaitUntilEmpty => error!("received a WaitUntilEmpty message, which only works in the lobby, but you're in a room"),
                     ClientMessage::PlayerId(id) => if !room.write().await.load_player(socket_id, id).await? {
                         error!("world {id} is already taken")
@@ -407,6 +396,9 @@ async fn room_session(db_pool: PgPool, rooms: Rooms, room: Arc<RwLock<Room>>, so
                         rooms.remove(room.name.clone()).await;
                     }
                     ClientMessage::SaveData(save) => room.write().await.set_save_data(socket_id, save).await?,
+                    ClientMessage::SendAll { source_world, spoiler_log } => if !room.write().await.send_all(source_world, &spoiler_log).await? {
+                        error!("failed to send some items")
+                    },
                     ClientMessage::SaveDataError { debug, version } => if version >= multiworld::version() {
                         sqlx::query!("INSERT INTO save_data_errors (debug, version) VALUES ($1, $2)", debug, version.to_string()).execute(&db_pool).await?;
                     },

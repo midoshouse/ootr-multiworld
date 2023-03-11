@@ -5,6 +5,10 @@ use {
         time::Duration,
     },
     itertools::Itertools as _,
+    ootr_utils::spoiler::{
+        HashIcon,
+        SpoilerLog,
+    },
     syn::{
         Expr,
         ExprLit,
@@ -17,8 +21,6 @@ use {
     multiworld::{
         ClientMessage,
         Filename,
-        HashIcon,
-        SpoilerLog,
     },
     crate::Error,
 };
@@ -338,13 +340,11 @@ impl FromExpr for ClientMessage {
                         Ok(Self::Track { mw_room_name: mw_room_name.ok_or(Error::FromExpr)?, tracker_room_name: tracker_room_name.ok_or(Error::FromExpr)?, world_count: world_count.ok_or(Error::FromExpr)? })
                     }
                     "SendAll" => {
-                        let mut room = None;
                         let mut source_world = None;
                         let mut spoiler_log = None;
                         for FieldValue { member, expr, .. } in struct_lit.fields {
                             match member {
                                 Member::Named(member) => match &*member.to_string() {
-                                    "room" => if room.replace(String::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
                                     "source_world" => if source_world.replace(NonZeroU8::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
                                     "spoiler_log" => if spoiler_log.replace(SpoilerLog::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
                                     _ => return Err(Error::FromExpr),
@@ -352,7 +352,7 @@ impl FromExpr for ClientMessage {
                                 Member::Unnamed(_) => return Err(Error::FromExpr),
                             }
                         }
-                        Ok(Self::SendAll { room: room.ok_or(Error::FromExpr)?, source_world: source_world.ok_or(Error::FromExpr)?, spoiler_log: spoiler_log.ok_or(Error::FromExpr)? })
+                        Ok(Self::SendAll { source_world: source_world.ok_or(Error::FromExpr)?, spoiler_log: spoiler_log.ok_or(Error::FromExpr)? })
                     }
                     //TODO TrackError
                     _ => Err(Error::FromExpr),

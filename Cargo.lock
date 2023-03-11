@@ -1386,17 +1386,17 @@ dependencies = [
 
 [[package]]
 name = "exr"
-version = "1.5.3"
+version = "1.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8af5ef47e2ed89d23d0ecbc1b681b30390069de70260937877514377fc24feb"
+checksum = "bdd2162b720141a91a054640662d3edce3d50a944a50ffca5313cd951abb35b4"
 dependencies = [
  "bit_field",
  "flume",
  "half",
  "lebe",
  "miniz_oxide",
+ "rayon-core",
  "smallvec",
- "threadpool",
  "zune-inflate",
 ]
 
@@ -1794,6 +1794,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "git2"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccf7f68c2995f392c49fffb4f95ae2c873297830eb25c6bc4c114ce8f4562acc"
+dependencies = [
+ "bitflags",
+ "libc",
+ "libgit2-sys",
+ "log",
+ "openssl-probe",
+ "openssl-sys",
+ "url",
+]
+
+[[package]]
 name = "glam"
 version = "0.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2167,9 +2182,9 @@ checksum = "c4a1e36c821dbe04574f602848a19f742f4fb3c98d40449f11bcad18d6b17421"
 
 [[package]]
 name = "hyper"
-version = "0.14.24"
+version = "0.14.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e011372fa0b68db8350aa7a248930ecc7839bf46d8485577d69f117a75f164c"
+checksum = "cc5e554ff619822309ffd57d8734d77cd5ce6238bc956f037ea06c58238c9899"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -2593,6 +2608,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "99227334921fae1a979cf0bfdfcc6b3e5ce376ef57e16fb6fb3ea2ed6095f80c"
 
 [[package]]
+name = "libgit2-sys"
+version = "0.14.2+1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f3d95f6b51075fe9810a7ae22c7095f12b98005ab364d8544797a825ce946a4"
+dependencies = [
+ "cc",
+ "libc",
+ "libssh2-sys",
+ "libz-sys",
+ "openssl-sys",
+ "pkg-config",
+]
+
+[[package]]
 name = "libloading"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2600,6 +2629,32 @@ checksum = "b67380fd3b2fbe7527a606e18729d21c6f3951633d0500574c4dc22d2d638b9f"
 dependencies = [
  "cfg-if",
  "winapi",
+]
+
+[[package]]
+name = "libssh2-sys"
+version = "0.2.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b094a36eb4b8b8c8a7b4b8ae43b2944502be3e59cd87687595cf6b0a71b3f4ca"
+dependencies = [
+ "cc",
+ "libc",
+ "libz-sys",
+ "openssl-sys",
+ "pkg-config",
+ "vcpkg",
+]
+
+[[package]]
+name = "libz-sys"
+version = "1.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9702761c3935f8cc2f101793272e202c72b99da8f4224a19ddcf1279a6450bbf"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
+ "vcpkg",
 ]
 
 [[package]]
@@ -2798,14 +2853,13 @@ dependencies = [
 
 [[package]]
 name = "multiworld"
-version = "8.1.1"
+version = "9.0.0"
 dependencies = [
  "async-proto",
  "async-recursion",
  "chrono",
  "directories",
  "itertools",
- "lazy-regex",
  "once_cell",
  "ootr-utils",
  "oottracker",
@@ -2824,7 +2878,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-admin-cli"
-version = "8.1.1"
+version = "9.0.0"
 dependencies = [
  "async-proto",
  "clap",
@@ -2832,6 +2886,7 @@ dependencies = [
  "futures",
  "itertools",
  "multiworld",
+ "ootr-utils",
  "serde_json",
  "syn",
  "thiserror",
@@ -2841,7 +2896,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-bizhawk"
-version = "8.1.1"
+version = "9.0.0"
 dependencies = [
  "semver 1.0.16",
  "winver",
@@ -2849,7 +2904,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-csharp"
-version = "8.1.1"
+version = "9.0.0"
 dependencies = [
  "async-proto",
  "directories",
@@ -2857,6 +2912,7 @@ dependencies = [
  "multiworld",
  "multiworld-derive",
  "once_cell",
+ "ootr-utils",
  "oottracker",
  "reqwest",
  "semver 1.0.16",
@@ -2866,7 +2922,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-derive"
-version = "8.1.1"
+version = "9.0.0"
 dependencies = [
  "quote",
  "syn",
@@ -2874,7 +2930,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-installer"
-version = "8.1.1"
+version = "9.0.0"
 dependencies = [
  "async_zip",
  "clap",
@@ -2910,7 +2966,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-pj64-gui"
-version = "8.1.1"
+version = "9.0.0"
 dependencies = [
  "async-proto",
  "chrono",
@@ -2925,6 +2981,7 @@ dependencies = [
  "itertools",
  "multiworld",
  "once_cell",
+ "ootr-utils",
  "oottracker",
  "open",
  "reqwest",
@@ -2939,7 +2996,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-updater"
-version = "8.1.1"
+version = "9.0.0"
 dependencies = [
  "async_zip",
  "bytes",
@@ -2969,7 +3026,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-utils"
-version = "8.1.1"
+version = "9.0.0"
 dependencies = [
  "async-trait",
  "clap",
@@ -3336,10 +3393,11 @@ dependencies = [
 [[package]]
 name = "ootr-utils"
 version = "0.1.4"
-source = "git+https://github.com/midoshouse/rust-ootr-utils?branch=main#46de8f0d68fc3a0667370ea6496576828df4e99c"
+source = "git+https://github.com/midoshouse/rust-ootr-utils?branch=main#615cb6074c6dd74cf1b9123b43f0f7a4d5f49ee4"
 dependencies = [
  "async-proto",
  "directories",
+ "git2",
  "itertools",
  "lazy-regex",
  "pyo3",
@@ -3355,7 +3413,7 @@ dependencies = [
 
 [[package]]
 name = "ootrmwd"
-version = "8.1.1"
+version = "9.0.0"
 dependencies = [
  "async-proto",
  "chrono",
@@ -3426,6 +3484,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd61e3bf9d78956c72ee864bba52431f7f43994b21a17e9e72596a81bd61075b"
 dependencies = [
  "pathdiff",
+]
+
+[[package]]
+name = "openssl-probe"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff011a302c396a5197692431fc1948019154afc178baf7d8e37367442a4601cf"
+
+[[package]]
+name = "openssl-sys"
+version = "0.9.80"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23bbbf7854cd45b83958ebe919f0e8e516793727652e27fda10a8384cfc790b7"
+dependencies = [
+ "autocfg",
+ "cc",
+ "libc",
+ "pkg-config",
+ "vcpkg",
 ]
 
 [[package]]
@@ -5003,15 +5080,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "threadpool"
-version = "1.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d050e60b33d41c19108b32cea32164033a9013fe3b46cbd4457559bfbf77afaa"
-dependencies = [
- "num_cpus",
-]
-
-[[package]]
 name = "tiff"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5405,6 +5473,12 @@ name = "utf-8"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
+
+[[package]]
+name = "vcpkg"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "vec_map"

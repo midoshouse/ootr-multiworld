@@ -10,8 +10,6 @@ use {
             HashSet,
         },
         fmt,
-        iter,
-        marker::PhantomData,
         mem,
         net::{
             Ipv4Addr,
@@ -25,17 +23,12 @@ use {
     async_recursion::async_recursion,
     chrono::prelude::*,
     itertools::Itertools as _,
-    lazy_regex::regex_captures,
+    ootr_utils::spoiler::{
+        HashIcon,
+        SpoilerLog,
+    },
     oottracker::websocket::MwItem as Item,
     semver::Version,
-    serde::{
-        Deserialize,
-        Deserializer,
-        de::{
-            Error as _,
-            value::MapDeserializer,
-        },
-    },
     tokio::{
         io,
         net::{
@@ -501,7 +494,7 @@ impl Room {
             let py_modules = spoiler_log.version.py_modules(py)?;
             let mut items_to_queue = Vec::default();
             Ok::<_, SendAllError>(if let Some(world_locations) = spoiler_log.locations.get(usize::from(source_world.get() - 1)) {
-                for (loc, SpoilerLogItem { player, item }) in world_locations {
+                for (loc, ootr_utils::spoiler::Item { player, item, model: _ }) in world_locations {
                     if *player != source_world {
                         if let Some(key) = py_modules.override_key(loc, item)? {
                             if let Some(kind) = py_modules.item_kind(item)? {
@@ -605,124 +598,6 @@ impl Room {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Protocol)]
-#[repr(u8)]
-pub enum HashIcon {
-    #[serde(rename = "Deku Stick")]
-    DekuStick,
-    #[serde(rename = "Deku Nut")]
-    DekuNut,
-    Bow,
-    Slingshot,
-    #[serde(rename = "Fairy Ocarina")]
-    FairyOcarina,
-    Bombchu,
-    Longshot,
-    Boomerang,
-    #[serde(rename = "Lens of Truth")]
-    LensOfTruth,
-    Beans,
-    #[serde(rename = "Megaton Hammer")]
-    MegatonHammer,
-    #[serde(rename = "Bottled Fish")]
-    BottledFish,
-    #[serde(rename = "Bottled Milk")]
-    BottledMilk,
-    #[serde(rename = "Mask of Truth")]
-    MaskOfTruth,
-    #[serde(rename = "SOLD OUT")]
-    SoldOut,
-    Cucco,
-    Mushroom,
-    Saw,
-    Frog,
-    #[serde(rename = "Master Sword")]
-    MasterSword,
-    #[serde(rename = "Mirror Shield")]
-    MirrorShield,
-    #[serde(rename = "Kokiri Tunic")]
-    KokiriTunic,
-    #[serde(rename = "Hover Boots")]
-    HoverBoots,
-    #[serde(rename = "Silver Gauntlets")]
-    SilverGauntlets,
-    #[serde(rename = "Gold Scale")]
-    GoldScale,
-    #[serde(rename = "Stone of Agony")]
-    StoneOfAgony,
-    #[serde(rename = "Skull Token")]
-    SkullToken,
-    #[serde(rename = "Heart Container")]
-    HeartContainer,
-    #[serde(rename = "Boss Key")]
-    BossKey,
-    Compass,
-    Map,
-    #[serde(rename = "Big Magic")]
-    BigMagic,
-}
-
-fn deserialize_multiworld<'de, D: Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> Result<Vec<T>, D::Error> {
-    struct MultiworldVisitor<'de, T: Deserialize<'de>> {
-        _marker: PhantomData<(&'de (), T)>,
-    }
-
-    impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for MultiworldVisitor<'de, T> {
-        type Value = Vec<T>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            formatter.write_str("a multiworld map")
-        }
-
-        fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Vec<T>, A::Error> {
-            Ok(if let Some(first_key) = map.next_key()? {
-                if let Some((_, world_number)) = regex_captures!("^World ([0-9]+)$", first_key) {
-                    let world_number = world_number.parse::<usize>().expect("failed to parse world number");
-                    let mut worlds = iter::repeat_with(|| None).take(world_number - 1).collect_vec();
-                    worlds.push(map.next_value()?);
-                    while let Some((key, value)) = map.next_entry()? {
-                        let world_number = regex_captures!("^World ([0-9]+)$", key).expect("found mixed-format multiworld spoiler log").1.parse::<usize>().expect("failed to parse world number");
-                        if world_number > worlds.len() {
-                            if world_number > worlds.len() + 1 {
-                                worlds.resize_with(world_number - 1, || None);
-                            }
-                            worlds.push(Some(value));
-                        } else {
-                            worlds[world_number - 1] = Some(value);
-                        }
-                    }
-                    worlds.into_iter().map(|world| world.expect("missing entry for world")).collect()
-                } else {
-                    let mut new_map = iter::once((first_key.to_owned(), map.next_value()?)).collect::<serde_json::Map<_, _>>();
-                    while let Some((key, value)) = map.next_entry()? {
-                        new_map.insert(key, value);
-                    }
-                    vec![T::deserialize(MapDeserializer::new(new_map.into_iter())).map_err(A::Error::custom)?]
-                }
-            } else {
-                Vec::default()
-            })
-        }
-    }
-
-    deserializer.deserialize_map(MultiworldVisitor { _marker: PhantomData })
-}
-
-#[derive(Debug, Deserialize, Protocol)]
-struct SpoilerLogItem {
-    player: NonZeroU8,
-    item: String,
-}
-
-#[derive(Debug, Deserialize, Protocol)]
-pub struct SpoilerLog {
-    #[serde(rename = ":version")]
-    version: ootr_utils::Version,
-    file_hash: [HashIcon; 5],
-    #[serde(deserialize_with = "deserialize_multiworld")]
-    locations: Vec<BTreeMap<String, SpoilerLogItem>>,
-}
-
 #[derive(Debug, Protocol)]
 pub enum ClientMessage {
     /// Tells the server we're still here. Should be sent every 30 seconds; the server will consider the connection lost if no message is received for 60 seconds.
@@ -768,9 +643,8 @@ pub enum ClientMessage {
     },
     /// Only works after [`ServerMessage::EnterRoom`].
     SaveData(oottracker::Save),
-    /// Sends all remaining items from the given world to the given room. Only works after [`ServerMessage::AdminLoginSuccess`].
+    /// Sends all remaining items from the given world to the given room. Only works after [`ServerMessage::EnterRoom`].
     SendAll {
-        room: String,
         source_world: NonZeroU8,
         spoiler_log: SpoilerLog,
     },

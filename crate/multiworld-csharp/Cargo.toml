@@ -22,6 +22,10 @@ path = "../multiworld"
 [dependencies.multiworld-derive]
 path = "../multiworld-derive"
 
+[dependencies.ootr-utils]
+git = "https://github.com/midoshouse/rust-ootr-utils"
+branch = "main"
+
 [dependencies.oottracker]
 git = "https://github.com/fenhl/oottracker"
 branch = "main"

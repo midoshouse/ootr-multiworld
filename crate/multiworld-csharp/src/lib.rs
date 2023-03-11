@@ -33,12 +33,12 @@ use {
     directories::ProjectDirs,
     libc::c_char,
     once_cell::sync::Lazy,
+    ootr_utils::spoiler::HashIcon,
     semver::Version,
     multiworld_derive::csharp_ffi,
     multiworld::{
         ClientMessage,
         Filename,
-        HashIcon,
         IsNetworkError as _,
         ServerError,
         ServerMessage,

@@ -21,6 +21,7 @@ use {
         },
     },
     iced_futures::subscription::Recipe,
+    ootr_utils::spoiler::HashIcon,
     tokio::{
         net::{
             TcpListener,
@@ -35,10 +36,7 @@ use {
             timeout,
         },
     },
-    multiworld::{
-        Filename,
-        HashIcon,
-    },
+    multiworld::Filename,
     crate::{
         Error,
         LoggingReader,

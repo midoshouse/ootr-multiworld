@@ -38,6 +38,10 @@ features = ["ico"]
 [dependencies.multiworld]
 path = "../multiworld"
 
+[dependencies.ootr-utils]
+git = "https://github.com/midoshouse/rust-ootr-utils"
+branch = "main"
+
 [dependencies.oottracker]
 git = "https://github.com/fenhl/oottracker"
 branch = "main"
