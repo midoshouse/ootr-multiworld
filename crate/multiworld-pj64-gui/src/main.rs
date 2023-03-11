@@ -11,6 +11,7 @@ use {
         io::prelude::*,
         mem,
         num::NonZeroU8,
+        path::Path,
         process,
         sync::Arc,
         time::Duration,
@@ -39,6 +40,7 @@ use {
     once_cell::sync::Lazy,
     ootr_utils::spoiler::HashIcon,
     open::that as open,
+    rfd::AsyncFileDialog,
     semver::Version,
     serenity::utils::MessageBuilder,
     tokio::{
@@ -125,6 +127,7 @@ pub(crate) enum Error {
     #[error(transparent)] Client(#[from] multiworld::ClientError),
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] Io(#[from] io::Error),
+    #[error(transparent)] Json(#[from] serde_json::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Semver(#[from] semver::Error),
@@ -170,6 +173,8 @@ enum Message {
     ReconnectPj64,
     ReconnectToLobby,
     ReconnectToRoom(String, String),
+    SendAll,
+    SendAllBrowse,
     Server(ServerMessage),
     ServerConnected(Arc<Mutex<OwnedWriteHalf>>),
     ServerSubscriptionError(Arc<Error>),
@@ -179,6 +184,8 @@ enum Message {
     SetNewRoomName(String),
     SetPassword(String),
     SetRoomView(RoomView),
+    SetSendAllPath(String),
+    SetSendAllWorld(String),
     UpToDate,
 }
 
@@ -210,6 +217,8 @@ struct State {
     pending_items_before_save: Vec<(u32, u16, NonZeroU8)>,
     pending_items_after_save: Vec<(u32, u16, NonZeroU8)>,
     updates_checked: bool,
+    send_all_path: String,
+    send_all_world: String,
 }
 
 impl State {
@@ -262,6 +271,8 @@ impl Application for State {
             pending_items_before_save: Vec::default(),
             pending_items_after_save: Vec::default(),
             updates_checked: false,
+            send_all_path: String::default(),
+            send_all_world: String::default(),
             log, port,
         }, cmd(async move {
             let http_client = reqwest::Client::builder()
@@ -490,6 +501,26 @@ impl Application for State {
             }
             Message::ReconnectToLobby => self.server_connection = SessionState::Init,
             Message::ReconnectToRoom(room_name, room_password) => self.server_connection = SessionState::InitAutoRejoin { room_name, room_password },
+            Message::SendAll => {
+                let server_writer = self.server_writer.clone().expect("SendAll button only appears when connected to server");
+                let source_world = self.send_all_world.parse().expect("SendAll button only appears when source world is valid");
+                let spoiler_log_path = Path::new(&self.send_all_path).to_owned();
+                return cmd(async move {
+                    let spoiler_log = serde_json::from_str(&fs::read_to_string(spoiler_log_path).await?)?;
+                    server_writer.write(ClientMessage::SendAll { source_world, spoiler_log }).await?;
+                    Ok(Message::Nop)
+                })
+            }
+            Message::SendAllBrowse => return cmd(async move {
+                Ok(if let Some(file) = AsyncFileDialog::new()
+                    .add_filter("JSON Document", &["json"])
+                    .pick_file().await
+                {
+                    Message::SetSendAllPath(file.path().to_str().expect("Windows paths are valid UTF-8").to_owned())
+                } else {
+                    Message::Nop
+                })
+            }),
             Message::Server(msg) => {
                 let room_still_exists = if let ServerMessage::EnterLobby { ref rooms } = msg {
                     if let SessionState::InitAutoRejoin { ref room_name, .. } = self.server_connection {
@@ -614,6 +645,8 @@ impl Application for State {
             Message::SetExistingRoomSelection(name) => if let SessionState::Lobby { ref mut existing_room_selection, .. } = self.server_connection { *existing_room_selection = Some(name) },
             Message::SetNewRoomName(name) => if let SessionState::Lobby { ref mut new_room_name, .. } = self.server_connection { *new_room_name = name },
             Message::SetPassword(new_password) => if let SessionState::Lobby { ref mut password, .. } = self.server_connection { *password = new_password },
+            Message::SetSendAllPath(new_path) => self.send_all_path = new_path,
+            Message::SetSendAllWorld(new_world) => self.send_all_world = new_world,
             Message::UpToDate => self.updates_checked = true,
         }
         Command::none()
@@ -742,6 +775,23 @@ impl Application for State {
                         }
                         PickList::new(values, Some(DurationFormatter(autodelete_delta)), Message::SetAutoDeleteDelta)
                     })
+                    .push(Row::new()
+                        .push(Text::new("Send all items from world:"))
+                        .push(TextInput::new("", &self.send_all_world, Message::SetSendAllWorld).width(Length::Fixed(32.0)))
+                        .spacing(8)
+                    )
+                    .push(Row::new()
+                        .push(TextInput::new("Spoiler Log", &self.send_all_path, Message::SetSendAllPath))
+                        .push(Button::new(Text::new("Browse…")).on_press(Message::SendAllBrowse))
+                        .push({
+                            let mut btn = Button::new(Text::new("Send"));
+                            if self.send_all_world.parse::<NonZeroU8>().is_ok() {
+                                btn = btn.on_press(Message::SendAll);
+                            }
+                            btn
+                        })
+                        .spacing(8)
+                    )
                     .into(),
                 SessionState::Room { view: RoomView::Normal, wrong_file_hash: false, ref players, num_unassigned_clients, .. } => {
                     let mut col = Column::new()
