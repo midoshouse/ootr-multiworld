@@ -10,6 +10,7 @@ winres = "0.1"
 [dependencies]
 bytes = "1"
 dark-light = "1"
+directories = "4"
 futures = "0.3"
 iced_native = "0.9"
 itertools = "0.10"

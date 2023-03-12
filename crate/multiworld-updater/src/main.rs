@@ -7,6 +7,7 @@ use {
         cmp::Ordering::*,
         env,
         ffi::OsString,
+        io::prelude::*,
         iter,
         os::windows::ffi::{
             OsStrExt as _,
@@ -19,6 +20,7 @@ use {
     },
     bytes::Bytes,
     dark_light::Mode::*,
+    directories::ProjectDirs,
     futures::{
         future::{
             self,
@@ -559,6 +561,8 @@ enum MainError {
     #[error(transparent)] Iced(#[from] iced::Error),
     #[error(transparent)] Icon(#[from] iced::window::icon::Error),
     #[error(transparent)] Io(#[from] io::Error),
+    #[error("user folder not found")]
+    MissingHomeDir,
 }
 
 #[wheel::main]
@@ -575,7 +579,17 @@ fn main(args: Args) -> Result<(), MainError> {
                 ..Settings::with_flags(args)
             })?;
         }
-        Args::Pj64Script { src, dst } => std::fs::rename(src, dst)?,
+        Args::Pj64Script { src, dst } => match std::fs::rename(src, dst) {
+            Ok(()) => {}
+            Err(e) => {
+                if CONFIG.log {
+                    let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(MainError::MissingHomeDir)?;
+                    std::fs::create_dir_all(project_dirs.data_dir())?;
+                    write!(std::fs::File::create(project_dirs.data_dir().join("updater.log"))?, "error in pj64script subcommand: {e}\ndebug info: {e:?}")?;
+                }
+                return Err(e.into())
+            }
+        },
     }
     Ok(())
 }

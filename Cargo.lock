@@ -3005,6 +3005,7 @@ dependencies = [
  "bytes",
  "clap",
  "dark-light",
+ "directories",
  "futures",
  "iced",
  "iced_native",
