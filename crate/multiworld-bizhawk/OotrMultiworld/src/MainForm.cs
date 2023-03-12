@@ -72,6 +72,7 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern IntPtr client_get_player_name(Client client, byte world);
         [DllImport("multiworld")] internal static extern ulong client_get_autodelete_seconds(Client client);
         [DllImport("multiworld")] internal static extern UnitResult client_set_autodelete_seconds(Client client, ulong seconds);
+        [DllImport("multiworld")] internal static extern UnitResult client_send_all(Client client, byte source_world, OwnedStringHandle spoiler_log_path);
     }
 
     internal class BoolResult : SafeHandle {
@@ -208,6 +209,12 @@ namespace MidosHouse.OotrMultiworld {
         internal UnitResult DeleteRoom() => Native.client_delete_room(this);
         internal ulong AutodeleteSeconds() => Native.client_get_autodelete_seconds(this);
         internal UnitResult SetAutodeleteSeconds(ulong seconds) => Native.client_set_autodelete_seconds(this, seconds);
+
+        internal UnitResult SendAll(byte source_world, string spoiler_log_path) {
+            using (var pathHandle = new OwnedStringHandle(spoiler_log_path)) {
+                return Native.client_send_all(this, source_world, pathHandle);
+            }
+        }
     }
 
     internal class ClientResult : SafeHandle {
@@ -456,6 +463,11 @@ namespace MidosHouse.OotrMultiworld {
         private List<Label> playerStates = new List<Label>();
         private List<Button> kickButtons = new List<Button>();
         private Label otherState = new Label();
+        private Label sendAllLabel = new Label();
+        private TextBox sendAllWorld = new TextBox();
+        private TextBox sendAllPath = new TextBox();
+        private Button sendAllBrowseButton = new Button();
+        private Button sendAllButton = new Button();
 
         private ushort port = Native.default_port();
         private Client? client;
@@ -630,6 +642,85 @@ namespace MidosHouse.OotrMultiworld {
                             }
                         };
                         this.roomOptionsForm.Controls.Add(autodeleteDelta);
+
+                        this.sendAllLabel.Text = "Send all items from world:";
+                        this.sendAllLabel.TabIndex = 2;
+                        this.sendAllLabel.AutoSize = true;
+                        this.sendAllLabel.Location = new Point(12, 84);
+                        this.roomOptionsForm.Controls.Add(this.sendAllLabel);
+
+                        this.sendAllWorld.TabIndex = 3;
+                        this.sendAllWorld.Location = new Point(285, 82);
+                        this.sendAllWorld.Size = new Size(50, 25);
+                        this.sendAllWorld.TextChanged += (s, e) => {
+                            try {
+                                Byte.Parse(this.sendAllWorld.Text);
+                                this.sendAllButton.Enabled = this.sendAllPath.Text.Length > 0;
+                            } catch {
+                                this.sendAllButton.Enabled = false;
+                            }
+                        };
+                        this.sendAllWorld.KeyDown += (s, e) => {
+                            if (e.KeyCode == Keys.Enter) {
+                                e.SuppressKeyPress = true;
+                                if (this.sendAllButton.Enabled) {
+                                    SendAll();
+                                }
+                            }
+                        };
+                        this.roomOptionsForm.Controls.Add(this.sendAllWorld);
+
+                        this.sendAllPath.TabIndex = 4;
+                        this.sendAllPath.Location = new Point(12, 119);
+                        this.sendAllPath.Size = new Size(365, 25);
+                        //TODO (.net 5) add PlaceholderText (“Spoiler Log Path”)
+                        this.sendAllPath.TextChanged += (s, e) => {
+                            try {
+                                Byte.Parse(this.sendAllWorld.Text);
+                                this.sendAllButton.Enabled = this.sendAllPath.Text.Length > 0;
+                            } catch {
+                                this.sendAllButton.Enabled = false;
+                            }
+                        };
+                        this.sendAllPath.KeyDown += (s, e) => {
+                            if (e.KeyCode == Keys.Enter) {
+                                e.SuppressKeyPress = true;
+                                if (this.sendAllButton.Enabled) {
+                                    SendAll();
+                                }
+                            }
+                        };
+                        this.roomOptionsForm.Controls.Add(this.sendAllPath);
+
+                        this.sendAllBrowseButton.TabIndex = 5;
+                        this.sendAllBrowseButton.Location = new Point(380, 119);
+                        this.sendAllBrowseButton.AutoSize = true;
+                        this.sendAllBrowseButton.Text = "Browse…";
+                        this.sendAllBrowseButton.Click += (s, e) => {
+                            using (OpenFileDialog dialog = new OpenFileDialog()) {
+                                dialog.Filter = "JSON documents (*.json)|*.json";
+                                dialog.RestoreDirectory = true;
+                                if (dialog.ShowDialog() == DialogResult.OK) {
+                                    this.sendAllPath.Text = dialog.FileName;
+                                }
+                            }
+                        };
+                        this.roomOptionsForm.Controls.Add(this.sendAllBrowseButton);
+
+                        this.sendAllButton.TabIndex = 6;
+                        this.sendAllButton.Location = new Point(11, 156);
+                        this.sendAllButton.AutoSize = true;
+                        this.sendAllButton.Text = "Send";
+                        try {
+                            Byte.Parse(this.sendAllWorld.Text);
+                            this.sendAllButton.Enabled = this.sendAllPath.Text.Length > 0;
+                        } catch {
+                            this.sendAllButton.Enabled = false;
+                        }
+                        this.sendAllButton.Click += (s, e) => {
+                            SendAll();
+                        };
+                        this.roomOptionsForm.Controls.Add(this.sendAllButton);
 
                         this.roomOptionsForm.Show();
                     }
@@ -1102,6 +1193,18 @@ namespace MidosHouse.OotrMultiworld {
                     if (res.IsOk()) {
                         UpdateUI(this.client);
                     } else {
+                        using (var err = res.UnwrapErr()) {
+                            SetError(err);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void SendAll() {
+            if (this.client != null) {
+                using (var res = this.client.SendAll(Byte.Parse(this.sendAllWorld.Text), this.sendAllPath.Text)) {
+                    if (!res.IsOk()) {
                         using (var err = res.UnwrapErr()) {
                             SetError(err);
                         }

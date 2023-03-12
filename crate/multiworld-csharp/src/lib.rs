@@ -71,6 +71,82 @@ impl From<FfiBool> for bool {
     }
 }
 
+#[derive(Clone, Copy)]
+#[repr(u8)]
+pub enum FfiHashIcon {
+    DekuStick,
+    DekuNut,
+    Bow,
+    Slingshot,
+    FairyOcarina,
+    Bombchu,
+    Longshot,
+    Boomerang,
+    LensOfTruth,
+    Beans,
+    MegatonHammer,
+    BottledFish,
+    BottledMilk,
+    MaskOfTruth,
+    SoldOut,
+    Cucco,
+    Mushroom,
+    Saw,
+    Frog,
+    MasterSword,
+    MirrorShield,
+    KokiriTunic,
+    HoverBoots,
+    SilverGauntlets,
+    GoldScale,
+    StoneOfAgony,
+    SkullToken,
+    HeartContainer,
+    BossKey,
+    Compass,
+    Map,
+    BigMagic,
+}
+
+impl From<FfiHashIcon> for HashIcon {
+    fn from(icon: FfiHashIcon) -> Self {
+        match icon {
+            FfiHashIcon::DekuStick => Self::DekuStick,
+            FfiHashIcon::DekuNut => Self::DekuNut,
+            FfiHashIcon::Bow => Self::Bow,
+            FfiHashIcon::Slingshot => Self::Slingshot,
+            FfiHashIcon::FairyOcarina => Self::FairyOcarina,
+            FfiHashIcon::Bombchu => Self::Bombchu,
+            FfiHashIcon::Longshot => Self::Longshot,
+            FfiHashIcon::Boomerang => Self::Boomerang,
+            FfiHashIcon::LensOfTruth => Self::LensOfTruth,
+            FfiHashIcon::Beans => Self::Beans,
+            FfiHashIcon::MegatonHammer => Self::MegatonHammer,
+            FfiHashIcon::BottledFish => Self::BottledFish,
+            FfiHashIcon::BottledMilk => Self::BottledMilk,
+            FfiHashIcon::MaskOfTruth => Self::MaskOfTruth,
+            FfiHashIcon::SoldOut => Self::SoldOut,
+            FfiHashIcon::Cucco => Self::Cucco,
+            FfiHashIcon::Mushroom => Self::Mushroom,
+            FfiHashIcon::Saw => Self::Saw,
+            FfiHashIcon::Frog => Self::Frog,
+            FfiHashIcon::MasterSword => Self::MasterSword,
+            FfiHashIcon::MirrorShield => Self::MirrorShield,
+            FfiHashIcon::KokiriTunic => Self::KokiriTunic,
+            FfiHashIcon::HoverBoots => Self::HoverBoots,
+            FfiHashIcon::SilverGauntlets => Self::SilverGauntlets,
+            FfiHashIcon::GoldScale => Self::GoldScale,
+            FfiHashIcon::StoneOfAgony => Self::StoneOfAgony,
+            FfiHashIcon::SkullToken => Self::SkullToken,
+            FfiHashIcon::HeartContainer => Self::HeartContainer,
+            FfiHashIcon::BossKey => Self::BossKey,
+            FfiHashIcon::Compass => Self::Compass,
+            FfiHashIcon::Map => Self::Map,
+            FfiHashIcon::BigMagic => Self::BigMagic,
+        }
+    }
+}
+
 #[repr(transparent)]
 pub struct HandleOwned<T: ?Sized>(*mut T);
 
@@ -102,6 +178,7 @@ impl StringHandle {
 pub enum Error {
     #[error(transparent)] Client(#[from] multiworld::ClientError),
     #[error(transparent)] Io(#[from] std::io::Error),
+    #[error(transparent)] Json(#[from] serde_json::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Semver(#[from] semver::Error),
@@ -618,11 +695,11 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 /// # Safety
 ///
 /// `client` must point at a valid `Client`. `hash` must point at a byte slice of length 5.
-#[csharp_ffi] pub unsafe extern "C" fn client_set_file_hash(client: *mut Client, hash: *const HashIcon) -> HandleOwned<Result<(), Error>> {
+#[csharp_ffi] pub unsafe extern "C" fn client_set_file_hash(client: *mut Client, hash: *const FfiHashIcon) -> HandleOwned<Result<(), Error>> {
     let client = &mut *client;
     let hash = slice::from_raw_parts(hash, 5);
 
-    let hash = hash.try_into().expect("file hashes are 5 bytes");
+    let hash = <[FfiHashIcon; 5]>::try_from(hash).expect("file hashes are 5 bytes").map(HashIcon::from);
     if client.last_hash != Some(hash) {
         client.last_hash = Some(hash);
         if client.last_world.is_some() {
@@ -965,4 +1042,18 @@ fn client_room_connect_inner(client: &mut Client, room_name: String, room_passwo
 #[csharp_ffi] pub unsafe extern "C" fn client_set_autodelete_seconds(client: *mut Client, seconds: u64) -> HandleOwned<Result<(), Error>> {
     let client = &mut *client;
     HandleOwned::new(client.write(&ClientMessage::AutoDeleteDelta(Duration::from_secs(seconds))).map_err(Error::Write))
+}
+
+/// # Safety
+///
+/// `client` must point at a valid `Client`.
+#[csharp_ffi] pub unsafe extern "C" fn client_send_all(client: *mut Client, source_world: u8, spoiler_log_path: *const c_char) -> HandleOwned<Result<(), Error>> {
+    let client = &mut *client;
+    let source_world = NonZeroU8::new(source_world).expect("tried to send all items from world 0");
+    let spoiler_log_path = CStr::from_ptr(spoiler_log_path).to_str().expect("spoiler log path was not valid UTF-8");
+    HandleOwned::new(
+        fs::read_to_string(spoiler_log_path).map_err(Error::Io)
+        .and_then(|spoiler_log| serde_json::from_str(&spoiler_log).map_err(Error::Json))
+        .and_then(|spoiler_log| client.write(&ClientMessage::SendAll { source_world, spoiler_log }).map_err(Error::Write))
+    )
 }

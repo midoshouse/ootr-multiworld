@@ -66,6 +66,7 @@ If you need help, please ask in #setup-support on the OoTR Discord.
 |prevents players from accidentally using the same world number||✓|
 |support for some other games|✓||
 |automatically updates itself||✓|
+|send all items from a world using a spoiler log|using [an external service](https://pidgezero.one/zootr/mwlua.html)|built in|
 
 # Credits
 

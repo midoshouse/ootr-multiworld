@@ -494,10 +494,18 @@ impl Default for Rooms {
     }
 }
 
+fn parse_port(arg: &str) -> Result<u16, std::num::ParseIntError> {
+    match arg {
+        "production" => Ok(multiworld::PORT),
+        "dev" => Ok(18820),
+        _ => arg.parse(),
+    }
+}
+
 #[derive(clap::Parser)]
 #[clap(version)]
 struct Args {
-    #[clap(short, long, default_value_t = multiworld::PORT)]
+    #[clap(short, long, default_value_t = multiworld::PORT, value_parser = parse_port)]
     port: u16,
     #[clap(short, long, default_value = "ootr_multiworld")]
     database: String,
