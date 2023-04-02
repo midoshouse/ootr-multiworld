@@ -39,8 +39,9 @@ use {
     multiworld::Filename,
     crate::{
         Error,
+        Frontend,
         LoggingReader,
-        MW_PJ64_PROTO_VERSION,
+        MW_FRONTEND_PROTO_VERSION,
         Message,
     },
 };
@@ -65,7 +66,7 @@ pub enum ClientMessage {
     FileHash([HashIcon; 5]),
 }
 
-pub(crate) struct Pj64Listener{
+pub(crate) struct Pj64Listener {
     pub(crate) log: bool,
     pub(crate) connection_id: u8,
 }
@@ -83,13 +84,15 @@ impl<H: Hasher, I> Recipe<H, I> for Pj64Listener {
         stream::once(TcpListener::bind((Ipv4Addr::LOCALHOST, 24818)))
             .and_then(move |listener| future::ok(stream::try_unfold(listener, move |listener| async move {
                 let (mut tcp_stream, _) = listener.accept().await?;
-                MW_PJ64_PROTO_VERSION.write(&mut tcp_stream).await?;
+                MW_FRONTEND_PROTO_VERSION.write(&mut tcp_stream).await?;
                 let client_version = u8::read(&mut tcp_stream).await?;
-                if client_version != MW_PJ64_PROTO_VERSION { return Err(Error::VersionMismatch(client_version)) }
+                if client_version != MW_FRONTEND_PROTO_VERSION {
+                    return Err(Error::VersionMismatch { frontend: Frontend::Pj64, version: client_version })
+                }
                 let (reader, writer) = tcp_stream.into_split();
                 let reader = LoggingReader { context: "from PJ64", inner: reader, log };
                 Ok(Some((
-                    stream::once(future::ok(Message::Pj64Connected(Arc::new(Mutex::new(writer)))))
+                    stream::once(future::ok(Message::FrontendConnected(Arc::new(Mutex::new(writer)))))
                     .chain(stream::try_unfold(reader, |mut reader| async move {
                         Ok(Some((Message::Plugin(reader.read::<ClientMessage>().await?), reader)))
                     })),
@@ -100,7 +103,7 @@ impl<H: Hasher, I> Recipe<H, I> for Pj64Listener {
             .try_flatten()
             .map(|res| match res {
                 Ok(msg) => msg,
-                Err(e) => Message::Pj64SubscriptionError(Arc::new(e)),
+                Err(e) => Message::FrontendSubscriptionError(Arc::new(e)),
             })
             .boxed()
     }

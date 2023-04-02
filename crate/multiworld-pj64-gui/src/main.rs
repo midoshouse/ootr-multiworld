@@ -13,7 +13,8 @@ use {
         },
     },
     multiworld_gui::{
-        Args,
+        CliArgs,
+        FrontendOptions,
         State,
     },
 };
@@ -25,7 +26,7 @@ enum MainError {
 }
 
 #[wheel::main]
-fn main(args: Args) -> Result<(), MainError> {
+fn main(args: CliArgs) -> Result<(), MainError> {
     let icon = image::load_from_memory(include_bytes!("../../../assets/icon.ico")).expect("failed to load embedded DynamicImage").to_rgba8();
     State::run(Settings {
         window: window::Settings {
@@ -33,7 +34,7 @@ fn main(args: Args) -> Result<(), MainError> {
             icon: Some(Icon::from_rgba(icon.as_flat_samples().as_slice().to_owned(), icon.width(), icon.height())?),
             ..window::Settings::default()
         },
-        ..Settings::with_flags(args)
+        ..Settings::with_flags(FrontendOptions::Pj64(args))
     })?;
     Ok(())
 }

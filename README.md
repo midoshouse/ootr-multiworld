@@ -6,9 +6,11 @@ This is **Mido's House Multiworld**, an alternative implementation of [multiworl
 
 The easiest way to set everything up is by downloading and running [the installer](https://github.com/midoshouse/ootr-multiworld/releases/latest/download/multiworld-installer.exe). It will guide you through setting up multiworld for BizHawk or Project64, and will also offer to install the emulator if you don't have it yet.
 
+If you run into a bug, please [open an issue](https://github.com/midoshouse/ootr-multiworld/issues/new) before trying the manual install instructions.
+
 ## Manual
 
-If you can't or don't want to use the installer, you can follow the manual install instructions:
+If you can't or don't want to use the installer, for example due to antivirus software blocking it, you can follow the manual install instructions:
 
 ### For BizHawk:
 
@@ -51,7 +53,7 @@ If you can't or don't want to use the installer, you can follow the manual insta
 17. In Project64's Scripts window, select `ootrmw.js` and click Run. You can then close the Scripts window.
 18. The companion app should now allow you to connect to or create a room. Keep the companion app open during your seed (you can minimize it if you want).
 
-If you need help, please ask in #setup-support on the OoTR Discord.
+If you need help, please ask in #setup-support on the OoTR Discord or [open an issue](https://github.com/midoshouse/ootr-multiworld/issues/new).
 
 # Feature comparison
 
