@@ -417,7 +417,7 @@ impl Application for State {
                                     let prereqs = tempfile::Builder::new().prefix("bizhawk_prereqs_").suffix(".exe").tempfile()?;
                                     tokio::fs::File::from_std(prereqs.reopen()?).write_all(&buf).await?;
                                     let prereqs_path = prereqs.into_temp_path();
-                                    runas::Command::new(&prereqs_path).status().at_command("runas")?.check("BizHawk-Prereqs")?;
+                                    runas::Command::new(&prereqs_path).status().at_command("runas")?.check("BizHawk-Prereqs")?; //TODO show message in GUI saying to check the BizHawk-Prereqs GUI
                                 }
                                 // install BizHawk itself
                                 let release = Repo::new("TASEmulators", "BizHawk").latest_release(&http_client).await?.ok_or(Error::NoBizHawkReleases)?;

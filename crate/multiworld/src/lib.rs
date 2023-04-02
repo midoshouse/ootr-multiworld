@@ -67,7 +67,7 @@ const TRIFORCE_PIECE: u16 = 0x00ca;
 #[cfg(unix)] pub fn socket_id<T: AsRawFd>(socket: &T) -> SocketId { socket.as_raw_fd() }
 #[cfg(windows)] pub fn socket_id<T: AsRawSocket>(socket: &T) -> SocketId { socket.as_raw_socket() }
 
-pub trait IsNetworkError {
+pub trait IsNetworkError { //TODO move to wheel
     fn is_network_error(&self) -> bool;
 }
 

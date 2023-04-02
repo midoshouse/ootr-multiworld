@@ -53,7 +53,7 @@ pub(crate) enum ServerMessage {
 }
 
 #[derive(Debug, Clone, Protocol)]
-pub(crate) enum ClientMessage {
+pub enum ClientMessage {
     PlayerId(NonZeroU8),
     PlayerName(Filename),
     SendItem {
