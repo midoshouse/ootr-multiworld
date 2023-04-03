@@ -8,8 +8,13 @@ edition.workspace = true
 winres = "0.1"
 
 [dependencies]
-iced = "0.8"
 thiserror = "1"
+
+[dependencies.iced]
+#version = "0.8"
+git = "https://github.com/fenhl/iced"
+branch = "any-thread"
+features = ["image"]
 
 [dependencies.image]
 version = "0.24"

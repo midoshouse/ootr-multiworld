@@ -1,5 +1,5 @@
 const TCP_PORT = 24818;
-const MW_PJ64_PROTO_VERSION = 2;
+const MW_FRONTEND_PROTO_VERSION = 3;
 //TODO generate above constants from Rust code
 const DEFAULT_PLAYER_NAME = [0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf];
 const SRAM_START = 0xA8000000;
@@ -44,7 +44,7 @@ if (typeof PJ64_JSAPI_VERSION === 'undefined') {
     });
     sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
         const handshake = new ArrayBuffer(1);
-        new DataView(handshake).setUint8(0, MW_PJ64_PROTO_VERSION);
+        new DataView(handshake).setUint8(0, MW_FRONTEND_PROTO_VERSION);
         sock.write(new Buffer(new Uint8Array(handshake)), function() {
             sock.on('data', function(buf) {
                 var newBuf = new Buffer(readBuf.length + buf.length);
@@ -53,7 +53,7 @@ if (typeof PJ64_JSAPI_VERSION === 'undefined') {
                 readBuf = newBuf;
                 if (!versionChecked && readBuf.length >= 1) {
                     // check to make sure the server's protocol version matches ours
-                    if (readBuf[0] != MW_PJ64_PROTO_VERSION) {
+                    if (readBuf[0] != MW_FRONTEND_PROTO_VERSION) {
                         sock.close();
                         throw 'version mismatch';
                     }

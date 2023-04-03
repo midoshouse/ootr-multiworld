@@ -29,7 +29,10 @@ use {
         },
         pin,
         select,
-        sync::Mutex,
+        sync::{
+            Mutex,
+            mpsc,
+        },
         time::{
             Instant,
             interval_at,
@@ -47,7 +50,7 @@ use {
 };
 
 #[derive(Debug, Protocol)]
-pub(crate) enum ServerMessage {
+pub enum ServerMessage {
     ItemQueue(Vec<u16>),
     GetItem(u16),
     PlayerName(NonZeroU8, Filename),
@@ -64,6 +67,30 @@ pub enum ClientMessage {
     },
     SaveData([u8; oottracker::save::SIZE]),
     FileHash([HashIcon; 5]),
+    ResetPlayerId,
+}
+
+pub(crate) struct BizHawkListener {
+    pub(crate) rx: Arc<Mutex<mpsc::Receiver<ClientMessage>>>,
+    pub(crate) connection_id: u8,
+}
+
+impl<H: Hasher, I> Recipe<H, I> for BizHawkListener {
+    type Output = Message;
+
+    fn hash(&self, state: &mut H) {
+        TypeId::of::<Self>().hash(state);
+        self.connection_id.hash(state);
+    }
+
+    fn stream(self: Box<Self>, _: BoxStream<'_, I>) -> BoxStream<'_, Message> {
+        stream::unfold(self.rx, |rx| async {
+            let msg = rx.lock().await.recv().await?;
+            Some((Message::Plugin(msg), rx))
+        })
+            .chain(stream::once(async { Message::FrontendSubscriptionError(Arc::new(Error::EndOfStream)) }))
+            .boxed()
+    }
 }
 
 pub(crate) struct Pj64Listener {
@@ -92,7 +119,7 @@ impl<H: Hasher, I> Recipe<H, I> for Pj64Listener {
                 let (reader, writer) = tcp_stream.into_split();
                 let reader = LoggingReader { context: "from PJ64", inner: reader, log };
                 Ok(Some((
-                    stream::once(future::ok(Message::FrontendConnected(Arc::new(Mutex::new(writer)))))
+                    stream::once(future::ok(Message::Pj64Connected(Arc::new(Mutex::new(writer)))))
                     .chain(stream::try_unfold(reader, |mut reader| async move {
                         Ok(Some((Message::Plugin(reader.read::<ClientMessage>().await?), reader)))
                     })),

@@ -45,7 +45,10 @@ use {
             OwnedReadHalf,
             OwnedWriteHalf,
         },
-        sync::Mutex,
+        sync::{
+            Mutex,
+            mpsc,
+        },
         time::{
             Instant,
             sleep_until,
@@ -66,14 +69,14 @@ use {
     },
 };
 
-mod subscriptions;
+pub mod subscriptions;
 
-const MW_FRONTEND_PROTO_VERSION: u8 = 2; //TODO sync with JS code
+const MW_FRONTEND_PROTO_VERSION: u8 = 3; //TODO sync with JS code
 
 static LOG: Lazy<Mutex<std::fs::File>> = Lazy::new(|| {
     let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
     std::fs::create_dir_all(project_dirs.data_dir()).expect("failed to create log dir");
-    Mutex::new(std::fs::File::create(project_dirs.data_dir().join("pj64.log")).expect("failed to create log file")) //TODO BizHawk support
+    Mutex::new(std::fs::File::create(project_dirs.data_dir().join("gui.log")).expect("failed to create log file"))
 });
 
 struct LoggingReader {
@@ -117,6 +120,22 @@ impl LoggingWriter {
     }
 }
 
+#[derive(Clone)]
+enum FrontendWriter {
+    BizHawk(mpsc::Sender<subscriptions::ServerMessage>),
+    Pj64(LoggingWriter),
+}
+
+impl FrontendWriter {
+    async fn write(&self, msg: subscriptions::ServerMessage) -> Result<(), async_proto::WriteError> {
+        match self {
+            Self::BizHawk(tx) => { let _ = tx.send(msg).await; }
+            Self::Pj64(writer) => writer.write(msg).await?,
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub enum Frontend {
     BizHawk,
@@ -145,6 +164,8 @@ pub enum Error {
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("tried to copy debug info with no active error")]
     CopyDebugInfo,
+    #[error("reached the end of a stream that should be infinite")]
+    EndOfStream,
     #[error("user folder not found")]
     MissingHomeDir,
     #[error("protocol version mismatch: {frontend} script is version {version} but we're version {}", MW_FRONTEND_PROTO_VERSION)]
@@ -180,7 +201,7 @@ pub enum Message {
     Kick(NonZeroU8),
     NewIssue,
     Nop,
-    FrontendConnected(Arc<Mutex<OwnedWriteHalf>>),
+    Pj64Connected(Arc<Mutex<OwnedWriteHalf>>),
     FrontendSubscriptionError(Arc<Error>),
     Plugin(subscriptions::ClientMessage),
     ReconnectFrontend,
@@ -217,7 +238,8 @@ pub struct State {
     command_error: Option<Arc<Error>>,
     frontend_subscription_error: Option<Arc<Error>>,
     frontend_connection_id: u8,
-    frontend_writer: Option<LoggingWriter>,
+    frontend_rx: Arc<Mutex<mpsc::Receiver<subscriptions::ClientMessage>>>,
+    frontend_writer: Option<FrontendWriter>,
     log: bool,
     port: u16,
     server_connection: SessionState<Arc<Error>>,
@@ -268,16 +290,27 @@ impl Application for State {
     type Flags = FrontendOptions;
 
     fn new(options: FrontendOptions) -> (Self, Command<Message>) {
-        let (frontend, log, port) = match options {
-            FrontendOptions::BizHawk => (Frontend::BizHawk, false, multiworld::PORT), //TODO read from config file
-            FrontendOptions::Pj64(CliArgs { log, port }) => (Frontend::Pj64, log, port),
+        let (frontend, frontend_rx, frontend_writer, log, port) = match options {
+            FrontendOptions::BizHawk(rx, tx) => (
+                Frontend::BizHawk,
+                Arc::new(Mutex::new(rx)),
+                Some(FrontendWriter::BizHawk(tx)),
+                false, //TODO read from config file
+                multiworld::PORT, //TODO read from config file
+            ),
+            FrontendOptions::Pj64(CliArgs { log, port }) => (
+                Frontend::Pj64,
+                Arc::new(Mutex::new(mpsc::channel(1).1)),
+                None,
+                log,
+                port,
+            ),
         };
         (Self {
             debug_info_copied: false,
             command_error: None,
             frontend_subscription_error: None,
             frontend_connection_id: 0,
-            frontend_writer: None,
             server_connection: SessionState::Init,
             server_writer: None,
             retry: Instant::now(),
@@ -291,7 +324,7 @@ impl Application for State {
             updates_checked: false,
             send_all_path: String::default(),
             send_all_world: String::default(),
-            frontend, log, port,
+            frontend, frontend_rx, frontend_writer, log, port,
         }, cmd(async move {
             let http_client = reqwest::Client::builder()
                 .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
@@ -400,8 +433,8 @@ impl Application for State {
                 }
             }
             Message::Nop => {}
-            Message::FrontendConnected(writer) => {
-                let writer = LoggingWriter { log: self.log, context: "to frontend", inner: Arc::clone(&writer) };
+            Message::Pj64Connected(writer) => { //TODO add an equivalent for BizHawk
+                let writer = FrontendWriter::Pj64(LoggingWriter { log: self.log, context: "to frontend", inner: Arc::clone(&writer) });
                 self.frontend_writer = Some(writer.clone());
                 if let SessionState::Room { ref players, ref item_queue, .. } = self.server_connection {
                     let players = players.clone();
@@ -512,6 +545,18 @@ impl Application for State {
                                 Ok(Message::Nop)
                             })
                         }
+                    }
+                }
+            }
+            Message::Plugin(subscriptions::ClientMessage::ResetPlayerId) => {
+                self.last_world = None;
+                if let Some(ref writer) = self.server_writer {
+                    if let SessionState::Room { .. } = self.server_connection {
+                        let writer = writer.clone();
+                        return cmd(async move {
+                            writer.write(ClientMessage::ResetPlayerId).await?;
+                            Ok(Message::Nop)
+                        })
                     }
                 }
             }
@@ -850,7 +895,10 @@ impl Application for State {
     fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = Vec::with_capacity(2);
         if self.updates_checked {
-            subscriptions.push(Subscription::from_recipe(subscriptions::Pj64Listener { log: self.log, connection_id: self.frontend_connection_id })); //TODO BizHawk support
+            subscriptions.push(match self.frontend {
+                Frontend::BizHawk => Subscription::from_recipe(subscriptions::BizHawkListener { rx: Arc::clone(&self.frontend_rx), connection_id: self.frontend_connection_id }),
+                Frontend::Pj64 => Subscription::from_recipe(subscriptions::Pj64Listener { log: self.log, connection_id: self.frontend_connection_id }),
+            });
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
                 subscriptions.push(Subscription::from_recipe(subscriptions::Client { log: self.log, port: self.port }));
             }
@@ -901,6 +949,6 @@ pub struct CliArgs {
 }
 
 pub enum FrontendOptions {
-    BizHawk,
+    BizHawk(mpsc::Receiver<subscriptions::ClientMessage>, mpsc::Sender<subscriptions::ServerMessage>),
     Pj64(CliArgs),
 }

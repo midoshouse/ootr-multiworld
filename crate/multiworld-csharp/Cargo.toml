@@ -9,19 +9,30 @@ name = "multiworld"
 crate-type = ["cdylib"]
 
 [dependencies]
-async-proto = "0.16"
 directories = "4"
 libc = "0.2"
 once_cell = "1"
-semver = "1"
-serde_json = "1"
 thiserror = "1"
+
+[dependencies.iced]
+#version = "0.8"
+git = "https://github.com/fenhl/iced"
+branch = "any-thread"
+features = ["image"]
+
+[dependencies.image]
+version = "0.24"
+default-features = false
+features = ["ico"]
 
 [dependencies.multiworld]
 path = "../multiworld"
 
 [dependencies.multiworld-derive]
 path = "../multiworld-derive"
+
+[dependencies.multiworld-gui]
+path = "../multiworld-gui"
 
 [dependencies.ootr-utils]
 git = "https://github.com/midoshouse/rust-ootr-utils"
@@ -31,11 +42,6 @@ branch = "main"
 git = "https://github.com/fenhl/oottracker"
 branch = "main"
 
-[dependencies.reqwest]
-version = "0.11"
-default-features = false
-features = ["blocking", "rustls-tls"]
-
-[dependencies.winver]
-git = "https://github.com/fenhl/winver"
-branch = "main"
+[dependencies.tokio]
+version = "1"
+features = ["sync"]

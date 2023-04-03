@@ -7,6 +7,7 @@ use std::{
 
 fn main() -> io::Result<()> {
     println!("cargo:rerun-if-changed=nonexistent.foo"); // check a nonexistent file to make sure build script is always run (see https://github.com/rust-lang/cargo/issues/4213 and https://github.com/rust-lang/cargo/issues/5663)
+    //TODO check for extern function definitions in C# which aren't defined in Rust (move from check-ffi.py)
     let is_release = match &*env::var("PROFILE").expect("missing PROFILE envar") {
         "debug" => false,
         "release" => true,
