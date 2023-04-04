@@ -362,6 +362,13 @@ namespace MidosHouse.OotrMultiworld {
                             SetError(err);
                         }
                         break;
+                    case -3: // GUI closed
+                        if (this.client != null) {
+                            this.client.Dispose();
+                            this.client = null;
+                        }
+                        this.Close();
+                        break;
                     case 0: // ServerMessage::ItemQueue
                         this.itemQueue.Clear();
                         var len = msg.ItemQueueLen();
@@ -512,9 +519,16 @@ namespace MidosHouse.OotrMultiworld {
         }
 
         private void SetError(Error error) {
-            using (var display = error.Display()) {
-                this.DialogController.ShowMessageBox(this, display.AsString(), null, EMsgBoxIcon.Error);
+            using (var debug = error.Debug()) {
+                using (var display = error.Display()) {
+                    this.DialogController.ShowMessageBox(this, $"{display.AsString()}\n\ndebug info: {debug.AsString()}", "Error in Mido's House Multiworld for BizHawk", EMsgBoxIcon.Error);
+                }
             }
+            if (this.client != null) {
+                this.client.Dispose();
+                this.client = null;
+            }
+            this.Close();
         }
     }
 }
