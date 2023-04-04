@@ -328,8 +328,8 @@ async fn lobby_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket
                     ClientMessage::ResetPlayerId => error!("received a ResetPlayerId message, which only works in a room, but you're in the lobby"),
                     ClientMessage::PlayerName(_) => error!("received a PlayerName message, which only works in a room, but you're in the lobby"),
                     ClientMessage::SendItem { .. } => error!("received a SendItem message, which only works in a room, but you're in the lobby"),
-                    ClientMessage::KickPlayer(_) => error!("received a KickPlayer message, which only works in a room, but you're in the lobby"),
-                    ClientMessage::DeleteRoom => error!("received a DeleteRoom message, which only works in a room, but you're in the lobby"),
+                    ClientMessage::KickPlayer(_) => {}
+                    ClientMessage::DeleteRoom => {}
                     ClientMessage::SaveData(_) => error!("received a SaveData message, which only works in a room, but you're in the lobby"),
                     ClientMessage::SendAll { .. } => error!("received a SendAll message, which only works in a room, but you're in the lobby"),
                     ClientMessage::SaveDataError { .. } => error!("received a SaveDataError message, which only works in a room, but you're in the lobby"),
@@ -359,8 +359,12 @@ async fn room_session(db_pool: PgPool, rooms: Rooms, room: Arc<RwLock<Room>>, so
                 let (reader, msg) = res??;
                 match msg {
                     ClientMessage::Ping => {}
-                    ClientMessage::JoinRoom { .. } => error!("received a JoinRoom message, which only works in the lobby, but you're in a room"),
-                    ClientMessage::CreateRoom { .. } => error!("received a CreateRoom message, which only works in the lobby, but you're in a room"),
+                    ClientMessage::JoinRoom { name, .. } => if name != room.read().await.name {
+                        error!("received a JoinRoom message, which only works in the lobby, but you're in a room")
+                    }
+                    ClientMessage::CreateRoom { name, .. } => if name != room.read().await.name {
+                        error!("received a CreateRoom message, which only works in the lobby, but you're in a room")
+                    }
                     ClientMessage::Login { .. } => error!("received a Login message, which only works in the lobby, but you're in a room"),
                     ClientMessage::Stop => error!("received a Stop message, which only works in the lobby, but you're in a room"),
                     ClientMessage::Track { .. } => error!("received a Track message, which only works in the lobby, but you're in a room"),
