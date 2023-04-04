@@ -62,3 +62,8 @@ optional = true
 [dependencies.url]
 version = "2"
 features = ["serde"]
+
+[dependencies.wheel]
+git = "https://github.com/fenhl/wheel"
+branch = "main"
+features = ["async-proto"]

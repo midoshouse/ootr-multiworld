@@ -2926,6 +2926,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "url",
+ "wheel",
 ]
 
 [[package]]
@@ -3010,6 +3011,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "url",
+ "wheel",
 ]
 
 [[package]]
@@ -5950,13 +5952,15 @@ dependencies = [
 
 [[package]]
 name = "wheel"
-version = "0.9.2"
-source = "git+https://github.com/fenhl/wheel?branch=main#1fbfd1b5b2312e43be247b5e63dc81a817ddf69a"
+version = "0.9.3"
+source = "git+https://github.com/fenhl/wheel?branch=main#0a6b16a6930ecb4732a047e08584bc3174706639"
 dependencies = [
+ "async-proto",
  "async-trait",
  "clap",
  "futures",
  "itertools",
+ "reqwest",
  "thiserror",
  "tokio",
  "wheel-derive",
@@ -5964,8 +5968,8 @@ dependencies = [
 
 [[package]]
 name = "wheel-derive"
-version = "0.9.2"
-source = "git+https://github.com/fenhl/wheel?branch=main#1fbfd1b5b2312e43be247b5e63dc81a817ddf69a"
+version = "0.9.3"
+source = "git+https://github.com/fenhl/wheel?branch=main#0a6b16a6930ecb4732a047e08584bc3174706639"
 dependencies = [
  "itertools",
  "proc-macro2",

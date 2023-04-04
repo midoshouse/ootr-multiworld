@@ -55,11 +55,11 @@ use {
         },
     },
     url::Url,
+    wheel::traits::IsNetworkError,
     multiworld::{
         ClientMessage,
         DurationFormatter,
         Filename,
-        IsNetworkError,
         RoomView,
         ServerMessage,
         SessionState,
@@ -168,7 +168,7 @@ pub enum Error {
     EndOfStream,
     #[error("user folder not found")]
     MissingHomeDir,
-    #[error("protocol version mismatch: {frontend} script is version {version} but we're version {}", MW_FRONTEND_PROTO_VERSION)]
+    #[error("protocol version mismatch: {frontend} plugin is version {version} but we're version {}", MW_FRONTEND_PROTO_VERSION)]
     VersionMismatch {
         frontend: Frontend,
         version: u8,
@@ -182,6 +182,7 @@ impl IsNetworkError for Error {
             Self::Elapsed(_) => true,
             Self::Io(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),
+            Self::Reqwest(e) => e.is_network_error(),
             Self::Write(e) => e.is_network_error(),
             _ => false,
         }

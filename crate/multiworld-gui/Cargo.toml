@@ -63,3 +63,8 @@ features = ["utils"]
 [dependencies.tokio]
 version = "1"
 features = ["fs", "net", "sync", "time"]
+
+[dependencies.wheel]
+git = "https://github.com/fenhl/wheel"
+branch = "main"
+features = ["reqwest"]

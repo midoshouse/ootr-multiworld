@@ -30,7 +30,6 @@ use {
     oottracker::websocket::MwItem as Item,
     semver::Version,
     tokio::{
-        io,
         net::{
             TcpStream,
             tcp::OwnedWriteHalf,
@@ -41,6 +40,7 @@ use {
             oneshot,
         },
     },
+    wheel::traits::IsNetworkError,
 };
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
 #[cfg(windows)] use std::os::windows::io::AsRawSocket;
@@ -66,36 +66,6 @@ const TRIFORCE_PIECE: u16 = 0x00ca;
 
 #[cfg(unix)] pub fn socket_id<T: AsRawFd>(socket: &T) -> SocketId { socket.as_raw_fd() }
 #[cfg(windows)] pub fn socket_id<T: AsRawSocket>(socket: &T) -> SocketId { socket.as_raw_socket() }
-
-pub trait IsNetworkError { //TODO move to wheel
-    fn is_network_error(&self) -> bool;
-}
-
-impl IsNetworkError for io::Error {
-    fn is_network_error(&self) -> bool {
-        //TODO io::ErrorKind::NetworkUnreachable should also be considered here, as it can occur during a server reboot, but it is currently unstable, making it impossible to match against. See https://github.com/rust-lang/rust/issues/86442
-        matches!(self.kind(), io::ErrorKind::ConnectionAborted | io::ErrorKind::ConnectionRefused | io::ErrorKind::ConnectionReset | io::ErrorKind::TimedOut | io::ErrorKind::UnexpectedEof)
-    }
-}
-
-impl IsNetworkError for async_proto::ReadError {
-    fn is_network_error(&self) -> bool {
-        match self {
-            Self::EndOfStream => true,
-            Self::Io(e) => e.is_network_error(),
-            _ => false,
-        }
-    }
-}
-
-impl IsNetworkError for async_proto::WriteError {
-    fn is_network_error(&self) -> bool {
-        match self {
-            Self::Io(e) => e.is_network_error(),
-            _ => false,
-        }
-    }
-}
 
 fn natjoin<T: fmt::Display>(elts: impl IntoIterator<Item = T>) -> Option<String> {
     let mut elts = elts.into_iter().fuse();
