@@ -6,6 +6,11 @@ function ThrowOnNativeFailure {
 
 #TODO make sure BizHawk is up to date
 
+cargo build --package=multiworld-gui
+ThrowOnNativeFailure
+
+Copy-Item -Path .\target\debug\multiworld-gui.exe -Destination 'C:\Users\fenhl\AppData\Local\Fenhl\OoTR Multiworld\cache\gui.exe'
+
 cargo build --package=multiworld-csharp
 ThrowOnNativeFailure
 

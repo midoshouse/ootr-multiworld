@@ -79,7 +79,7 @@ fn parse_api_key(s: &str) -> Result<[u8; 32], ParseApiKeyError> {
 struct Args {
     #[clap(long)]
     server_ip: Option<IpAddr>,
-    #[clap(short, long, default_value_t = multiworld::PORT)]
+    #[clap(short, long, default_value_t = multiworld::SERVER_PORT)]
     port: u16,
     id: Option<u64>,
     #[clap(value_parser = parse_api_key)]

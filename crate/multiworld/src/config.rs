@@ -11,7 +11,7 @@ use {
     },
 };
 
-fn make_default_port() -> u16 { crate::PORT }
+fn make_default_port() -> u16 { crate::SERVER_PORT }
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -43,7 +43,7 @@ impl Default for Config {
         Self {
             log: false,
             pj64_script_path: None,
-            port: crate::PORT,
+            port: crate::SERVER_PORT,
         }
     }
 }

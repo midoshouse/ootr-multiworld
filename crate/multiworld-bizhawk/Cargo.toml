@@ -4,6 +4,10 @@ version.workspace = true
 authors.workspace = true
 edition.workspace = true
 
+[build-dependencies]
+lazy-regex = "2"
+thiserror = "1"
+
 [dependencies]
 semver = "1"
 

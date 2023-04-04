@@ -23,7 +23,7 @@ fn csharp_extern_function_signatures() -> HashMap<String, (Vec<String>, String)>
     let mut map = HashMap::default();
     let csharp_file = fs::read_to_string(PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("missing Cargo manifest dir envar")).parent().expect("Cargo manifest at file system root").join("multiworld-bizhawk").join("OotrMultiworld").join("src").join("MainForm.cs")).expect("failed to read MainForm.cs");
     for line in csharp_file.lines() {
-        if let Some((_, return_type, name, args)) = regex_captures!("        \\[DllImport\\(\"multiworld\"\\)\\] internal static extern ([0-9A-Za-z_]+) ([0-9a-z_]+)\\((.*)\\);", line) {
+        if let Some((_, return_type, name, args)) = regex_captures!("^        \\[DllImport\\(\"multiworld\"\\)\\] internal static extern ([0-9A-Za-z_]+) ([0-9a-z_]+)\\((.*)\\);$", line) {
             map.insert(name.to_owned(), (if args.is_empty() { Vec::default() } else { args.split(", ").map(|arg| arg.to_owned()).collect() }, return_type.to_owned()));
         }
     }
@@ -36,6 +36,7 @@ fn csharp_ffi_type_check(rust_type: &Type, csharp_type: &str, span: Span) -> std
     let expected_rust_types = match csharp_type {
         "BoolResult" => pointers(quote!(Result<bool, Error>)),
         "Client" => pointers(quote!(Client)),
+        "ClientResult" => pointers(quote!(Result<Client, Error>)),
         "Error" => pointers(quote!(Error)),
         "IntPtr" => return match rust_type {
             Type::Path(path) if path.path.segments.len() == 1 && matches!(&*path.path.segments[0].ident.to_string(), "HandleOwned" | "StringHandle") => Ok(()),
@@ -44,7 +45,7 @@ fn csharp_ffi_type_check(rust_type: &Type, csharp_type: &str, span: Span) -> std
                 compile_error!("expected IntPtr to map to HandleOwned or StringHandle");
             }.into()),
         },
-        "OptMessage" => pointers(quote!(OptMessage)),
+        "OptMessageResult" => pointers(quote!(Result<Option<ServerMessage>, Error>)),
         "OwnedStringHandle" => vec![parse_quote!(*const c_char)],
         "StringHandle" => vec![parse_quote!(StringHandle)],
         "UnitResult" => pointers(quote!(Result<(), Error>)),

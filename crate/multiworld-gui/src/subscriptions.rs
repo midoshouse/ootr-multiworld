@@ -6,13 +6,15 @@ use {
             Hasher,
         },
         net::Ipv4Addr,
-        num::NonZeroU8,
         sync::Arc,
         time::Duration,
     },
     async_proto::Protocol,
     futures::{
-        future,
+        future::{
+            self,
+            TryFutureExt,
+        },
         stream::{
             self,
             BoxStream,
@@ -21,7 +23,6 @@ use {
         },
     },
     iced_futures::subscription::Recipe,
-    ootr_utils::spoiler::HashIcon,
     tokio::{
         net::{
             TcpListener,
@@ -29,53 +30,28 @@ use {
         },
         pin,
         select,
-        sync::{
-            Mutex,
-            mpsc,
-        },
+        sync::Mutex,
         time::{
             Instant,
             interval_at,
             timeout,
         },
     },
-    multiworld::Filename,
+    multiworld::frontend,
     crate::{
         Error,
         Frontend,
         LoggingReader,
-        MW_FRONTEND_PROTO_VERSION,
         Message,
     },
 };
 
-#[derive(Debug, Protocol)]
-pub enum ServerMessage {
-    ItemQueue(Vec<u16>),
-    GetItem(u16),
-    PlayerName(NonZeroU8, Filename),
-}
-
-#[derive(Debug, Clone, Protocol)]
-pub enum ClientMessage {
-    PlayerId(NonZeroU8),
-    PlayerName(Filename),
-    SendItem {
-        key: u32,
-        kind: u16,
-        target_world: NonZeroU8,
-    },
-    SaveData([u8; oottracker::save::SIZE]),
-    FileHash([HashIcon; 5]),
-    ResetPlayerId,
-}
-
-pub(crate) struct BizHawkListener {
-    pub(crate) rx: Arc<Mutex<mpsc::Receiver<ClientMessage>>>,
+pub(crate) struct BizHawkConnection {
+    pub(crate) log: bool,
     pub(crate) connection_id: u8,
 }
 
-impl<H: Hasher, I> Recipe<H, I> for BizHawkListener {
+impl<H: Hasher, I> Recipe<H, I> for BizHawkConnection {
     type Output = Message;
 
     fn hash(&self, state: &mut H) {
@@ -84,11 +60,29 @@ impl<H: Hasher, I> Recipe<H, I> for BizHawkListener {
     }
 
     fn stream(self: Box<Self>, _: BoxStream<'_, I>) -> BoxStream<'_, Message> {
-        stream::unfold(self.rx, |rx| async {
-            let msg = rx.lock().await.recv().await?;
-            Some((Message::Plugin(msg), rx))
-        })
-            .chain(stream::once(async { Message::FrontendSubscriptionError(Arc::new(Error::EndOfStream)) }))
+        let log = self.log;
+        stream::once(TcpStream::connect((Ipv4Addr::LOCALHOST, frontend::PORT)).map_err(Error::from))
+            .and_then(move |mut tcp_stream| async move {
+                frontend::PROTOCOL_VERSION.write(&mut tcp_stream).await?;
+                let client_version = u8::read(&mut tcp_stream).await?;
+                if client_version != frontend::PROTOCOL_VERSION {
+                    return Err(Error::VersionMismatch { frontend: Frontend::BizHawk, version: client_version })
+                }
+                let (reader, writer) = tcp_stream.into_split();
+                let reader = LoggingReader { context: "from BizHawk", inner: reader, log };
+                Ok(
+                    stream::once(future::ok(Message::FrontendConnected(Arc::new(Mutex::new(writer)))))
+                        .chain(stream::try_unfold(reader, |mut reader| async move {
+                            Ok(Some((Message::Plugin(Box::new(reader.read::<frontend::ClientMessage>().await?)), reader)))
+                        }))
+                )
+            })
+            .try_flatten()
+            .map(|res| match res {
+                Ok(msg) => msg,
+                Err(e) => Message::FrontendSubscriptionError(Arc::new(e)),
+            })
+            .chain(stream::pending())
             .boxed()
     }
 }
@@ -108,20 +102,20 @@ impl<H: Hasher, I> Recipe<H, I> for Pj64Listener {
 
     fn stream(self: Box<Self>, _: BoxStream<'_, I>) -> BoxStream<'_, Message> {
         let log = self.log;
-        stream::once(TcpListener::bind((Ipv4Addr::LOCALHOST, 24818)))
+        stream::once(TcpListener::bind((Ipv4Addr::LOCALHOST, frontend::PORT)))
             .and_then(move |listener| future::ok(stream::try_unfold(listener, move |listener| async move {
                 let (mut tcp_stream, _) = listener.accept().await?;
-                MW_FRONTEND_PROTO_VERSION.write(&mut tcp_stream).await?;
+                frontend::PROTOCOL_VERSION.write(&mut tcp_stream).await?;
                 let client_version = u8::read(&mut tcp_stream).await?;
-                if client_version != MW_FRONTEND_PROTO_VERSION {
+                if client_version != frontend::PROTOCOL_VERSION {
                     return Err(Error::VersionMismatch { frontend: Frontend::Pj64, version: client_version })
                 }
                 let (reader, writer) = tcp_stream.into_split();
                 let reader = LoggingReader { context: "from PJ64", inner: reader, log };
                 Ok(Some((
-                    stream::once(future::ok(Message::Pj64Connected(Arc::new(Mutex::new(writer)))))
+                    stream::once(future::ok(Message::FrontendConnected(Arc::new(Mutex::new(writer)))))
                     .chain(stream::try_unfold(reader, |mut reader| async move {
-                        Ok(Some((Message::Plugin(reader.read::<ClientMessage>().await?), reader)))
+                        Ok(Some((Message::Plugin(Box::new(reader.read::<frontend::ClientMessage>().await?)), reader)))
                     })),
                     listener,
                 )))
@@ -132,6 +126,7 @@ impl<H: Hasher, I> Recipe<H, I> for Pj64Listener {
                 Ok(msg) => msg,
                 Err(e) => Message::FrontendSubscriptionError(Arc::new(e)),
             })
+            .chain(stream::pending())
             .boxed()
     }
 }
@@ -181,6 +176,7 @@ impl<H: Hasher, I> Recipe<H, I> for Client {
                 Ok(msg) => msg,
                 Err(e) => Message::ServerSubscriptionError(Arc::new(e)),
             })
+            .chain(stream::pending())
             .boxed()
     }
 }

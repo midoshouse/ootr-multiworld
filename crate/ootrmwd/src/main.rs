@@ -261,8 +261,9 @@ async fn lobby_session(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms, socket
                             tracker_state: None,
                             password_hash, password_salt, clients, autodelete_delta,
                         }));
-                        if !rooms.add(room.clone()).await { error!("a room with this name already exists") }
-                        //TODO automatically delete rooms after 7 days of inactivity
+                        if !rooms.add(room.clone()).await {
+                            ServerMessage::StructuredError(ServerError::RoomExists).write(&mut *writer.lock().await).await?;
+                        }
                         ServerMessage::EnterRoom {
                             players: Vec::default(),
                             num_unassigned_clients: 1,
@@ -496,7 +497,7 @@ impl Default for Rooms {
 
 fn parse_port(arg: &str) -> Result<u16, std::num::ParseIntError> {
     match arg {
-        "production" => Ok(multiworld::PORT),
+        "production" => Ok(multiworld::SERVER_PORT),
         "dev" => Ok(18820),
         _ => arg.parse(),
     }
@@ -505,7 +506,7 @@ fn parse_port(arg: &str) -> Result<u16, std::num::ParseIntError> {
 #[derive(clap::Parser)]
 #[clap(version)]
 struct Args {
-    #[clap(short, long, default_value_t = multiworld::PORT, value_parser = parse_port)]
+    #[clap(short, long, default_value_t = multiworld::SERVER_PORT, value_parser = parse_port)]
     port: u16,
     #[clap(short, long, default_value = "ootr_multiworld")]
     database: String,
@@ -522,7 +523,7 @@ enum Subcommand {
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
-    #[error(transparent)] Broadcase(#[from] broadcast::error::RecvError),
+    #[error(transparent)] Broadcast(#[from] broadcast::error::RecvError),
     #[error(transparent)] Client(#[from] multiworld::ClientError),
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] PgInterval(#[from] PgIntervalDecodeError),
@@ -551,6 +552,7 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                 ServerMessage::StructuredError(ServerError::Future(_)) |
                 ServerMessage::StructuredError(ServerError::WrongPassword) |
                 ServerMessage::StructuredError(ServerError::WrongFileHash) |
+                ServerMessage::StructuredError(ServerError::RoomExists) |
                 ServerMessage::EnterRoom { .. } |
                 ServerMessage::PlayerId(_) |
                 ServerMessage::ResetPlayerId(_) |
@@ -580,6 +582,7 @@ async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
                     ServerMessage::StructuredError(ServerError::Future(_)) |
                     ServerMessage::StructuredError(ServerError::WrongPassword) |
                     ServerMessage::StructuredError(ServerError::WrongFileHash) |
+                    ServerMessage::StructuredError(ServerError::RoomExists) |
                     ServerMessage::EnterRoom { .. } |
                     ServerMessage::PlayerId(_) |
                     ServerMessage::ResetPlayerId(_) |

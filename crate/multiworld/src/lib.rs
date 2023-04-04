@@ -48,11 +48,12 @@ use {
 #[cfg(feature = "sqlx")] use sqlx::PgPool;
 
 pub mod config;
+pub mod frontend;
 pub mod github;
 
 pub const ADDRESS_V4: Ipv4Addr = Ipv4Addr::new(37, 252, 122, 84);
 pub const ADDRESS_V6: Ipv6Addr = Ipv6Addr::new(0x2a02, 0x2770, 0x8, 0, 0x21a, 0x4aff, 0xfee1, 0xf281);
-pub const PORT: u16 = 24809;
+pub const SERVER_PORT: u16 = 24809;
 
 pub const CREDENTIAL_LEN: usize = ring::digest::SHA512_OUTPUT_LEN;
 
@@ -675,6 +676,9 @@ server_errors! {
     /// The client has the wrong seed loaded.
     #[error("wrong file hash")]
     WrongFileHash,
+    /// The client attempted to create a room with a duplicate name.
+    #[error("a room with this name already exists")]
+    RoomExists,
 }
 
 #[derive(Debug, Clone, Protocol)]
@@ -756,13 +760,6 @@ pub async fn handshake(tcp_stream: &mut TcpStream) -> Result<(), ClientError> {
     Ok(())
 }
 
-pub fn handshake_sync(tcp_stream: &mut std::net::TcpStream) -> Result<(), ClientError> {
-    proto_version().write_sync(tcp_stream)?;
-    let server_version = u8::read_sync(tcp_stream)?;
-    if server_version != proto_version() { return Err(ClientError::VersionMismatch(server_version)) }
-    Ok(())
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum SessionStateError<E> {
     #[error(transparent)] Connection(#[from] E),
@@ -829,6 +826,14 @@ impl<E> SessionState<E> {
             },
             ServerMessage::StructuredError(ServerError::WrongFileHash) => if let SessionState::Room { wrong_file_hash, .. } = self {
                 *wrong_file_hash = true;
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
+            ServerMessage::StructuredError(ServerError::RoomExists) => if let SessionState::Lobby { create_new_room: ref mut create_new_room @ true, .. } = self {
+                *create_new_room = false;
             } else {
                 *self = Self::Error {
                     e: SessionStateError::Mismatch,

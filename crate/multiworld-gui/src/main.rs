@@ -1,6 +1,8 @@
 #![deny(rust_2018_idioms, unused, unused_crate_dependencies, unused_import_braces, unused_lifetimes, warnings)]
 #![forbid(unsafe_code)]
 
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use {
     std::{
         borrow::Cow,
@@ -10,7 +12,10 @@ use {
         io::prelude::*,
         mem,
         num::NonZeroU8,
-        path::Path,
+        path::{
+            Path,
+            PathBuf,
+        },
         process,
         sync::Arc,
         time::Duration,
@@ -25,12 +30,17 @@ use {
         Command,
         Element,
         Length,
+        Settings,
         Subscription,
         Theme,
         clipboard,
         widget::*,
-        window,
+        window::{
+            self,
+            Icon,
+        },
     },
+    ::image::ImageFormat,
     itertools::Itertools as _,
     once_cell::sync::Lazy,
     ootr_utils::spoiler::HashIcon,
@@ -38,6 +48,7 @@ use {
     rfd::AsyncFileDialog,
     semver::Version,
     serenity::utils::MessageBuilder,
+    sysinfo::Pid,
     tokio::{
         fs,
         io,
@@ -45,10 +56,7 @@ use {
             OwnedReadHalf,
             OwnedWriteHalf,
         },
-        sync::{
-            Mutex,
-            mpsc,
-        },
+        sync::Mutex,
         time::{
             Instant,
             sleep_until,
@@ -61,17 +69,17 @@ use {
         DurationFormatter,
         Filename,
         RoomView,
+        ServerError,
         ServerMessage,
         SessionState,
         SessionStateError,
         format_room_state,
+        frontend,
         github::Repo,
     },
 };
 
-pub mod subscriptions;
-
-const MW_FRONTEND_PROTO_VERSION: u8 = 3; //TODO sync with JS code
+mod subscriptions;
 
 static LOG: Lazy<Mutex<std::fs::File>> = Lazy::new(|| {
     let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
@@ -120,24 +128,8 @@ impl LoggingWriter {
     }
 }
 
-#[derive(Clone)]
-enum FrontendWriter {
-    BizHawk(mpsc::Sender<subscriptions::ServerMessage>),
-    Pj64(LoggingWriter),
-}
-
-impl FrontendWriter {
-    async fn write(&self, msg: subscriptions::ServerMessage) -> Result<(), async_proto::WriteError> {
-        match self {
-            Self::BizHawk(tx) => { let _ = tx.send(msg).await; }
-            Self::Pj64(writer) => writer.write(msg).await?,
-        }
-        Ok(())
-    }
-}
-
 #[derive(Debug)]
-pub enum Frontend {
+enum Frontend {
     BizHawk,
     Pj64,
 }
@@ -152,7 +144,7 @@ impl fmt::Display for Frontend {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+enum Error {
     #[error(transparent)] Client(#[from] multiworld::ClientError),
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] Io(#[from] io::Error),
@@ -164,11 +156,9 @@ pub enum Error {
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("tried to copy debug info with no active error")]
     CopyDebugInfo,
-    #[error("reached the end of a stream that should be infinite")]
-    EndOfStream,
     #[error("user folder not found")]
     MissingHomeDir,
-    #[error("protocol version mismatch: {frontend} plugin is version {version} but we're version {}", MW_FRONTEND_PROTO_VERSION)]
+    #[error("protocol version mismatch: {frontend} plugin is version {version} but we're version {}", frontend::PROTOCOL_VERSION)]
     VersionMismatch {
         frontend: Frontend,
         version: u8,
@@ -190,7 +180,7 @@ impl IsNetworkError for Error {
 }
 
 #[derive(Debug, Clone)]
-pub enum Message {
+enum Message {
     CommandError(Arc<Error>),
     ConfirmRoomDeletion,
     CopyDebugInfo,
@@ -202,9 +192,9 @@ pub enum Message {
     Kick(NonZeroU8),
     NewIssue,
     Nop,
-    Pj64Connected(Arc<Mutex<OwnedWriteHalf>>),
+    FrontendConnected(Arc<Mutex<OwnedWriteHalf>>),
     FrontendSubscriptionError(Arc<Error>),
-    Plugin(subscriptions::ClientMessage),
+    Plugin(Box<frontend::ClientMessage>), // boxed due to the large size of save data; if Message is too large, iced will overflow the stack on window resize
     ReconnectFrontend,
     ReconnectToLobby,
     ReconnectToRoom(String, String),
@@ -233,14 +223,13 @@ fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) ->
     })))
 }
 
-pub struct State {
-    frontend: Frontend,
+struct State {
+    frontend: FrontendFlags,
     debug_info_copied: bool,
     command_error: Option<Arc<Error>>,
     frontend_subscription_error: Option<Arc<Error>>,
     frontend_connection_id: u8,
-    frontend_rx: Arc<Mutex<mpsc::Receiver<subscriptions::ClientMessage>>>,
-    frontend_writer: Option<FrontendWriter>,
+    frontend_writer: Option<LoggingWriter>,
     log: bool,
     port: u16,
     server_connection: SessionState<Arc<Error>>,
@@ -268,7 +257,7 @@ impl State {
                 .build()
         } else if let Some(ref e) = self.frontend_subscription_error {
             MessageBuilder::default()
-                .push_line(format!("error in {} version {} during communication with {}:", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), self.frontend))
+                .push_line(format!("error in {} version {} during communication with {}:", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), self.frontend.kind()))
                 .push_line_safe(e)
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
@@ -284,34 +273,45 @@ impl State {
     }
 }
 
+struct Flags {
+    log: bool,
+    port: u16,
+    frontend: FrontendFlags,
+}
+
+#[derive(Clone)]
+enum FrontendFlags {
+    BizHawk {
+        path: PathBuf,
+        pid: Pid,
+        local_bizhawk_version: Version,
+    },
+    Pj64,
+}
+
+impl FrontendFlags {
+    fn kind(&self) -> Frontend {
+        match self {
+            Self::BizHawk { .. } => Frontend::BizHawk,
+            Self::Pj64 => Frontend::Pj64,
+        }
+    }
+}
+
 impl Application for State {
     type Executor = iced::executor::Default;
     type Message = Message;
     type Theme = Theme;
-    type Flags = FrontendOptions;
+    type Flags = Flags;
 
-    fn new(options: FrontendOptions) -> (Self, Command<Message>) {
-        let (frontend, frontend_rx, frontend_writer, log, port) = match options {
-            FrontendOptions::BizHawk(rx, tx) => (
-                Frontend::BizHawk,
-                Arc::new(Mutex::new(rx)),
-                Some(FrontendWriter::BizHawk(tx)),
-                false, //TODO read from config file
-                multiworld::PORT, //TODO read from config file
-            ),
-            FrontendOptions::Pj64(CliArgs { log, port }) => (
-                Frontend::Pj64,
-                Arc::new(Mutex::new(mpsc::channel(1).1)),
-                None,
-                log,
-                port,
-            ),
-        };
+    fn new(Flags { log, port, frontend }: Flags) -> (Self, Command<Message>) {
         (Self {
+            frontend: frontend.clone(),
             debug_info_copied: false,
             command_error: None,
             frontend_subscription_error: None,
             frontend_connection_id: 0,
+            frontend_writer: None,
             server_connection: SessionState::Init,
             server_writer: None,
             retry: Instant::now(),
@@ -325,7 +325,7 @@ impl Application for State {
             updates_checked: false,
             send_all_path: String::default(),
             send_all_world: String::default(),
-            frontend, frontend_rx, frontend_writer, log, port,
+            log, port,
         }, cmd(async move {
             let http_client = reqwest::Client::builder()
                 .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
@@ -344,11 +344,22 @@ impl Application for State {
                     #[cfg(all(target_arch = "x86_64", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater.exe");
                     #[cfg(all(target_arch = "x86_64", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
                     fs::write(&updater_path, updater_data).await?;
-                    let _ = std::process::Command::new(updater_path)
-                        .arg("pj64") //TODO BizHawk support
-                        .arg(env::current_exe()?)
-                        .arg(process::id().to_string())
-                        .spawn()?;
+                    let mut cmd = std::process::Command::new(updater_path);
+                    match frontend {
+                        FrontendFlags::BizHawk { path, pid, local_bizhawk_version } => {
+                            cmd.arg("bizhawk");
+                            cmd.arg(process::id().to_string());
+                            cmd.arg(path);
+                            cmd.arg(pid.to_string());
+                            cmd.arg(local_bizhawk_version.to_string());
+                        }
+                        FrontendFlags::Pj64 => {
+                            cmd.arg("pj64");
+                            cmd.arg(env::current_exe()?);
+                            cmd.arg(process::id().to_string());
+                        }
+                    }
+                    let _ = cmd.spawn()?;
                     return Ok(Message::Exit)
                 }
             }
@@ -364,7 +375,7 @@ impl Application for State {
     }
 
     fn title(&self) -> String {
-        format!("Mido's House Multiworld for {}", self.frontend)
+        format!("Mido's House Multiworld for {}", self.frontend.kind())
     }
 
     fn update(&mut self, msg: Message) -> Command<Message> {
@@ -434,22 +445,22 @@ impl Application for State {
                 }
             }
             Message::Nop => {}
-            Message::Pj64Connected(writer) => { //TODO add an equivalent for BizHawk
-                let writer = FrontendWriter::Pj64(LoggingWriter { log: self.log, context: "to frontend", inner: Arc::clone(&writer) });
+            Message::FrontendConnected(writer) => {
+                let writer = LoggingWriter { log: self.log, context: "to frontend", inner: Arc::clone(&writer) };
                 self.frontend_writer = Some(writer.clone());
                 if let SessionState::Room { ref players, ref item_queue, .. } = self.server_connection {
                     let players = players.clone();
                     let item_queue = item_queue.clone();
                     return cmd(async move {
                         for player in players {
-                            writer.write(subscriptions::ServerMessage::PlayerName(player.world, if player.name == Filename::default() {
+                            writer.write(frontend::ServerMessage::PlayerName(player.world, if player.name == Filename::default() {
                                 Filename::fallback(player.world)
                             } else {
                                 player.name
                             })).await?;
                         }
                         if !item_queue.is_empty() {
-                            writer.write(subscriptions::ServerMessage::ItemQueue(item_queue)).await?;
+                            writer.write(frontend::ServerMessage::ItemQueue(item_queue)).await?;
                         }
                         Ok(Message::Nop)
                     })
@@ -464,103 +475,105 @@ impl Application for State {
                 }
                 self.frontend_subscription_error.get_or_insert(e);
             }
-            Message::Plugin(subscriptions::ClientMessage::PlayerId(new_player_id)) => {
-                let (new_player_name, new_file_hash) = if self.last_world.replace(new_player_id).is_none() {
-                    (
-                        (self.last_name != Filename::default()).then_some(self.last_name),
-                        self.last_hash,
-                    )
-                } else {
-                    (None, None)
-                };
-                if let Some(ref writer) = self.server_writer {
-                    if let SessionState::Room { .. } = self.server_connection {
+            Message::Plugin(msg) => match *msg {
+                frontend::ClientMessage::PlayerId(new_player_id) => {
+                    let (new_player_name, new_file_hash) = if self.last_world.replace(new_player_id).is_none() {
+                        (
+                            (self.last_name != Filename::default()).then_some(self.last_name),
+                            self.last_hash,
+                        )
+                    } else {
+                        (None, None)
+                    };
+                    if let Some(ref writer) = self.server_writer {
+                        if let SessionState::Room { .. } = self.server_connection {
+                            let writer = writer.clone();
+                            return cmd(async move {
+                                writer.write(ClientMessage::PlayerId(new_player_id)).await?;
+                                if let Some(new_player_name) = new_player_name {
+                                    writer.write(ClientMessage::PlayerName(new_player_name)).await?;
+                                }
+                                if let Some(new_file_hash) = new_file_hash {
+                                    writer.write(ClientMessage::FileHash(new_file_hash)).await?;
+                                }
+                                Ok(Message::Nop)
+                            })
+                        }
+                    }
+                }
+                frontend::ClientMessage::PlayerName(new_player_name) => {
+                    self.last_name = new_player_name;
+                    if self.last_world.is_some() {
+                        if let Some(ref writer) = self.server_writer {
+                            if let SessionState::Room { .. } = self.server_connection {
+                                let writer = writer.clone();
+                                return cmd(async move {
+                                    writer.write(ClientMessage::PlayerName(new_player_name)).await?;
+                                    Ok(Message::Nop)
+                                })
+                            }
+                        }
+                    }
+                }
+                frontend::ClientMessage::SendItem { key, kind, target_world } => {
+                    if let Self { server_writer: Some(writer), server_connection: SessionState::Room { .. }, .. } = self {
                         let writer = writer.clone();
                         return cmd(async move {
-                            writer.write(ClientMessage::PlayerId(new_player_id)).await?;
-                            if let Some(new_player_name) = new_player_name {
-                                writer.write(ClientMessage::PlayerName(new_player_name)).await?;
-                            }
-                            if let Some(new_file_hash) = new_file_hash {
-                                writer.write(ClientMessage::FileHash(new_file_hash)).await?;
-                            }
+                            writer.write(ClientMessage::SendItem { key, kind, target_world }).await?;
                             Ok(Message::Nop)
                         })
+                    } else {
+                        self.pending_items_after_save.push((key, kind, target_world));
                     }
                 }
-            }
-            Message::Plugin(subscriptions::ClientMessage::PlayerName(new_player_name)) => {
-                self.last_name = new_player_name;
-                if self.last_world.is_some() {
-                    if let Some(ref writer) = self.server_writer {
-                        if let SessionState::Room { .. } = self.server_connection {
-                            let writer = writer.clone();
-                            return cmd(async move {
-                                writer.write(ClientMessage::PlayerName(new_player_name)).await?;
-                                Ok(Message::Nop)
-                            })
+                frontend::ClientMessage::SaveData(save) => match oottracker::Save::from_save_data(&save) {
+                    Ok(save) => {
+                        self.last_save = Some(save.clone());
+                        self.pending_items_before_save.extend(self.pending_items_after_save.drain(..));
+                        if let Some(ref writer) = self.server_writer {
+                            if let SessionState::Room { .. } = self.server_connection {
+                                let writer = writer.clone();
+                                return cmd(async move {
+                                    writer.write(ClientMessage::SaveData(save)).await?; //TODO only send if room is marked as being tracked?
+                                    Ok(Message::Nop)
+                                })
+                            }
                         }
                     }
-                }
-            }
-            Message::Plugin(subscriptions::ClientMessage::SendItem { key, kind, target_world }) => {
-                if let Self { server_writer: Some(writer), server_connection: SessionState::Room { .. }, .. } = self {
-                    let writer = writer.clone();
-                    return cmd(async move {
-                        writer.write(ClientMessage::SendItem { key, kind, target_world }).await?;
-                        Ok(Message::Nop)
-                    })
-                } else {
-                    self.pending_items_after_save.push((key, kind, target_world));
-                }
-            }
-            Message::Plugin(subscriptions::ClientMessage::SaveData(save)) => match oottracker::Save::from_save_data(&save) {
-                Ok(save) => {
-                    self.last_save = Some(save.clone());
-                    self.pending_items_before_save.extend(self.pending_items_after_save.drain(..));
-                    if let Some(ref writer) = self.server_writer {
-                        if let SessionState::Room { .. } = self.server_connection {
-                            let writer = writer.clone();
-                            return cmd(async move {
-                                writer.write(ClientMessage::SaveData(save)).await?; //TODO only send if room is marked as being tracked?
-                                Ok(Message::Nop)
-                            })
-                        }
-                    }
-                }
-                Err(e) => if let Some(writer) = self.server_writer.clone() {
-                    return cmd(async move {
-                        writer.write(ClientMessage::SaveDataError { debug: format!("{e:?}"), version: multiworld::version() }).await?;
-                        Ok(Message::Nop)
-                    })
+                    Err(e) => if let Some(writer) = self.server_writer.clone() {
+                        return cmd(async move {
+                            writer.write(ClientMessage::SaveDataError { debug: format!("{e:?}"), version: multiworld::version() }).await?;
+                            Ok(Message::Nop)
+                        })
+                    },
                 },
-            },
-            Message::Plugin(subscriptions::ClientMessage::FileHash(new_hash)) => {
-                self.last_hash = Some(new_hash);
-                if self.last_world.is_some() {
+                frontend::ClientMessage::FileHash(new_hash) => {
+                    self.last_hash = Some(new_hash);
+                    if self.last_world.is_some() {
+                        if let Some(ref writer) = self.server_writer {
+                            if let SessionState::Room { .. } = self.server_connection {
+                                let writer = writer.clone();
+                                return cmd(async move {
+                                    writer.write(ClientMessage::FileHash(new_hash)).await?;
+                                    Ok(Message::Nop)
+                                })
+                            }
+                        }
+                    }
+                }
+                frontend::ClientMessage::ResetPlayerId => {
+                    self.last_world = None;
                     if let Some(ref writer) = self.server_writer {
                         if let SessionState::Room { .. } = self.server_connection {
                             let writer = writer.clone();
                             return cmd(async move {
-                                writer.write(ClientMessage::FileHash(new_hash)).await?;
+                                writer.write(ClientMessage::ResetPlayerId).await?;
                                 Ok(Message::Nop)
                             })
                         }
                     }
                 }
-            }
-            Message::Plugin(subscriptions::ClientMessage::ResetPlayerId) => {
-                self.last_world = None;
-                if let Some(ref writer) = self.server_writer {
-                    if let SessionState::Room { .. } = self.server_connection {
-                        let writer = writer.clone();
-                        return cmd(async move {
-                            writer.write(ClientMessage::ResetPlayerId).await?;
-                            Ok(Message::Nop)
-                        })
-                    }
-                }
-            }
+            },
             Message::ReconnectFrontend => {
                 self.frontend_subscription_error = None;
                 self.frontend_connection_id = self.frontend_connection_id.wrapping_add(1);
@@ -599,11 +612,14 @@ impl Application for State {
                 };
                 self.server_connection.apply(msg.clone());
                 match msg {
+                    ServerMessage::StructuredError(ServerError::RoomExists) => if let SessionState::Lobby { .. } = self.server_connection {
+                        return cmd(future::ok(Message::JoinRoom))
+                    },
                     ServerMessage::EnterLobby { .. } => {
                         let frontend_writer = self.frontend_writer.clone();
                         return cmd(async move {
                             if let Some(frontend_writer) = frontend_writer {
-                                frontend_writer.write(subscriptions::ServerMessage::ItemQueue(Vec::default())).await?;
+                                frontend_writer.write(frontend::ServerMessage::ItemQueue(Vec::default())).await?;
                             }
                             Ok(if room_still_exists { Message::JoinRoom } else { Message::Nop })
                         })
@@ -637,7 +653,7 @@ impl Application for State {
                                 server_writer.write(ClientMessage::SendItem { key, kind, target_world }).await?;
                             }
                             for player in players {
-                                frontend_writer.write(subscriptions::ServerMessage::PlayerName(player.world, if player.name == Filename::default() {
+                                frontend_writer.write(frontend::ServerMessage::PlayerName(player.world, if player.name == Filename::default() {
                                     Filename::fallback(player.world)
                                 } else {
                                     player.name
@@ -648,14 +664,14 @@ impl Application for State {
                     }
                     ServerMessage::PlayerName(world, name) => if let Some(writer) = self.frontend_writer.clone() {
                         return cmd(async move {
-                            writer.write(subscriptions::ServerMessage::PlayerName(world, name)).await?;
+                            writer.write(frontend::ServerMessage::PlayerName(world, name)).await?;
                             Ok(Message::Nop)
                         })
                     },
                     ServerMessage::ItemQueue(queue) => if let SessionState::Room { wrong_file_hash: false, .. } = self.server_connection {
                         if let Some(writer) = self.frontend_writer.clone() {
                             return cmd(async move {
-                                writer.write(subscriptions::ServerMessage::ItemQueue(queue)).await?;
+                                writer.write(frontend::ServerMessage::ItemQueue(queue)).await?;
                                 Ok(Message::Nop)
                             })
                         }
@@ -663,7 +679,7 @@ impl Application for State {
                     ServerMessage::GetItem(item) => if let SessionState::Room { wrong_file_hash: false, .. } = self.server_connection {
                         if let Some(writer) = self.frontend_writer.clone() {
                             return cmd(async move {
-                                writer.write(subscriptions::ServerMessage::GetItem(item)).await?;
+                                writer.write(frontend::ServerMessage::GetItem(item)).await?;
                                 Ok(Message::Nop)
                             })
                         }
@@ -726,16 +742,16 @@ impl Application for State {
                 if e.kind() == io::ErrorKind::AddrInUse {
                     Column::new()
                         .push(Text::new("Connection Busy").size(24))
-                        .push(Text::new(format!("Could not connect to {} because the connection is already in use. Maybe you still have another instance of this app open?", self.frontend)))
+                        .push(Text::new(format!("Could not connect to {} because the connection is already in use. Maybe you still have another instance of this app open?", self.frontend.kind())))
                         .push(Button::new("Retry").on_press(Message::ReconnectFrontend))
                         .spacing(8)
                         .padding(8)
                         .into()
                 } else {
-                    error_view(format!("An error occurred during communication with {}:", self.frontend), e, self.debug_info_copied)
+                    error_view(format!("An error occurred during communication with {}:", self.frontend.kind()), e, self.debug_info_copied)
                 }
             } else {
-                error_view(format!("An error occurred during communication with {}:", self.frontend), e, self.debug_info_copied)
+                error_view(format!("An error occurred during communication with {}:", self.frontend.kind()), e, self.debug_info_copied)
             }
         } else if !self.updates_checked {
             Column::new()
@@ -745,9 +761,9 @@ impl Application for State {
                 .into()
         } else if self.frontend_writer.is_none() {
             Column::new()
-                .push(Text::new(format!("Waiting for {}…", self.frontend)))
-                .push(match self.frontend {
-                    Frontend::BizHawk => "Make sure your game is running and not paused.", //TODO “please open the rom” message?
+                .push(Text::new(format!("Waiting for {}…", self.frontend.kind())))
+                .push(match self.frontend.kind() {
+                    Frontend::BizHawk => "Make sure your game is running and unpaused.",
                     Frontend::Pj64 => "1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.",
                 })
                 .spacing(8)
@@ -863,6 +879,7 @@ impl Application for State {
                         .spacing(8)
                     )
                     .spacing(8)
+                    .padding(8)
                     .into(),
                 SessionState::Room { view: RoomView::Normal, wrong_file_hash: false, ref players, num_unassigned_clients, .. } => {
                     let mut col = Column::new()
@@ -897,8 +914,8 @@ impl Application for State {
     fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = Vec::with_capacity(2);
         if self.updates_checked {
-            subscriptions.push(match self.frontend {
-                Frontend::BizHawk => Subscription::from_recipe(subscriptions::BizHawkListener { rx: Arc::clone(&self.frontend_rx), connection_id: self.frontend_connection_id }),
+            subscriptions.push(match self.frontend.kind() {
+                Frontend::BizHawk => Subscription::from_recipe(subscriptions::BizHawkConnection { log: self.log, connection_id: self.frontend_connection_id }),
                 Frontend::Pj64 => Subscription::from_recipe(subscriptions::Pj64Listener { log: self.log, connection_id: self.frontend_connection_id }),
             });
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
@@ -941,16 +958,48 @@ fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, debug_inf
     ).into()
 }
 
-#[derive(clap::Parser)]
-#[clap(version)]
-pub struct CliArgs {
-    #[clap(long)]
-    log: bool,
-    #[clap(short, long, default_value_t = multiworld::PORT)]
-    port: u16,
+#[derive(Debug, thiserror::Error)]
+enum MainError {
+    #[error(transparent)] Iced(#[from] iced::Error),
+    #[error(transparent)] Icon(#[from] iced::window::icon::Error),
 }
 
-pub enum FrontendOptions {
-    BizHawk(mpsc::Receiver<subscriptions::ClientMessage>, mpsc::Sender<subscriptions::ServerMessage>),
-    Pj64(CliArgs),
+#[derive(clap::Subcommand)]
+#[clap(rename_all = "lower")]
+enum FrontendArgs {
+    BizHawk {
+        path: PathBuf,
+        pid: Pid,
+        local_bizhawk_version: Version,
+    },
+}
+
+#[derive(clap::Parser)]
+#[clap(version)]
+struct CliArgs {
+    #[clap(long)]
+    log: bool,
+    #[clap(short, long, default_value_t = multiworld::SERVER_PORT)]
+    port: u16,
+    #[clap(subcommand)]
+    frontend: Option<FrontendArgs>,
+}
+
+#[wheel::main]
+fn main(CliArgs { log, port, frontend }: CliArgs) -> Result<(), MainError> {
+    State::run(Settings {
+        window: window::Settings {
+            size: (256, 256),
+            icon: Some(Icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
+            ..window::Settings::default()
+        },
+        ..Settings::with_flags(Flags {
+            frontend: match frontend {
+                None => FrontendFlags::Pj64,
+                Some(FrontendArgs::BizHawk { path, pid, local_bizhawk_version }) => FrontendFlags::BizHawk { path, pid, local_bizhawk_version },
+            },
+            log, port,
+        })
+    })?;
+    Ok(())
 }

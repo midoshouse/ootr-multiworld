@@ -12,7 +12,7 @@ bytes = "1"
 dark-light = "1"
 directories = "4"
 futures = "0.3"
-#iced_native = "0.9"
+iced_native = "0.9"
 itertools = "0.10"
 open = "4"
 runas = "1"
@@ -32,14 +32,8 @@ version = "4"
 features = ["derive"]
 
 [dependencies.iced]
-#version = "0.8"
-git = "https://github.com/fenhl/iced"
-branch = "any-thread"
+version = "0.8"
 features = ["default_system_font", "tokio"]
-
-[dependencies.iced_native]
-git = "https://github.com/fenhl/iced"
-branch = "any-thread"
 
 [dependencies.image]
 version = "0.24"

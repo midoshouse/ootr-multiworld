@@ -197,14 +197,22 @@ impl Application for App {
     type Flags = EmuArgs;
 
     fn new(args: EmuArgs) -> (Self, Command<Message>) {
-        let (EmuArgs::BizHawk { pid, .. } | EmuArgs::Pj64 { pid, .. }) = args;
         (App {
+            args: args.clone(),
             state: State::WaitExit,
-            args,
         }, cmd(async move {
             let mut system = sysinfo::System::default();
-            while system.refresh_process_specifics(pid, ProcessRefreshKind::default()) {
-                sleep(Duration::from_secs(1)).await;
+            match args {
+                EmuArgs::BizHawk { mw_pid, bizhawk_pid, .. } => {
+                    while system.refresh_process_specifics(mw_pid, ProcessRefreshKind::default()) || system.refresh_process_specifics(bizhawk_pid, ProcessRefreshKind::default()) {
+                        sleep(Duration::from_secs(1)).await;
+                    }
+                }
+                EmuArgs::Pj64 { pid, .. } => {
+                    while system.refresh_process_specifics(pid, ProcessRefreshKind::default()) {
+                        sleep(Duration::from_secs(1)).await;
+                    }
+                }
             }
             Ok(Message::Exited)
         }))
@@ -476,7 +484,7 @@ impl Application for App {
             State::WaitExit => match self.args {
                 EmuArgs::BizHawk { .. } => Column::new()
                     .push(Text::new("An update for Mido's House Multiworld for BizHawk is available."))
-                    .push(Text::new("Please close BizHawk to start the update."))
+                    .push(Text::new("Please close BizHawk to start the update.")) //TODO adjust message depending on which PIDs are still open?
                     .spacing(8)
                     .padding(8)
                     .into(),
@@ -531,12 +539,13 @@ impl Application for App {
     }
 }
 
-#[derive(clap::Subcommand)]
+#[derive(Clone, clap::Subcommand)]
 #[clap(rename_all = "lower")]
 enum EmuArgs {
     BizHawk {
+        mw_pid: Pid,
         path: PathBuf,
-        pid: Pid,
+        bizhawk_pid: Pid,
         local_bizhawk_version: Version,
     },
     Pj64 {

@@ -15,26 +15,30 @@ namespace MidosHouse.OotrMultiworld {
         [DllImport("multiworld")] internal static extern Error error_from_string(OwnedStringHandle text);
         [DllImport("multiworld")] internal static extern StringHandle error_debug(Error error);
         [DllImport("multiworld")] internal static extern StringHandle error_display(Error error);
-        [DllImport("multiworld")] internal static extern Client open_gui();
+        [DllImport("multiworld")] internal static extern ClientResult open_gui();
+        [DllImport("multiworld")] internal static extern void client_result_free(IntPtr client_res);
+        [DllImport("multiworld")] internal static extern bool client_result_is_ok(ClientResult client_res);
+        [DllImport("multiworld")] internal static extern Client client_result_unwrap(IntPtr client_res);
+        [DllImport("multiworld")] internal static extern Error client_result_unwrap_err(IntPtr client_res);
         [DllImport("multiworld")] internal static extern void client_free(IntPtr client);
         [DllImport("multiworld")] internal static extern void string_free(IntPtr s);
-        [DllImport("multiworld")] internal static extern void client_set_player_id(Client client, byte id);
+        [DllImport("multiworld")] internal static extern UnitResult client_set_player_id(Client client, byte id);
         [DllImport("multiworld")] internal static extern void unit_result_free(IntPtr unit_res);
         [DllImport("multiworld")] internal static extern bool unit_result_is_ok(UnitResult unit_res);
         [DllImport("multiworld")] internal static extern Error unit_result_unwrap_err(IntPtr unit_res);
-        [DllImport("multiworld")] internal static extern void client_reset_player_id(Client client);
-        [DllImport("multiworld")] internal static extern void client_set_player_name(Client client, IntPtr name);
-        [DllImport("multiworld")] internal static extern void client_set_file_hash(Client client, IntPtr hash);
-        [DllImport("multiworld")] internal static extern void client_set_save_data(Client client, IntPtr save);
-        [DllImport("multiworld")] internal static extern OptMessage client_try_recv_message(Client client);
-        [DllImport("multiworld")] internal static extern void opt_message_free(IntPtr opt_msg);
-        [DllImport("multiworld")] internal static extern sbyte opt_message_kind(OptMessage opt_msg);
-        [DllImport("multiworld")] internal static extern ushort opt_message_item_queue_len(OptMessage opt_msg);
-        [DllImport("multiworld")] internal static extern ushort opt_message_item_kind_at_index(OptMessage opt_msg, ushort index);
-        [DllImport("multiworld")] internal static extern byte opt_message_world_id(OptMessage opt_msg);
-        [DllImport("multiworld")] internal static extern IntPtr opt_message_filename(OptMessage opt_msg);
-        [DllImport("multiworld")] internal static extern void client_send_item(Client client, uint key, ushort kind, byte target_world);
-        [DllImport("multiworld")] internal static extern UnitResult client_join_gui_thread(IntPtr client);
+        [DllImport("multiworld")] internal static extern UnitResult client_reset_player_id(Client client);
+        [DllImport("multiworld")] internal static extern UnitResult client_set_player_name(Client client, IntPtr name);
+        [DllImport("multiworld")] internal static extern UnitResult client_set_file_hash(Client client, IntPtr hash);
+        [DllImport("multiworld")] internal static extern UnitResult client_set_save_data(Client client, IntPtr save);
+        [DllImport("multiworld")] internal static extern OptMessageResult client_try_recv_message(Client client);
+        [DllImport("multiworld")] internal static extern void opt_message_result_free(IntPtr opt_msg_res);
+        [DllImport("multiworld")] internal static extern sbyte opt_message_result_kind(OptMessageResult opt_msg_res);
+        [DllImport("multiworld")] internal static extern ushort opt_message_result_item_queue_len(OptMessageResult opt_msg_res);
+        [DllImport("multiworld")] internal static extern ushort opt_message_result_item_kind_at_index(OptMessageResult opt_msg_res, ushort index);
+        [DllImport("multiworld")] internal static extern byte opt_message_result_world_id(OptMessageResult opt_msg_res);
+        [DllImport("multiworld")] internal static extern IntPtr opt_message_result_filename(OptMessageResult opt_msg_res);
+        [DllImport("multiworld")] internal static extern Error opt_message_result_unwrap_err(IntPtr opt_msg_res);
+        [DllImport("multiworld")] internal static extern UnitResult client_send_item(Client client, uint key, ushort kind, byte target_world);
     }
 
     internal class StringHandle : SafeHandle {
@@ -57,6 +61,35 @@ namespace MidosHouse.OotrMultiworld {
                 Native.string_free(this.handle);
             }
             return true;
+        }
+    }
+
+    internal class ClientResult : SafeHandle {
+        internal ClientResult() : base(IntPtr.Zero, true) {}
+
+        public override bool IsInvalid {
+            get { return this.handle == IntPtr.Zero; }
+        }
+
+        protected override bool ReleaseHandle() {
+            if (!this.IsInvalid) {
+                Native.client_result_free(this.handle);
+            }
+            return true;
+        }
+
+        internal bool IsOk() => Native.client_result_is_ok(this);
+
+        internal Client Unwrap() {
+            var client = Native.client_result_unwrap(this.handle);
+            this.handle = IntPtr.Zero; // client_result_unwrap takes ownership
+            return client;
+        }
+
+        internal Error UnwrapErr() {
+            var err = Native.client_result_unwrap_err(this.handle);
+            this.handle = IntPtr.Zero; // client_result_unwrap_err takes ownership
+            return err;
         }
     }
 
@@ -103,14 +136,8 @@ namespace MidosHouse.OotrMultiworld {
             Marshal.FreeHGlobal(hashPtr);
         }
 
-        internal OptMessage TryRecv() => Native.client_try_recv_message(this);
+        internal OptMessageResult TryRecv() => Native.client_try_recv_message(this);
         internal void SendItem(uint key, ushort kind, byte targetWorld) => Native.client_send_item(this, key, kind, targetWorld);
-
-        internal UnitResult JoinGuiThread() {
-            var inner = Native.client_join_gui_thread(this.handle);
-            this.handle = IntPtr.Zero; // client_join_gui_thread takes ownership
-            return inner;
-        }
     }
 
     internal class Error : SafeHandle {
@@ -137,8 +164,8 @@ namespace MidosHouse.OotrMultiworld {
         internal StringHandle Display() => Native.error_display(this);
     }
 
-    internal class OptMessage : SafeHandle {
-        internal OptMessage() : base(IntPtr.Zero, true) {}
+    internal class OptMessageResult : SafeHandle {
+        internal OptMessageResult() : base(IntPtr.Zero, true) {}
 
         public override bool IsInvalid {
             get { return this.handle == IntPtr.Zero; }
@@ -146,20 +173,26 @@ namespace MidosHouse.OotrMultiworld {
 
         protected override bool ReleaseHandle() {
             if (!this.IsInvalid) {
-                Native.opt_message_free(this.handle);
+                Native.opt_message_result_free(this.handle);
             }
             return true;
         }
 
-        internal sbyte Kind() => Native.opt_message_kind(this);
-        internal ushort ItemQueueLen() => Native.opt_message_item_queue_len(this);
-        internal ushort ItemAtIndex(ushort index) => Native.opt_message_item_kind_at_index(this, index);
-        internal byte WorldId() => Native.opt_message_world_id(this);
+        internal sbyte Kind() => Native.opt_message_result_kind(this);
+        internal ushort ItemQueueLen() => Native.opt_message_result_item_queue_len(this);
+        internal ushort ItemAtIndex(ushort index) => Native.opt_message_result_item_kind_at_index(this, index);
+        internal byte WorldId() => Native.opt_message_result_world_id(this);
 
         internal List<byte> Filename() {
             var name = new byte[8];
-            Marshal.Copy(Native.opt_message_filename(this), name, 0, 8);
+            Marshal.Copy(Native.opt_message_result_filename(this), name, 0, 8);
             return name.ToList();
+        }
+
+        internal Error UnwrapErr() {
+            var err = Native.opt_message_result_unwrap_err(this.handle);
+            this.handle = IntPtr.Zero; // opt_msg_result_unwrap_err takes ownership
+            return err;
         }
     }
 
@@ -254,10 +287,20 @@ namespace MidosHouse.OotrMultiworld {
         public override void Restart() {
             APIs.Memory.SetBigEndian(true);
             if (this.client == null) {
-                this.client = Native.open_gui();
+                using (var res = Native.open_gui()) {
+                    if (res.IsOk()) {
+                        this.client = res.Unwrap();
+                    } else {
+                        using (var err = res.UnwrapErr()) {
+                            SetError(err);
+                        }
+                    }
+                }
             }
             this.playerID = null;
-            this.client.SetPlayerID(this.playerID);
+            if (this.client != null) {
+                this.client.SetPlayerID(this.playerID);
+            }
         }
 
         public override void UpdateValues(ToolFormUpdateType type) {
@@ -314,15 +357,9 @@ namespace MidosHouse.OotrMultiworld {
                 switch (msg.Kind()) {
                     case -1: // no message
                         break;
-                    case -2: // Join
-                        using (var res = client.JoinGuiThread()) {
-                            if (res.IsOk()) {
-                                this.Close();
-                            } else {
-                                using (var err = res.UnwrapErr()) {
-                                    SetError(err);
-                                }
-                            }
+                    case -2: // error
+                        using (var err = msg.UnwrapErr()) {
+                            SetError(err);
                         }
                         break;
                     case 0: // ServerMessage::ItemQueue
