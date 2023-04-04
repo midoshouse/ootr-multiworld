@@ -486,7 +486,7 @@ impl Application for State {
                 } else {
                     match emulator {
                         Emulator::BizHawk => {
-                            let [major, minor, patch, _] = match winver::get_file_version_info(emulator_path) {
+                            let [major, minor, patch, _] = match winver::get_file_version_info(PathBuf::from(emulator_path).join("EmuHawk.exe")) {
                                 Ok(version) => version,
                                 Err(e) => return cmd(future::err(e.into())),
                             };
