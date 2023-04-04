@@ -179,8 +179,6 @@ pub enum Error {
     CurrentExeAtRoot,
     #[error("{0}")]
     Ffi(String),
-    #[error("Could not find the Mido's House Multiworld app. Try running the installer again.")]
-    MissingCompanionApp,
     #[error("protocol version mismatch: multiworld app is version {0} but we're version {}", PROTOCOL_VERSION)]
     VersionMismatch(u8),
 }
@@ -264,24 +262,26 @@ impl Client {
         tcp_listener.set_nonblocking(true)?;
         let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
         let gui_path = project_dirs.cache_dir().join("gui.exe");
-        if gui_path.exists() {
-            let [major, minor, patch, _] = winver::get_file_version_info("EmuHawk.exe")?;
-            Command::new(gui_path)
-                //TODO forward log and port args from config
-                .arg("bizhawk")
-                .arg(env::current_exe()?.canonicalize()?.parent().ok_or(Error::CurrentExeAtRoot)?)
-                .arg(process::id().to_string())
-                .arg(format!("{major}.{minor}.{patch}"))
-                .spawn()?;
-            Ok(Client {
-                tcp_stream: None,
-                buf: Vec::default(),
-                message_queue: Vec::default(),
-                tcp_listener,
-            })
-        } else {
-            Err(Error::MissingCompanionApp) //TODO embed into multiworld.dll and extract?
+        if !gui_path.exists() { //TODO also check to make sure it's up to date
+            fs::create_dir_all(project_dirs.cache_dir())?;
+            #[cfg(all(target_arch = "x86_64", debug_assertions))] let gui_data = include_bytes!("../../../target/debug/multiworld-gui.exe");
+            #[cfg(all(target_arch = "x86_64", not(debug_assertions)))] let gui_data = include_bytes!("../../../target/release/multiworld-gui.exe");
+            fs::write(&gui_path, gui_data)?;
         }
+        let [major, minor, patch, _] = winver::get_file_version_info("EmuHawk.exe")?;
+        Command::new(gui_path)
+            //TODO forward log and port args from config
+            .arg("bizhawk")
+            .arg(env::current_exe()?.canonicalize()?.parent().ok_or(Error::CurrentExeAtRoot)?)
+            .arg(process::id().to_string())
+            .arg(format!("{major}.{minor}.{patch}"))
+            .spawn()?;
+        Ok(Client {
+            tcp_stream: None,
+            buf: Vec::default(),
+            message_queue: Vec::default(),
+            tcp_listener,
+        })
     }
 
     HandleOwned::new(inner())
