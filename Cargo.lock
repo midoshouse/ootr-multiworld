@@ -2978,6 +2978,7 @@ dependencies = [
  "once_cell",
  "ootr-utils",
  "oottracker",
+ "semver 1.0.17",
  "thiserror",
  "winver",
 ]

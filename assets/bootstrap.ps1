@@ -11,9 +11,9 @@ cargo build --package=multiworld-updater
 ThrowOnNativeFailure
 cargo build --release --package=multiworld-updater
 ThrowOnNativeFailure
-cargo build --package=multiworld-pj64-gui
+cargo build --package=multiworld-gui
 ThrowOnNativeFailure
-cargo build --release --package=multiworld-pj64-gui
+cargo build --release --package=multiworld-gui
 ThrowOnNativeFailure
 cargo build --package=multiworld-csharp
 ThrowOnNativeFailure

@@ -264,6 +264,52 @@ impl Task<Result<(), Error>> for BuildUpdater {
     }
 }
 
+enum BuildGui {
+    Updater(broadcast::Receiver<()>, broadcast::Sender<()>),
+    Build(broadcast::Sender<()>),
+}
+
+impl BuildGui {
+    fn new(updater_rx: broadcast::Receiver<()>, gui_tx: broadcast::Sender<()>) -> Self {
+        Self::Updater(updater_rx, gui_tx)
+    }
+}
+
+impl fmt::Display for BuildGui {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Updater(..) => write!(f, "waiting for updater build to finish"),
+            Self::Build(..) => write!(f, "building multiworld-gui.exe"),
+        }
+    }
+}
+
+impl Progress for BuildGui {
+    fn progress(&self) -> Percent {
+        Percent::fraction(match self {
+            Self::Updater(..) => 0,
+            Self::Build(..) => 1,
+        }, 2)
+    }
+}
+
+#[async_trait]
+impl Task<Result<(), Error>> for BuildGui {
+    async fn run(self) -> Result<Result<(), Error>, Self> {
+        match self {
+            Self::Updater(mut updater_rx, gui_tx) => gres::transpose(async move {
+                let () = updater_rx.recv().await?;
+                Ok(Err(Self::Build(gui_tx)))
+            }).await,
+            Self::Build(gui_tx) => gres::transpose(async move {
+                Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-gui").check("cargo build --package=multiworld-gui").await?;
+                let _ = gui_tx.send(());
+                Ok(Ok(()))
+            }).await,
+        }
+    }
+}
+
 enum BuildBizHawk {
     Updater(reqwest::Client, Repo, broadcast::Receiver<()>, broadcast::Receiver<Release>, Version, broadcast::Sender<()>),
     CSharp(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<()>),
@@ -351,8 +397,7 @@ impl Task<Result<(), Error>> for BuildBizHawk {
 }
 
 enum BuildPj64 {
-    Updater(reqwest::Client, Repo, broadcast::Receiver<()>, broadcast::Receiver<Release>, broadcast::Sender<()>),
-    Build(reqwest::Client, Repo, broadcast::Receiver<Release>, broadcast::Sender<()>),
+    Gui(reqwest::Client, Repo, broadcast::Receiver<()>, broadcast::Receiver<Release>),
     Read(reqwest::Client, Repo, broadcast::Receiver<Release>),
     WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
     Upload(reqwest::Client, Repo, Release, Vec<u8>),
@@ -361,17 +406,16 @@ enum BuildPj64 {
 }
 
 impl BuildPj64 {
-    fn new(client: reqwest::Client, repo: Repo, updater_rx: broadcast::Receiver<()>, release_rx: broadcast::Receiver<Release>, pj64_tx: broadcast::Sender<()>) -> Self {
-        Self::Updater(client, repo, updater_rx, release_rx, pj64_tx)
+    fn new(client: reqwest::Client, repo: Repo, gui_rx: broadcast::Receiver<()>, release_rx: broadcast::Receiver<Release>) -> Self {
+        Self::Gui(client, repo, gui_rx, release_rx)
     }
 }
 
 impl fmt::Display for BuildPj64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Updater(..) => write!(f, "waiting for updater build to finish"),
-            Self::Build(..) => write!(f, "building multiworld-pj64.exe"),
-            Self::Read(..) => write!(f, "reading multiworld-pj64.exe"),
+            Self::Gui(..) => write!(f, "waiting for GUI build to finish"),
+            Self::Read(..) => write!(f, "reading multiworld-gui.exe"),
             Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
             Self::Upload(..) => write!(f, "uploading multiworld-pj64.exe"),
             Self::ReadJs(..) => write!(f, "reading ootrmw-pj64.js"),
@@ -383,14 +427,13 @@ impl fmt::Display for BuildPj64 {
 impl Progress for BuildPj64 {
     fn progress(&self) -> Percent {
         Percent::fraction(match self {
-            Self::Updater(..) => 0,
-            Self::Build(..) => 1,
-            Self::Read(..) => 2,
-            Self::WaitRelease(..) => 3,
-            Self::Upload(..) => 4,
-            Self::ReadJs(..) => 5,
-            Self::UploadJs(..) => 6,
-        }, 7)
+            Self::Gui(..) => 0,
+            Self::Read(..) => 1,
+            Self::WaitRelease(..) => 2,
+            Self::Upload(..) => 3,
+            Self::ReadJs(..) => 4,
+            Self::UploadJs(..) => 5,
+        }, 6)
     }
 }
 
@@ -398,17 +441,12 @@ impl Progress for BuildPj64 {
 impl Task<Result<(), Error>> for BuildPj64 {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
-            Self::Updater(client, repo, mut updater_rx, release_rx, pj64_tx) => gres::transpose(async move {
-                let () = updater_rx.recv().await?;
-                Ok(Err(Self::Build(client, repo, release_rx, pj64_tx)))
-            }).await,
-            Self::Build(client, repo, release_rx, pj64_tx) => gres::transpose(async move {
-                Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-pj64-gui").check("cargo build --package=multiworld-pj64-gui").await?;
-                let _ = pj64_tx.send(());
+            Self::Gui(client, repo, mut gui_rx, release_rx) => gres::transpose(async move {
+                let () = gui_rx.recv().await?;
                 Ok(Err(Self::Read(client, repo, release_rx)))
             }).await,
             Self::Read(client, repo, release_rx) => gres::transpose(async move {
-                let data = fs::read("target/release/multiworld-pj64-gui.exe").await?;
+                let data = fs::read("target/release/multiworld-gui.exe").await?;
                 Ok(Err(Self::WaitRelease(client, repo, release_rx, data)))
             }).await,
             Self::WaitRelease(client, repo, mut release_rx, data) => gres::transpose(async move {
@@ -440,8 +478,8 @@ enum BuildInstaller {
 }
 
 impl BuildInstaller {
-    fn new(client: reqwest::Client, repo: Repo, bizhawk_rx: broadcast::Receiver<()>, pj64_rx: broadcast::Receiver<()>, release_rx: broadcast::Receiver<Release>) -> Self {
-        Self::Deps(client, repo, bizhawk_rx, pj64_rx, release_rx)
+    fn new(client: reqwest::Client, repo: Repo, bizhawk_rx: broadcast::Receiver<()>, gui_rx: broadcast::Receiver<()>, release_rx: broadcast::Receiver<Release>) -> Self {
+        Self::Deps(client, repo, bizhawk_rx, gui_rx, release_rx)
     }
 }
 
@@ -473,9 +511,9 @@ impl Progress for BuildInstaller {
 impl Task<Result<(), Error>> for BuildInstaller {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
-            Self::Deps(client, repo, mut bizhawk_rx, mut pj64_rx, release_rx) => gres::transpose(async move {
+            Self::Deps(client, repo, mut bizhawk_rx, mut gui_rx, release_rx) => gres::transpose(async move {
                 let () = bizhawk_rx.recv().await?;
-                let () = pj64_rx.recv().await?;
+                let () = gui_rx.recv().await?;
                 Ok(Err(Self::Build(client, repo, release_rx)))
             }).await,
             Self::Build(client, repo, release_rx) => gres::transpose(async move {
@@ -620,10 +658,11 @@ async fn main(args: Args) -> Result<(), Error> {
         let create_release = tokio::spawn(async move {
             create_release_cli.run(CreateRelease::new(create_release_repo, create_release_client, release_tx, release_notes_cli, create_release_args), "release created").await?
         });
-        let (updater_tx, updater_rx_bizhawk) = broadcast::channel(1);
-        let updater_rx_pj64 = updater_tx.subscribe();
+        let (updater_tx, updater_rx) = broadcast::channel(1);
+        let (gui_tx, gui_rx_bizhawk) = broadcast::channel(1);
+        let gui_rx_pj64 = gui_tx.subscribe();
+        let gui_rx_installer = gui_tx.subscribe();
         let (bizhawk_tx, bizhawk_rx) = broadcast::channel(1);
-        let (pj64_tx, pj64_rx) = broadcast::channel(1);
 
         macro_rules! with_metavariable {
             ($metavariable:tt, $($token:tt)*) => { $($token)* };
@@ -637,9 +676,10 @@ async fn main(args: Args) -> Result<(), Error> {
 
         build_tasks![
             { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildUpdater::new(updater_tx), "updater build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawk::new(client, repo, updater_rx_bizhawk, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "BizHawk build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildPj64::new(client, repo, updater_rx_pj64, release_rx_pj64, pj64_tx), "Project64 build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstaller::new(client, repo, bizhawk_rx, pj64_rx, release_rx_installer), "installer build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildGui::new(updater_rx, gui_tx), "GUI build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawk::new(client, repo, gui_rx_bizhawk, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "BizHawk build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildPj64::new(client, repo, gui_rx_pj64, release_rx_pj64), "Project64 build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstaller::new(client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "installer build done").await? }).await? } },
             if args.no_server { future::ok(()).boxed() } else { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildServer::default(), "server build done").await? }).await? }.boxed() },
         ];
         let release = create_release.await??;

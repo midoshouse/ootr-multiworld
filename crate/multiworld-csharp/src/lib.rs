@@ -33,6 +33,7 @@ use {
     libc::c_char,
     once_cell::sync::Lazy,
     ootr_utils::spoiler::HashIcon,
+    semver::Version,
     multiworld_derive::csharp_ffi,
     multiworld::{
         config::CONFIG,
@@ -262,7 +263,11 @@ impl Client {
         tcp_listener.set_nonblocking(true)?;
         let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
         let gui_path = project_dirs.cache_dir().join("gui.exe");
-        if !gui_path.exists() { //TODO also check to make sure it's up to date
+        let write_gui = !gui_path.exists() || {
+            let [major, minor, patch, _] = winver::get_file_version_info(&gui_path)?;
+            Version::new(major.into(), minor.into(), patch.into()) != multiworld::version()
+        };
+        if write_gui {
             fs::create_dir_all(project_dirs.cache_dir())?;
             #[cfg(all(target_arch = "x86_64", debug_assertions))] let gui_data = include_bytes!("../../../target/debug/multiworld-gui.exe");
             #[cfg(all(target_arch = "x86_64", not(debug_assertions)))] let gui_data = include_bytes!("../../../target/release/multiworld-gui.exe");
