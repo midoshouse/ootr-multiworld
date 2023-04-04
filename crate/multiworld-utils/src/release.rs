@@ -265,13 +265,16 @@ impl Task<Result<(), Error>> for BuildUpdater {
 }
 
 enum BuildGui {
-    Updater(broadcast::Receiver<()>, broadcast::Sender<()>),
-    Build(broadcast::Sender<()>),
+    Updater(reqwest::Client, Repo, broadcast::Receiver<()>, broadcast::Receiver<Release>, broadcast::Sender<()>),
+    Build(reqwest::Client, Repo, broadcast::Receiver<Release>, broadcast::Sender<()>),
+    Read(reqwest::Client, Repo, broadcast::Receiver<Release>),
+    WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
+    Upload(reqwest::Client, Repo, Release, Vec<u8>),
 }
 
 impl BuildGui {
-    fn new(updater_rx: broadcast::Receiver<()>, gui_tx: broadcast::Sender<()>) -> Self {
-        Self::Updater(updater_rx, gui_tx)
+    fn new(client: reqwest::Client, repo: Repo, updater_rx: broadcast::Receiver<()>, release_rx: broadcast::Receiver<Release>, gui_tx: broadcast::Sender<()>) -> Self {
+        Self::Updater(client, repo, updater_rx, release_rx, gui_tx)
     }
 }
 
@@ -280,6 +283,9 @@ impl fmt::Display for BuildGui {
         match self {
             Self::Updater(..) => write!(f, "waiting for updater build to finish"),
             Self::Build(..) => write!(f, "building multiworld-gui.exe"),
+            Self::Read(..) => write!(f, "reading multiworld-gui.exe"),
+            Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
+            Self::Upload(..) => write!(f, "uploading multiworld-pj64.exe"),
         }
     }
 }
@@ -289,7 +295,10 @@ impl Progress for BuildGui {
         Percent::fraction(match self {
             Self::Updater(..) => 0,
             Self::Build(..) => 1,
-        }, 2)
+            Self::Read(..) => 2,
+            Self::WaitRelease(..) => 3,
+            Self::Upload(..) => 4,
+        }, 5)
     }
 }
 
@@ -297,13 +306,25 @@ impl Progress for BuildGui {
 impl Task<Result<(), Error>> for BuildGui {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
-            Self::Updater(mut updater_rx, gui_tx) => gres::transpose(async move {
+            Self::Updater(client, repo, mut updater_rx, release_rx, gui_tx) => gres::transpose(async move {
                 let () = updater_rx.recv().await?;
-                Ok(Err(Self::Build(gui_tx)))
+                Ok(Err(Self::Build(client, repo, release_rx, gui_tx)))
             }).await,
-            Self::Build(gui_tx) => gres::transpose(async move {
+            Self::Build(client, repo, release_rx, gui_tx) => gres::transpose(async move {
                 Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-gui").check("cargo build --package=multiworld-gui").await?;
                 let _ = gui_tx.send(());
+                Ok(Err(Self::Read(client, repo, release_rx)))
+            }).await,
+            Self::Read(client, repo, release_rx) => gres::transpose(async move {
+                let data = fs::read("target/release/multiworld-gui.exe").await?;
+                Ok(Err(Self::WaitRelease(client, repo, release_rx, data)))
+            }).await,
+            Self::WaitRelease(client, repo, mut release_rx, data) => gres::transpose(async move {
+                let release = release_rx.recv().await?;
+                Ok(Err(Self::Upload(client, repo, release, data)))
+            }).await,
+            Self::Upload(client, repo, release, data) => gres::transpose(async move {
+                repo.release_attach(&client, &release, "multiworld-pj64.exe", "application/vnd.microsoft.portable-executable", data).await?;
                 Ok(Ok(()))
             }).await,
         }
@@ -397,27 +418,21 @@ impl Task<Result<(), Error>> for BuildBizHawk {
 }
 
 enum BuildPj64 {
-    Gui(reqwest::Client, Repo, broadcast::Receiver<()>, broadcast::Receiver<Release>),
-    Read(reqwest::Client, Repo, broadcast::Receiver<Release>),
-    WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
-    Upload(reqwest::Client, Repo, Release, Vec<u8>),
+    WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>),
     ReadJs(reqwest::Client, Repo, Release),
     UploadJs(reqwest::Client, Repo, Release, Vec<u8>),
 }
 
 impl BuildPj64 {
-    fn new(client: reqwest::Client, repo: Repo, gui_rx: broadcast::Receiver<()>, release_rx: broadcast::Receiver<Release>) -> Self {
-        Self::Gui(client, repo, gui_rx, release_rx)
+    fn new(client: reqwest::Client, repo: Repo, release_rx: broadcast::Receiver<Release>) -> Self {
+        Self::WaitRelease(client, repo, release_rx)
     }
 }
 
 impl fmt::Display for BuildPj64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Gui(..) => write!(f, "waiting for GUI build to finish"),
-            Self::Read(..) => write!(f, "reading multiworld-gui.exe"),
             Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
-            Self::Upload(..) => write!(f, "uploading multiworld-pj64.exe"),
             Self::ReadJs(..) => write!(f, "reading ootrmw-pj64.js"),
             Self::UploadJs(..) => write!(f, "uploading ootrmw-pj64.js"),
         }
@@ -427,13 +442,10 @@ impl fmt::Display for BuildPj64 {
 impl Progress for BuildPj64 {
     fn progress(&self) -> Percent {
         Percent::fraction(match self {
-            Self::Gui(..) => 0,
-            Self::Read(..) => 1,
-            Self::WaitRelease(..) => 2,
-            Self::Upload(..) => 3,
-            Self::ReadJs(..) => 4,
-            Self::UploadJs(..) => 5,
-        }, 6)
+            Self::WaitRelease(..) => 0,
+            Self::ReadJs(..) => 1,
+            Self::UploadJs(..) => 2,
+        }, 3)
     }
 }
 
@@ -441,20 +453,8 @@ impl Progress for BuildPj64 {
 impl Task<Result<(), Error>> for BuildPj64 {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
-            Self::Gui(client, repo, mut gui_rx, release_rx) => gres::transpose(async move {
-                let () = gui_rx.recv().await?;
-                Ok(Err(Self::Read(client, repo, release_rx)))
-            }).await,
-            Self::Read(client, repo, release_rx) => gres::transpose(async move {
-                let data = fs::read("target/release/multiworld-gui.exe").await?;
-                Ok(Err(Self::WaitRelease(client, repo, release_rx, data)))
-            }).await,
-            Self::WaitRelease(client, repo, mut release_rx, data) => gres::transpose(async move {
+            Self::WaitRelease(client, repo, mut release_rx) => gres::transpose(async move {
                 let release = release_rx.recv().await?;
-                Ok(Err(Self::Upload(client, repo, release, data)))
-            }).await,
-            Self::Upload(client, repo, release, data) => gres::transpose(async move {
-                repo.release_attach(&client, &release, "multiworld-pj64.exe", "application/vnd.microsoft.portable-executable", data).await?;
                 Ok(Err(Self::ReadJs(client, repo, release)))
             }).await,
             Self::ReadJs(client, repo, release) => gres::transpose(async move {
@@ -650,6 +650,7 @@ async fn main(args: Args) -> Result<(), Error> {
         let release_notes_cli = Arc::clone(&cli);
         let (client, repo, bizhawk_version) = cli.run(Setup::default(), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
         let (release_tx, release_rx_installer) = broadcast::channel(1);
+        let release_rx_gui = release_tx.subscribe();
         let release_rx_bizhawk = release_tx.subscribe();
         let release_rx_pj64 = release_tx.subscribe();
         let create_release_args = args.clone();
@@ -659,8 +660,7 @@ async fn main(args: Args) -> Result<(), Error> {
             create_release_cli.run(CreateRelease::new(create_release_repo, create_release_client, release_tx, release_notes_cli, create_release_args), "release created").await?
         });
         let (updater_tx, updater_rx) = broadcast::channel(1);
-        let (gui_tx, gui_rx_bizhawk) = broadcast::channel(1);
-        let gui_rx_pj64 = gui_tx.subscribe();
+        let (gui_tx, gui_rx) = broadcast::channel(1);
         let gui_rx_installer = gui_tx.subscribe();
         let (bizhawk_tx, bizhawk_rx) = broadcast::channel(1);
 
@@ -676,9 +676,9 @@ async fn main(args: Args) -> Result<(), Error> {
 
         build_tasks![
             { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildUpdater::new(updater_tx), "updater build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildGui::new(updater_rx, gui_tx), "GUI build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawk::new(client, repo, gui_rx_bizhawk, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "BizHawk build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildPj64::new(client, repo, gui_rx_pj64, release_rx_pj64), "Project64 build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildGui::new(client, repo, updater_rx, release_rx_gui, gui_tx), "GUI build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawk::new(client, repo, gui_rx, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "BizHawk build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildPj64::new(client, repo, release_rx_pj64), "Project64 build done").await? }).await? } },
             { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstaller::new(client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "installer build done").await? }).await? } },
             if args.no_server { future::ok(()).boxed() } else { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildServer::default(), "server build done").await? }).await? }.boxed() },
         ];
