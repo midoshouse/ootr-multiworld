@@ -256,12 +256,32 @@ pub enum SetHashError {
 
 #[cfg(feature = "pyo3")]
 #[derive(Debug, thiserror::Error)]
+pub enum SendItemError {
+    #[error("unknown location: {0}")]
+    Key(String),
+    #[error("unknown item kind: {0}")]
+    Kind(String),
+}
+
+#[cfg(feature = "pyo3")]
+fn display_send_item_errors(errors: &[SendItemError]) -> String {
+    match errors {
+        [] => format!("empty SendItemError list"),
+        [e] => e.to_string(),
+        [e, _, ..] => format!("failed to send {} items, sample error: {e}", errors.len()),
+    }
+}
+
+#[cfg(feature = "pyo3")]
+#[derive(Debug, thiserror::Error)]
 pub enum SendAllError {
     #[error(transparent)] Clone(#[from] ootr_utils::CloneError),
     #[error(transparent)] Python(#[from] PyErr),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("this room is for a different seed")]
     FileHash,
+    #[error("{}", display_send_item_errors(.0))]
+    Items(Vec<SendItemError>),
 }
 
 impl Room {
@@ -456,7 +476,7 @@ impl Room {
     }
 
     #[cfg(feature = "pyo3")]
-    pub async fn send_all(&mut self, source_world: NonZeroU8, spoiler_log: &SpoilerLog) -> Result<bool, SendAllError> {
+    pub async fn send_all(&mut self, source_world: NonZeroU8, spoiler_log: &SpoilerLog) -> Result<(), SendAllError> {
         if self.file_hash.map_or(false, |room_hash| spoiler_log.file_hash != room_hash) {
             return Err(SendAllError::FileHash)
         }
@@ -464,33 +484,30 @@ impl Room {
         let items_to_queue = Python::with_gil(|py| {
             let py_modules = spoiler_log.version.py_modules(py)?;
             let mut items_to_queue = Vec::default();
-            Ok::<_, SendAllError>(if let Some(world_locations) = spoiler_log.locations.get(usize::from(source_world.get() - 1)) {
+            let mut item_errors = Vec::default();
+            if let Some(world_locations) = spoiler_log.locations.get(usize::from(source_world.get() - 1)) {
                 for (loc, ootr_utils::spoiler::Item { player, item, model: _ }) in world_locations {
                     if *player != source_world {
                         if let Some(key) = py_modules.override_key(loc, item)? {
                             if let Some(kind) = py_modules.item_kind(item)? {
                                 items_to_queue.push((source_world, key, kind, *player));
                             } else {
-                                return Ok(None)
+                                item_errors.push(SendItemError::Kind(item.clone()));
                             }
                         } else {
-                            return Ok(None)
+                            item_errors.push(SendItemError::Key(loc.clone()));
                         }
                     }
                 }
-                Some(items_to_queue)
+                Ok(items_to_queue)
             } else {
-                None
-            })
-        })?;
-        Ok(if let Some(items_to_queue) = items_to_queue {
-            for (source_world, key, kind, target_world) in items_to_queue {
-                self.queue_item_inner(source_world, key, kind, target_world).await?;
+                Err(SendAllError::Items(item_errors))
             }
-            true
-        } else {
-            false
-        })
+        })?;
+        for (source_world, key, kind, target_world) in items_to_queue {
+            self.queue_item_inner(source_world, key, kind, target_world).await?;
+        }
+        Ok(())
     }
 
     pub async fn set_save_data(&mut self, client_id: SocketId, save: oottracker::Save) -> Result<(), async_proto::WriteError> {

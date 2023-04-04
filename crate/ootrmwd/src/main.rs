@@ -397,9 +397,7 @@ async fn room_session(db_pool: PgPool, rooms: Rooms, room: Arc<RwLock<Room>>, so
                         rooms.remove(room.name.clone()).await;
                     }
                     ClientMessage::SaveData(save) => room.write().await.set_save_data(socket_id, save).await?,
-                    ClientMessage::SendAll { source_world, spoiler_log } => if !room.write().await.send_all(source_world, &spoiler_log).await? {
-                        error!("failed to send some items")
-                    },
+                    ClientMessage::SendAll { source_world, spoiler_log } => room.write().await.send_all(source_world, &spoiler_log).await?,
                     ClientMessage::SaveDataError { debug, version } => if version >= multiworld::version() {
                         sqlx::query!("INSERT INTO save_data_errors (debug, version) VALUES ($1, $2)", debug, version.to_string()).execute(&db_pool).await?;
                     },

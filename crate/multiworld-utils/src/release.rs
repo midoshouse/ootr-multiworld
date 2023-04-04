@@ -542,7 +542,7 @@ impl Task<Result<(), Error>> for BuildServer {
                 Ok(Err(Self::WaitRestart))
             }).await,
             Self::WaitRestart => gres::transpose(async move {
-                Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then /opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd wait-until-empty; fi").check("ssh").await?;
+                Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then /opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd wait-until-empty; fi").check("ssh").await?; //TODO continue normally if this fails because the server is stopped
                 Ok(Err(Self::Restart))
             }).await,
             Self::Restart => gres::transpose(async move {
