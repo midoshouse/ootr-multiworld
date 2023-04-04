@@ -861,6 +861,7 @@ impl Application for State {
                         })
                         .spacing(8)
                     )
+                    .spacing(8)
                     .into(),
                 SessionState::Room { view: RoomView::Normal, wrong_file_hash: false, ref players, num_unassigned_clients, .. } => {
                     let mut col = Column::new()
