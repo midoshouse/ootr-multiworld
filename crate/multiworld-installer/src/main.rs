@@ -409,7 +409,7 @@ impl Application for State {
                                     .filter(|asset| regex_is_match!(r"^bizhawk_prereqs_v.+\.zip$", &asset.name))
                                     .exactly_one()?;
                                 let response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
-                                let zip_file = async_zip::read::mem::ZipFileReader::new(response.into()).await?;
+                                let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
                                 let _ = zip_file.file().entries().iter().exactly_one()?;
                                 {
                                     let mut buf = Vec::default();
@@ -425,7 +425,7 @@ impl Application for State {
                                     .filter(|asset| regex_is_match!(r"^BizHawk-.+-win-x64\.zip$", &asset.name))
                                     .exactly_one()?;
                                 let response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
-                                let zip_file = async_zip::read::mem::ZipFileReader::new(response.into()).await?;
+                                let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
                                 let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), bizhawk_dir.join(entry.entry().filename()))).collect_vec();
                                 for (idx, is_dir, path) in entries {
                                     if is_dir {
@@ -518,7 +518,7 @@ impl Application for State {
                             .filter(|asset| asset.name.ends_with(BIZHAWK_PLATFORM_SUFFIX))
                             .collect_tuple().ok_or(Error::MissingBizHawkAsset)?;
                         let response = client.get(asset.browser_download_url).send().await?.error_for_status()?;
-                        let zip_file = async_zip::read::mem::ZipFileReader::new(response.bytes().await?.into()).await?;
+                        let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.bytes().await?.into()).await?;
                         let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), emulator_path_buf.join(entry.entry().filename()))).collect_vec();
                         for (idx, is_dir, path) in entries {
                             if is_dir {

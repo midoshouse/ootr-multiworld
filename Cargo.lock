@@ -177,9 +177,9 @@ dependencies = [
  "bzip2",
  "flate2",
  "futures-core",
+ "futures-io",
  "memchr",
  "pin-project-lite",
- "tokio",
  "xz2",
  "zstd",
  "zstd-safe",
@@ -320,17 +320,19 @@ dependencies = [
 
 [[package]]
 name = "async_zip"
-version = "0.0.12"
+version = "0.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2105142db9c6203b9dadc83b0553394589a6cb31b1449a3b46b42f47c3434d0"
+checksum = "79eaa2b44cfdce59cfff6cb013c96900635085fe7c28fbcbe926c9e5ad0ddfbc"
 dependencies = [
  "async-compression",
  "chrono",
  "crc32fast",
+ "futures-util",
  "log",
  "pin-project",
  "thiserror",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -1194,7 +1196,16 @@ version = "4.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f51c5d4ddabd36886dd3e1438cb358cdcb0d7c499cb99cb4ac2e38e18b5cb210"
 dependencies = [
- "dirs-sys",
+ "dirs-sys 0.3.7",
+]
+
+[[package]]
+name = "directories"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74be3be809c18e089de43bdc504652bb2bc473fca8756131f8689db8cf079ba9"
+dependencies = [
+ "dirs-sys 0.4.0",
 ]
 
 [[package]]
@@ -1203,7 +1214,7 @@ version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca3aa72a6f96ea37bbc5aa912f6788242832f75369bdfdadcb0e38423f100059"
 dependencies = [
- "dirs-sys",
+ "dirs-sys 0.3.7",
 ]
 
 [[package]]
@@ -1225,6 +1236,17 @@ dependencies = [
  "libc",
  "redox_users",
  "winapi",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04414300db88f70d74c5ff54e50f9e1d1737d9a5b90f53fcf2e95ca2a9ab554b"
+dependencies = [
+ "libc",
+ "redox_users",
+ "windows-sys 0.45.0",
 ]
 
 [[package]]
@@ -1855,9 +1877,9 @@ dependencies = [
 
 [[package]]
 name = "git2"
-version = "0.16.1"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ccf7f68c2995f392c49fffb4f95ae2c873297830eb25c6bc4c114ce8f4562acc"
+checksum = "89511277159354bea13ae1e53e0c9ab85ba1b20d7e91618fa30e6bc5566857fb"
 dependencies = [
  "bitflags",
  "libc",
@@ -2505,13 +2527,13 @@ dependencies = [
 
 [[package]]
 name = "io-lifetimes"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09270fd4fa1111bc614ed2246c7ef56239a3063d5be0d1ec3b589c505d400aeb"
+checksum = "9c66c74d2ae7e79a5a8f7ac924adbe38ee42a859c6539ad869eb51f0b52dc220"
 dependencies = [
  "hermit-abi 0.3.1",
  "libc",
- "windows-sys 0.45.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -2670,9 +2692,9 @@ checksum = "3304a64d199bb964be99741b7a14d26972741915b3649639149b2479bb46f4b5"
 
 [[package]]
 name = "libgit2-sys"
-version = "0.14.2+1.5.1"
+version = "0.15.0+1.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f3d95f6b51075fe9810a7ae22c7095f12b98005ab364d8544797a825ce946a4"
+checksum = "032e537ae4dd4e50c877f258dc55fcd0657b5021f454094a425bb6bcc9edea4c"
 dependencies = [
  "cc",
  "libc",
@@ -2694,9 +2716,9 @@ dependencies = [
 
 [[package]]
 name = "libssh2-sys"
-version = "0.2.23"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b094a36eb4b8b8c8a7b4b8ae43b2944502be3e59cd87687595cf6b0a71b3f4ca"
+checksum = "2dc8a030b787e2119a731f1951d6a773e2280c660f8ec4b0f5e1505a386e71ee"
 dependencies = [
  "cc",
  "libc",
@@ -2914,12 +2936,12 @@ dependencies = [
 
 [[package]]
 name = "multiworld"
-version = "9.0.2"
+version = "9.0.3"
 dependencies = [
  "async-proto",
  "async-recursion",
  "chrono",
- "directories",
+ "directories 5.0.0",
  "itertools",
  "once_cell",
  "ootr-utils",
@@ -2940,7 +2962,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-admin-cli"
-version = "9.0.2"
+version = "9.0.3"
 dependencies = [
  "async-proto",
  "clap",
@@ -2950,7 +2972,7 @@ dependencies = [
  "multiworld",
  "ootr-utils",
  "serde_json",
- "syn 1.0.109",
+ "syn 2.0.13",
  "thiserror",
  "tokio",
  "wheel",
@@ -2958,7 +2980,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-bizhawk"
-version = "9.0.2"
+version = "9.0.3"
 dependencies = [
  "lazy-regex",
  "semver 1.0.17",
@@ -2968,10 +2990,10 @@ dependencies = [
 
 [[package]]
 name = "multiworld-csharp"
-version = "9.0.2"
+version = "9.0.3"
 dependencies = [
  "async-proto",
- "directories",
+ "directories 5.0.0",
  "libc",
  "multiworld",
  "multiworld-derive",
@@ -2985,24 +3007,24 @@ dependencies = [
 
 [[package]]
 name = "multiworld-derive"
-version = "9.0.2"
+version = "9.0.3"
 dependencies = [
  "itertools",
  "lazy-regex",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.13",
 ]
 
 [[package]]
 name = "multiworld-gui"
-version = "9.0.2"
+version = "9.0.3"
 dependencies = [
  "async-proto",
  "chrono",
  "clap",
  "dark-light",
- "directories",
+ "directories 5.0.0",
  "futures",
  "iced",
  "iced_futures",
@@ -3029,12 +3051,12 @@ dependencies = [
 
 [[package]]
 name = "multiworld-installer"
-version = "9.0.2"
+version = "9.0.3"
 dependencies = [
  "async_zip",
  "clap",
  "dark-light",
- "directories",
+ "directories 5.0.0",
  "futures",
  "iced",
  "iced_native",
@@ -3065,13 +3087,13 @@ dependencies = [
 
 [[package]]
 name = "multiworld-updater"
-version = "9.0.2"
+version = "9.0.3"
 dependencies = [
  "async_zip",
  "bytes",
  "clap",
  "dark-light",
- "directories",
+ "directories 5.0.0",
  "futures",
  "iced",
  "iced_native",
@@ -3096,7 +3118,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-utils"
-version = "9.0.2"
+version = "9.0.3"
 dependencies = [
  "async-trait",
  "clap",
@@ -3445,7 +3467,7 @@ source = "git+https://github.com/fenhl/oottracker?branch=main#5f7098595dbd0cbc50
 dependencies = [
  "convert_case 0.6.0",
  "derive_more",
- "directories",
+ "directories 4.0.1",
  "graphql_client",
  "itertools",
  "ootr",
@@ -3462,11 +3484,11 @@ dependencies = [
 
 [[package]]
 name = "ootr-utils"
-version = "0.1.7"
-source = "git+https://github.com/midoshouse/rust-ootr-utils?branch=main#f4ea382b5adee26664237c8a45b22339f1a799cf"
+version = "0.1.8"
+source = "git+https://github.com/midoshouse/rust-ootr-utils?branch=main#6daee811fecf59d07fd97b4bd32d305d6efa7184"
 dependencies = [
  "async-proto",
- "directories",
+ "directories 5.0.0",
  "git2",
  "itertools",
  "lazy-regex",
@@ -3483,7 +3505,7 @@ dependencies = [
 
 [[package]]
 name = "ootrmwd"
-version = "9.0.2"
+version = "9.0.3"
 dependencies = [
  "async-proto",
  "chrono",
@@ -3510,7 +3532,7 @@ dependencies = [
  "collect-mac",
  "derivative",
  "derive_more",
- "directories",
+ "directories 4.0.1",
  "enum-iterator",
  "futures",
  "image",
@@ -5316,6 +5338,7 @@ checksum = "5427d89453009325de0d8f342c9490009f76e999cb7672d77e46267448f7e6b2"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "pin-project-lite",
  "tokio",
@@ -6100,6 +6123,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75283be5efb2831d37ea142365f009c02ec203cd29a3ebecbc093d52315b66d0"
 dependencies = [
  "windows-targets 0.42.2",
+]
+
+[[package]]
+name = "windows-sys"
+version = "0.48.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "677d2418bec65e3338edb076e806bc1ec15693c5d0104683f2efe857f61056a9"
+dependencies = [
+ "windows-targets 0.48.0",
 ]
 
 [[package]]

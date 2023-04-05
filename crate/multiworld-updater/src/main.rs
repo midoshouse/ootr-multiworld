@@ -301,7 +301,7 @@ impl Application for App {
                     let local_bizhawk_version = local_bizhawk_version.clone();
                     return cmd(async move {
                         let mut zip_file = StreamReader::new(response.bytes_stream().map_err(|e| io::Error::new(io::ErrorKind::Other, e)));
-                        let mut zip_file = async_zip::read::stream::ZipFileReader::new(&mut zip_file);
+                        let mut zip_file = async_zip::tokio::read::stream::ZipFileReader::new(&mut zip_file);
                         let mut required_bizhawk_version = None;
                         while let Some(mut entry) = zip_file.next_entry().await? {
                             match entry.entry().filename() {
@@ -394,7 +394,7 @@ impl Application for App {
                 self.state = State::ExtractBizHawk;
                 let path = path.clone();
                 return cmd(async move {
-                    let zip_file = async_zip::read::mem::ZipFileReader::new(response.into()).await?;
+                    let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
                     let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), path.join(entry.entry().filename()))).collect_vec();
                     for (idx, is_dir, path) in entries {
                         if is_dir {

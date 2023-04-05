@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 async-proto = "0.16"
-directories = "4"
+directories = "5"
 libc = "0.2"
 once_cell = "1"
 semver = "1"

@@ -78,8 +78,8 @@ pub fn csharp_ffi(_: TokenStream, item: TokenStream) -> TokenStream {
             if let Err(e) = csharp_ffi_type_check(&rust_arg.ty, csharp_arg_type, rust_arg.colon_token.spans[0]) { return e.into() }
         }
         if let Err(e) = match sig.output {
-            ReturnType::Default => csharp_ffi_type_check(&parse_quote!(()), csharp_return_type, sig.paren_token.span),
-            ReturnType::Type(arrow, ref ty) => csharp_ffi_type_check(ty, csharp_return_type, arrow.spans[0].join(arrow.spans[1]).unwrap_or(sig.paren_token.span)),
+            ReturnType::Default => csharp_ffi_type_check(&parse_quote!(()), csharp_return_type, sig.ident.span()),
+            ReturnType::Type(arrow, ref ty) => csharp_ffi_type_check(ty, csharp_return_type, arrow.spans[0].join(arrow.spans[1]).unwrap_or(sig.ident.span())),
         } { return e.into() }
     } else {
         return quote_spanned! {fn_name.span()=>
