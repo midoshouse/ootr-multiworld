@@ -786,11 +786,13 @@ impl Application for State {
                     .into(),
                 SessionState::Init => Column::new()
                     .push("Connecting to server…")
+                    .push("If this takes longer than 5 seconds, check your internet connection or contact @Fenhl#4813 on Discord for support.")
                     .spacing(8)
                     .padding(8)
                     .into(),
                 SessionState::InitAutoRejoin { .. } => Column::new()
                     .push("Reconnecting to room…")
+                    .push("If this takes longer than 5 seconds, check your internet connection or contact @Fenhl#4813 on Discord for support.")
                     .spacing(8)
                     .padding(8)
                     .into(),
