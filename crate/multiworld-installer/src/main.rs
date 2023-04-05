@@ -97,8 +97,12 @@ enum Error {
     MissingBizHawkAsset,
     #[error("no BizHawk releases found")]
     NoBizHawkReleases,
+    #[error("Mido's House Multiworld requires at least version 2.4 of Project64")]
+    OutdatedProject64,
     #[error("failed to parse Project64 website")]
     ParsePj64Html,
+    #[error("Project64 version too new, please tell Fenhl that Mido's House Multiworld needs to be updated")]
+    Project64TooNew,
     #[error("can't install to the filesystem root")]
     Root,
 }
@@ -137,7 +141,7 @@ enum Message {
     Error(Arc<Error>),
     Exit,
     InstallMultiworld,
-    LocateMultiworld,
+    LocateMultiworld(Option<u16>),
     MultiworldInstalled,
     MultiworldPath(String),
     NewIssue,
@@ -298,7 +302,11 @@ impl Application for State {
                 Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
                 Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path, .. } | Page::AskLaunch { emulator, ref emulator_path, ref multiworld_path } => match emulator {
                     Emulator::BizHawk => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
-                    Emulator::Project64 => Page::LocateMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone().expect("multiworld app path must be set for Project64") },
+                    Emulator::Project64 => if let Some(multiworld_path) = multiworld_path.clone() {
+                        Page::LocateMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path }
+                    } else {
+                        Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: None }
+                    },
                 },
             },
             Message::BrowseEmulatorPath => if let Page::LocateEmulator { emulator, install_emulator, ref emulator_path, .. } = self.page {
@@ -439,7 +447,7 @@ impl Application for State {
                                         fs::write(path, &buf).await?;
                                     }
                                 }
-                                Ok(Message::LocateMultiworld)
+                                Ok(Message::LocateMultiworld(None))
                             })
                         }
                         Emulator::Project64 => {
@@ -479,7 +487,7 @@ impl Application for State {
                                     }
                                     installer.check("Project64 installer").await?;
                                 }
-                                Ok(Message::LocateMultiworld)
+                                Ok(Message::LocateMultiworld(None)) //TODO include version info if installing Project64 v4
                             })
                         }
                     }
@@ -500,10 +508,21 @@ impl Application for State {
                                 Equal => {}
                                 Greater => return cmd(future::err(Error::BizHawkVersionRegression)),
                             }
+                            return cmd(future::ok(Message::LocateMultiworld(Some(major))))
                         }
-                        Emulator::Project64 => {} //TODO make sure emulator is up to date
+                        Emulator::Project64 => {
+                            let [major, minor, _, _] = match winver::get_file_version_info(PathBuf::from(emulator_path).join("Project64.exe")) {
+                                Ok(version) => version,
+                                Err(e) => return cmd(future::err(e.into())),
+                            };
+                            match (major, minor) {
+                                (..=1, _) | (2, ..=3) => return cmd(future::err(Error::OutdatedProject64)), //TODO offer to update Project64
+                                (2, 4..) | (3..=4, _) => {} //TODO warn about Project64 v4 being experimental?
+                                (5.., _) => return cmd(future::err(Error::Project64TooNew)),
+                            }
+                            return cmd(future::ok(Message::LocateMultiworld(Some(major))))
+                        }
                     }
-                    return cmd(future::ok(Message::LocateMultiworld))
                 },
                 Page::AskBizHawkUpdate { ref emulator_path, ref multiworld_path } => {
                     let client = self.http_client.clone();
@@ -532,7 +551,7 @@ impl Application for State {
                                 fs::write(path, &buf).await?;
                             }
                         }
-                        Ok(Message::LocateMultiworld)
+                        Ok(Message::LocateMultiworld(None))
                     })
                 }
                 Page::InstallEmulator { .. } => unreachable!(),
@@ -625,15 +644,15 @@ impl Application for State {
                     }
                 }
             }
-            Message::LocateMultiworld => {
+            Message::LocateMultiworld(emulator_version) => {
                 let (emulator, emulator_path, multiworld_path) = match self.page {
                     Page::LocateEmulator { emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, emulator_path.clone(), multiworld_path.clone()),
                     Page::InstallEmulator { emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, emulator_path.clone(), multiworld_path.clone()),
                     _ => unreachable!(),
                 };
-                match emulator {
-                    Emulator::BizHawk => return cmd(future::ok(Message::InstallMultiworld)),
-                    Emulator::Project64 => self.page = Page::LocateMultiworld { emulator, emulator_path, multiworld_path: multiworld_path.or_else(|| UserDirs::new().map(|user_dirs| user_dirs.home_dir().join("bin").join("Mido's House Multiworld for Project64.exe").into_os_string().into_string().expect("Windows paths are valid Unicode"))).unwrap_or_default() },
+                match (emulator, emulator_version) {
+                    (Emulator::BizHawk, _) | (Emulator::Project64, Some(4..)) => return cmd(future::ok(Message::InstallMultiworld)),
+                    (Emulator::Project64, _) => self.page = Page::LocateMultiworld { emulator, emulator_path, multiworld_path: multiworld_path.or_else(|| UserDirs::new().map(|user_dirs| user_dirs.home_dir().join("bin").join("Mido's House Multiworld for Project64.exe").into_os_string().into_string().expect("Windows paths are valid Unicode"))).unwrap_or_default() },
                 }
             }
             Message::MultiworldInstalled => if let Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path, .. } = self.page {
@@ -732,6 +751,7 @@ impl Application for State {
                         .spacing(8)
                     );
                     if install_emulator && matches!(emulator, Emulator::Project64) {
+                        //TODO allow selecting between Project64 3.x and 4.0
                         col = col.push(Checkbox::new("Create desktop shortcut", self.create_desktop_shortcut, Message::SetCreateDesktopShortcut));
                     }
                     col.spacing(8).into()

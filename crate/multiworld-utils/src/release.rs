@@ -332,7 +332,7 @@ impl Task<Result<(), Error>> for BuildGui {
 }
 
 enum BuildBizHawk {
-    Updater(reqwest::Client, Repo, broadcast::Receiver<()>, broadcast::Receiver<Release>, Version, broadcast::Sender<()>),
+    Gui(reqwest::Client, Repo, broadcast::Receiver<()>, broadcast::Receiver<Release>, Version, broadcast::Sender<()>),
     CSharp(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<()>),
     BizHawk(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<()>),
     Zip(reqwest::Client, Repo, broadcast::Receiver<Release>, Version),
@@ -341,15 +341,15 @@ enum BuildBizHawk {
 }
 
 impl BuildBizHawk {
-    fn new(client: reqwest::Client, repo: Repo, updater_rx: broadcast::Receiver<()>, release_rx: broadcast::Receiver<Release>, version: Version, bizhawk_tx: broadcast::Sender<()>) -> Self {
-        Self::Updater(client, repo, updater_rx, release_rx, version, bizhawk_tx)
+    fn new(client: reqwest::Client, repo: Repo, gui_rx: broadcast::Receiver<()>, release_rx: broadcast::Receiver<Release>, version: Version, bizhawk_tx: broadcast::Sender<()>) -> Self {
+        Self::Gui(client, repo, gui_rx, release_rx, version, bizhawk_tx)
     }
 }
 
 impl fmt::Display for BuildBizHawk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Updater(..) => write!(f, "waiting for updater build to finish"),
+            Self::Gui(..) => write!(f, "waiting for GUI build to finish"),
             Self::CSharp(..) => write!(f, "building multiworld-csharp"),
             Self::BizHawk(..) => write!(f, "building multiworld-bizhawk"),
             Self::Zip(..) => write!(f, "creating multiworld-bizhawk.zip"),
@@ -362,7 +362,7 @@ impl fmt::Display for BuildBizHawk {
 impl Progress for BuildBizHawk {
     fn progress(&self) -> Percent {
         Percent::fraction(match self {
-            Self::Updater(..) => 0,
+            Self::Gui(..) => 0,
             Self::CSharp(..) => 1,
             Self::BizHawk(..) => 2,
             Self::Zip(..) => 3,
@@ -376,8 +376,8 @@ impl Progress for BuildBizHawk {
 impl Task<Result<(), Error>> for BuildBizHawk {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
-            Self::Updater(client, repo, mut updater_rx, release_rx, version, bizhawk_tx) => gres::transpose(async move {
-                let () = updater_rx.recv().await?;
+            Self::Gui(client, repo, mut gui_rx, release_rx, version, bizhawk_tx) => gres::transpose(async move {
+                let () = gui_rx.recv().await?;
                 Ok(Err(Self::CSharp(client, repo, release_rx, version, bizhawk_tx)))
             }).await,
             Self::CSharp(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {

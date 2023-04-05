@@ -128,21 +128,6 @@ impl LoggingWriter {
     }
 }
 
-#[derive(Debug)]
-enum Frontend {
-    BizHawk,
-    Pj64,
-}
-
-impl fmt::Display for Frontend {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::BizHawk => write!(f, "BizHawk"),
-            Self::Pj64 => write!(f, "Project64"),
-        }
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error(transparent)] Client(#[from] multiworld::ClientError),
@@ -160,7 +145,7 @@ enum Error {
     MissingHomeDir,
     #[error("protocol version mismatch: {frontend} plugin is version {version} but we're version {}", frontend::PROTOCOL_VERSION)]
     VersionMismatch {
-        frontend: Frontend,
+        frontend: FrontendFlags,
         version: u8,
     },
 }
@@ -257,7 +242,7 @@ impl State {
                 .build()
         } else if let Some(ref e) = self.frontend_subscription_error {
             MessageBuilder::default()
-                .push_line(format!("error in {} version {} during communication with {}:", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), self.frontend.kind()))
+                .push_line(format!("error in {} version {} during communication with {}:", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), self.frontend.display_with_version()))
                 .push_line_safe(e)
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
@@ -279,21 +264,32 @@ struct Flags {
     frontend: FrontendFlags,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum FrontendFlags {
     BizHawk {
         path: PathBuf,
         pid: Pid,
         local_bizhawk_version: Version,
     },
-    Pj64,
+    Pj64V3,
+    Pj64V4,
 }
 
 impl FrontendFlags {
-    fn kind(&self) -> Frontend {
+    fn display_with_version(&self) -> Cow<'static, str> {
         match self {
-            Self::BizHawk { .. } => Frontend::BizHawk,
-            Self::Pj64 => Frontend::Pj64,
+            Self::BizHawk { local_bizhawk_version, .. } => format!("BizHawk {local_bizhawk_version}").into(),
+            Self::Pj64V3 => "Project64 3.x".into(),
+            Self::Pj64V4 => "Project64 4.x".into(),
+        }
+    }
+}
+
+impl fmt::Display for FrontendFlags {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::BizHawk { .. } => write!(f, "BizHawk"),
+            Self::Pj64V3 | Self::Pj64V4 => write!(f, "Project64"),
         }
     }
 }
@@ -353,7 +349,7 @@ impl Application for State {
                             cmd.arg(pid.to_string());
                             cmd.arg(local_bizhawk_version.to_string());
                         }
-                        FrontendFlags::Pj64 => {
+                        FrontendFlags::Pj64V3 | FrontendFlags::Pj64V4 => {
                             cmd.arg("pj64");
                             cmd.arg(env::current_exe()?);
                             cmd.arg(process::id().to_string());
@@ -375,7 +371,7 @@ impl Application for State {
     }
 
     fn title(&self) -> String {
-        format!("Mido's House Multiworld for {}", self.frontend.kind())
+        format!("Mido's House Multiworld for {}", self.frontend)
     }
 
     fn update(&mut self, msg: Message) -> Command<Message> {
@@ -468,9 +464,9 @@ impl Application for State {
             }
             Message::FrontendSubscriptionError(e) => {
                 if let Error::Read(async_proto::ReadError::Io(ref e)) = *e {
-                    match (self.frontend.kind(), e.kind()) {
-                        (Frontend::BizHawk, io::ErrorKind::UnexpectedEof) => return window::close(), // BizHawk closed
-                        (Frontend::Pj64, io::ErrorKind::ConnectionReset) => {
+                    match (&self.frontend, e.kind()) {
+                        (FrontendFlags::BizHawk { .. } | FrontendFlags::Pj64V4, io::ErrorKind::UnexpectedEof) => return window::close(), // BizHawk closed
+                        (FrontendFlags::Pj64V3, io::ErrorKind::ConnectionReset) => {
                             self.frontend_writer = None;
                             return Command::none()
                         }
@@ -746,16 +742,16 @@ impl Application for State {
                 if e.kind() == io::ErrorKind::AddrInUse {
                     Column::new()
                         .push(Text::new("Connection Busy").size(24))
-                        .push(Text::new(format!("Could not connect to {} because the connection is already in use. Maybe you still have another instance of this app open?", self.frontend.kind())))
+                        .push(Text::new(format!("Could not connect to {} because the connection is already in use. Maybe you still have another instance of this app open?", self.frontend)))
                         .push(Button::new("Retry").on_press(Message::ReconnectFrontend))
                         .spacing(8)
                         .padding(8)
                         .into()
                 } else {
-                    error_view(format!("An error occurred during communication with {}:", self.frontend.kind()), e, self.debug_info_copied)
+                    error_view(format!("An error occurred during communication with {}:", self.frontend), e, self.debug_info_copied)
                 }
             } else {
-                error_view(format!("An error occurred during communication with {}:", self.frontend.kind()), e, self.debug_info_copied)
+                error_view(format!("An error occurred during communication with {}:", self.frontend), e, self.debug_info_copied)
             }
         } else if !self.updates_checked {
             Column::new()
@@ -765,10 +761,11 @@ impl Application for State {
                 .into()
         } else if self.frontend_writer.is_none() {
             Column::new()
-                .push(Text::new(format!("Waiting for {}…", self.frontend.kind())))
-                .push(match self.frontend.kind() {
-                    Frontend::BizHawk => "Make sure your game is running and unpaused.",
-                    Frontend::Pj64 => "1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.",
+                .push(Text::new(format!("Waiting for {}…", self.frontend)))
+                .push(match &self.frontend {
+                    FrontendFlags::BizHawk { .. } => "Make sure your game is running and unpaused.",
+                    FrontendFlags::Pj64V3 => "1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.",
+                    FrontendFlags::Pj64V4 => "This should take less than 5 seconds.",
                 })
                 .spacing(8)
                 .padding(8)
@@ -918,9 +915,9 @@ impl Application for State {
     fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = Vec::with_capacity(2);
         if self.updates_checked {
-            subscriptions.push(match self.frontend.kind() {
-                Frontend::BizHawk => Subscription::from_recipe(subscriptions::BizHawkConnection { log: self.log, connection_id: self.frontend_connection_id }),
-                Frontend::Pj64 => Subscription::from_recipe(subscriptions::Pj64Listener { log: self.log, connection_id: self.frontend_connection_id }),
+            subscriptions.push(match self.frontend {
+                FrontendFlags::BizHawk { .. } | FrontendFlags::Pj64V4 => Subscription::from_recipe(subscriptions::Connection { frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id }),
+                FrontendFlags::Pj64V3 => Subscription::from_recipe(subscriptions::Listener { frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id }),
             });
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
                 subscriptions.push(Subscription::from_recipe(subscriptions::Client { log: self.log, port: self.port }));
@@ -976,6 +973,7 @@ enum FrontendArgs {
         pid: Pid,
         local_bizhawk_version: Version,
     },
+    Pj64V4,
 }
 
 #[derive(clap::Parser)]
@@ -999,8 +997,9 @@ fn main(CliArgs { log, port, frontend }: CliArgs) -> Result<(), MainError> {
         },
         ..Settings::with_flags(Flags {
             frontend: match frontend {
-                None => FrontendFlags::Pj64,
+                None => FrontendFlags::Pj64V3,
                 Some(FrontendArgs::BizHawk { path, pid, local_bizhawk_version }) => FrontendFlags::BizHawk { path, pid, local_bizhawk_version },
+                Some(FrontendArgs::Pj64V4) => FrontendFlags::Pj64V4,
             },
             log, port,
         })
