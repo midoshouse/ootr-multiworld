@@ -468,9 +468,13 @@ impl Application for State {
             }
             Message::FrontendSubscriptionError(e) => {
                 if let Error::Read(async_proto::ReadError::Io(ref e)) = *e {
-                    if e.kind() == io::ErrorKind::ConnectionReset {
-                        self.frontend_writer = None;
-                        return Command::none()
+                    match (self.frontend.kind(), e.kind()) {
+                        (Frontend::BizHawk, io::ErrorKind::UnexpectedEof) => return window::close(), // BizHawk closed
+                        (Frontend::Pj64, io::ErrorKind::ConnectionReset) => {
+                            self.frontend_writer = None;
+                            return Command::none()
+                        }
+                        (_, _) => {}
                     }
                 }
                 self.frontend_subscription_error.get_or_insert(e);
