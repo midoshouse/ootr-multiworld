@@ -315,16 +315,18 @@ if (typeof PJ64_JSAPI_VERSION === 'undefined') {
         server.listen(TCP_PORT, '127.0.0.1');
         exec('PowerShell -Command "Start-Process \'' + appdata.replace('"', '""').replace("'", "''") + '\\Fenhl\\OoTR Multiworld\\cache\\gui.exe\' pj64v4"');
         setInterval(function() {
-            handle_frame(function(buf) {
-                for (var i = 0; i < sockets.length; i++) {
-                    if (sockets[i] !== null) {
-                        sockets[i].write(buf);
+            if (sockets.length > 0) {
+                handle_frame(function(buf) {
+                    for (var i = 0; i < sockets.length; i++) {
+                        if (sockets[i] !== null) {
+                            sockets[i].write(buf);
+                        }
                     }
-                }
-            }, function(error_msg) {
-                sock.close();
-                throw error_msg;
-            });
+                }, function(error_msg) {
+                    sock.close();
+                    throw error_msg;
+                });
+            }
         }, 50);
     } else {
         throw 'The companion app seems to be missing. This can happen if you upgraded Project64 from version 3 to version 4. Try running the installer again.';
