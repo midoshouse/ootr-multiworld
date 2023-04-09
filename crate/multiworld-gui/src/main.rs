@@ -50,7 +50,6 @@ use {
     serenity::utils::MessageBuilder,
     sysinfo::Pid,
     tokio::{
-        fs,
         io,
         net::tcp::{
             OwnedReadHalf,
@@ -63,7 +62,10 @@ use {
         },
     },
     url::Url,
-    wheel::traits::IsNetworkError,
+    wheel::{
+        fs,
+        traits::IsNetworkError,
+    },
     multiworld::{
         ClientMessage,
         DurationFormatter,
@@ -78,6 +80,7 @@ use {
         github::Repo,
     },
 };
+#[cfg(not(feature = "glow"))] use wheel::traits::SyncCommandOutputExt as _;
 
 mod subscriptions;
 
@@ -138,6 +141,7 @@ enum Error {
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Semver(#[from] semver::Error),
     #[error(transparent)] Url(#[from] url::ParseError),
+    #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("tried to copy debug info with no active error")]
     CopyDebugInfo,
@@ -965,6 +969,8 @@ fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, debug_inf
 enum MainError {
     #[error(transparent)] Iced(#[from] iced::Error),
     #[error(transparent)] Icon(#[from] iced::window::icon::Error),
+    #[error(transparent)] Io(#[from] io::Error),
+    #[error(transparent)] Wheel(#[from] wheel::Error),
 }
 
 #[derive(clap::Subcommand)]
@@ -991,7 +997,7 @@ struct CliArgs {
 
 #[wheel::main(debug)]
 fn main(CliArgs { log, port, frontend }: CliArgs) -> Result<(), MainError> {
-    State::run(Settings {
+    let res = State::run(Settings {
         window: window::Settings {
             size: (256, 256),
             icon: Some(Icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
@@ -1005,6 +1011,25 @@ fn main(CliArgs { log, port, frontend }: CliArgs) -> Result<(), MainError> {
             },
             log, port,
         })
-    })?;
-    Ok(())
+    });
+    #[cfg(feature = "glow")] { Ok(res?) }
+    #[cfg(not(feature = "glow"))] {
+        match res {
+            Ok(()) => Ok(()),
+            Err(e) => if let iced::Error::GraphicsCreationFailed(iced_graphics::Error::GraphicsAdapterNotFound) = e {
+                let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
+                std::fs::create_dir_all(project_dirs.cache_dir())?;
+                let glow_gui_path = project_dirs.cache_dir().join("gui-glow.exe");
+                #[cfg(all(target_arch = "x86_64", debug_assertions))] let glow_gui_data = include_bytes!("../../../target/glow/debug/multiworld-gui.exe");
+                #[cfg(all(target_arch = "x86_64", not(debug_assertions)))] let glow_gui_data = include_bytes!("../../../target/glow/release/multiworld-gui.exe");
+                std::fs::write(&glow_gui_path, glow_gui_data)?;
+                std::process::Command::new(glow_gui_path)
+                    .args(env::args_os().skip(1))
+                    .check("multiworld-gui-glow")?;
+                Ok(())
+            } else {
+                Err(e.into())
+            },
+        }
+    }
 }

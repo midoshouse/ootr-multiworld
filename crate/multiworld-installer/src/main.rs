@@ -70,6 +70,7 @@ use {
         github::Repo,
     },
 };
+#[cfg(not(feature = "glow"))] use directories::ProjectDirs;
 
 #[cfg(target_arch = "x86_64")] const BIZHAWK_PLATFORM_SUFFIX: &str = "-win-x64.zip";
 
@@ -848,18 +849,39 @@ struct Args {
 enum MainError {
     #[error(transparent)] Iced(#[from] iced::Error),
     #[error(transparent)] Icon(#[from] iced::window::icon::Error),
+    #[error(transparent)] Io(#[from] io::Error),
+    #[error(transparent)] Wheel(#[from] wheel::Error),
 }
 
 #[wheel::main(debug)]
 fn main(args: Args) -> Result<(), MainError> {
     let icon = ::image::load_from_memory(include_bytes!("../../../assets/icon.ico")).expect("failed to load embedded DynamicImage").to_rgba8();
-    State::run(Settings {
+    let res = State::run(Settings {
         window: window::Settings {
             size: (400, 300),
             icon: Some(Icon::from_rgba(icon.as_flat_samples().as_slice().to_owned(), icon.width(), icon.height())?),
             ..window::Settings::default()
         },
         ..Settings::with_flags(args)
-    })?;
-    Ok(())
+    });
+    #[cfg(feature = "glow")] { Ok(res?) }
+    #[cfg(not(feature = "glow"))] {
+        match res {
+            Ok(()) => Ok(()),
+            Err(e) => if let iced::Error::GraphicsCreationFailed(iced_graphics::Error::GraphicsAdapterNotFound) = e {
+                let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
+                std::fs::create_dir_all(project_dirs.cache_dir())?;
+                let glow_installer_path = project_dirs.cache_dir().join("installer-glow.exe");
+                #[cfg(all(target_arch = "x86_64", debug_assertions))] let glow_installer_data = include_bytes!("../../../target/glow/debug/multiworld-installer.exe");
+                #[cfg(all(target_arch = "x86_64", not(debug_assertions)))] let glow_installer_data = include_bytes!("../../../target/glow/release/multiworld-installer.exe");
+                std::fs::write(&glow_installer_path, glow_installer_data)?;
+                std::process::Command::new(glow_installer_path)
+                    .args(env::args_os().skip(1))
+                    .check("multiworld-installer-glow")?;
+                Ok(())
+            } else {
+                Err(e.into())
+            },
+        }
+    }
 }

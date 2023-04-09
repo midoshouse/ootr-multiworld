@@ -570,6 +570,7 @@ enum MainError {
     #[error(transparent)] Iced(#[from] iced::Error),
     #[error(transparent)] Icon(#[from] iced::window::icon::Error),
     #[error(transparent)] Io(#[from] io::Error),
+    #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error("user folder not found")]
     MissingHomeDir,
 }
@@ -579,26 +580,45 @@ fn main(args: Args) -> Result<(), MainError> {
     match args {
         Args::Emu(args) => {
             let icon = ::image::load_from_memory(include_bytes!("../../../assets/icon.ico")).expect("failed to load embedded DynamicImage").to_rgba8();
-            App::run(Settings {
+            let res = App::run(Settings {
                 window: window::Settings {
                     size: (320, 240),
                     icon: Some(Icon::from_rgba(icon.as_flat_samples().as_slice().to_owned(), icon.width(), icon.height())?),
                     ..window::Settings::default()
                 },
                 ..Settings::with_flags(args)
-            })?;
+            });
+            #[cfg(feature = "glow")] { Ok(res?) }
+            #[cfg(not(feature = "glow"))] {
+                match res {
+                    Ok(()) => Ok(()),
+                    Err(e) => if let iced::Error::GraphicsCreationFailed(iced_graphics::Error::GraphicsAdapterNotFound) = e {
+                        let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
+                        std::fs::create_dir_all(project_dirs.cache_dir())?;
+                        let glow_updater_path = project_dirs.cache_dir().join("updater-glow.exe");
+                        #[cfg(all(target_arch = "x86_64", debug_assertions))] let glow_updater_data = include_bytes!("../../../target/glow/debug/multiworld-updater.exe");
+                        #[cfg(all(target_arch = "x86_64", not(debug_assertions)))] let glow_updater_data = include_bytes!("../../../target/glow/release/multiworld-updater.exe");
+                        std::fs::write(&glow_updater_path, glow_updater_data)?;
+                        std::process::Command::new(glow_updater_path)
+                            .args(env::args_os().skip(1))
+                            .check("multiworld-updater-glow")?;
+                        Ok(())
+                    } else {
+                        Err(e.into())
+                    },
+                }
+            }
         }
         Args::Pj64Script { src, dst } => match std::fs::rename(src, dst) {
-            Ok(()) => {}
+            Ok(()) => Ok(()),
             Err(e) => {
                 if CONFIG.log {
                     let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(MainError::MissingHomeDir)?;
                     std::fs::create_dir_all(project_dirs.data_dir())?;
                     write!(std::fs::File::create(project_dirs.data_dir().join("updater.log"))?, "error in pj64script subcommand: {e}\ndebug info: {e:?}")?;
                 }
-                return Err(e.into())
+                Err(e.into())
             }
         },
     }
-    Ok(())
 }

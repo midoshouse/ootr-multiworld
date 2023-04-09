@@ -231,42 +231,56 @@ impl Task<Result<Release, Error>> for CreateRelease {
     }
 }
 
-struct BuildUpdater {
-    notifier: broadcast::Sender<()>,
+enum BuildUpdater {
+    Default(broadcast::Sender<()>),
+    Glow(broadcast::Sender<()>),
 }
 
 impl BuildUpdater {
     fn new(notifier: broadcast::Sender<()>) -> Self {
-        Self { notifier }
+        Self::Default(notifier)
     }
 }
 
 impl fmt::Display for BuildUpdater {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "building multiworld-updater.exe")
+        match self {
+            Self::Default(..) => write!(f, "building multiworld-updater.exe"),
+            Self::Glow(..) => write!(f, "building multiworld-updater-glow.exe"),
+        }
     }
 }
 
 impl Progress for BuildUpdater {
     fn progress(&self) -> Percent {
-        Percent::new(0)
+        Percent::fraction(match self {
+            Self::Default(..) => 0,
+            Self::Glow(..) => 1,
+        }, 2)
     }
 }
 
 #[async_trait]
 impl Task<Result<(), Error>> for BuildUpdater {
     async fn run(self) -> Result<Result<(), Error>, Self> {
-        gres::transpose(async move {
-            Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-updater").check("cargo build --package=multiworld-updater").await?;
-            let _ = self.notifier.send(());
-            Ok(Ok(()))
-        }).await
+        match self {
+            Self::Default(notifier) => gres::transpose(async move {
+                Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-updater").check("cargo build --package=multiworld-updater").await?;
+                Ok(Err(Self::Glow(notifier)))
+            }).await,
+            Self::Glow(notifier) => gres::transpose(async move {
+                Command::new("cargo").arg("build").arg("--no-default-features").arg("--features=glow").arg("--target-dir=target/glow").arg("--release").arg("--package=multiworld-updater").check("cargo build --package=multiworld-updater").await?;
+                let _ = notifier.send(());
+                Ok(Ok(()))
+            }).await,
+        }
     }
 }
 
 enum BuildGui {
     Updater(reqwest::Client, Repo, broadcast::Receiver<()>, broadcast::Receiver<Release>, broadcast::Sender<()>),
     Build(reqwest::Client, Repo, broadcast::Receiver<Release>, broadcast::Sender<()>),
+    Glow(reqwest::Client, Repo, broadcast::Receiver<Release>, broadcast::Sender<()>),
     Read(reqwest::Client, Repo, broadcast::Receiver<Release>),
     WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
     Upload(reqwest::Client, Repo, Release, Vec<u8>),
@@ -283,6 +297,7 @@ impl fmt::Display for BuildGui {
         match self {
             Self::Updater(..) => write!(f, "waiting for updater build to finish"),
             Self::Build(..) => write!(f, "building multiworld-gui.exe"),
+            Self::Glow(..) => write!(f, "building multiworld-gui-glow.exe"),
             Self::Read(..) => write!(f, "reading multiworld-gui.exe"),
             Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
             Self::Upload(..) => write!(f, "uploading multiworld-pj64.exe"),
@@ -295,10 +310,11 @@ impl Progress for BuildGui {
         Percent::fraction(match self {
             Self::Updater(..) => 0,
             Self::Build(..) => 1,
-            Self::Read(..) => 2,
-            Self::WaitRelease(..) => 3,
-            Self::Upload(..) => 4,
-        }, 5)
+            Self::Glow(..) => 2,
+            Self::Read(..) => 3,
+            Self::WaitRelease(..) => 4,
+            Self::Upload(..) => 5,
+        }, 6)
     }
 }
 
@@ -312,6 +328,10 @@ impl Task<Result<(), Error>> for BuildGui {
             }).await,
             Self::Build(client, repo, release_rx, gui_tx) => gres::transpose(async move {
                 Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-gui").check("cargo build --package=multiworld-gui").await?;
+                Ok(Err(Self::Glow(client, repo, release_rx, gui_tx)))
+            }).await,
+            Self::Glow(client, repo, release_rx, gui_tx) => gres::transpose(async move {
+                Command::new("cargo").arg("build").arg("--no-default-features").arg("--features=glow").arg("--target-dir=target/glow").arg("--release").arg("--package=multiworld-gui").check("cargo build --package=multiworld-gui").await?;
                 let _ = gui_tx.send(());
                 Ok(Err(Self::Read(client, repo, release_rx)))
             }).await,
@@ -472,6 +492,7 @@ impl Task<Result<(), Error>> for BuildPj64 {
 enum BuildInstaller {
     Deps(reqwest::Client, Repo, broadcast::Receiver<()>, broadcast::Receiver<()>, broadcast::Receiver<Release>),
     Build(reqwest::Client, Repo, broadcast::Receiver<Release>),
+    Glow(reqwest::Client, Repo, broadcast::Receiver<Release>),
     Read(reqwest::Client, Repo, broadcast::Receiver<Release>),
     WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
     Upload(reqwest::Client, Repo, Release, Vec<u8>),
@@ -488,6 +509,7 @@ impl fmt::Display for BuildInstaller {
         match self {
             Self::Deps(..) => write!(f, "waiting for dependency builds to finish"),
             Self::Build(..) => write!(f, "building multiworld-installer.exe"),
+            Self::Glow(..) => write!(f, "building multiworld-installer-glow.exe"),
             Self::Read(..) => write!(f, "reading multiworld-installer.exe"),
             Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
             Self::Upload(..) => write!(f, "uploading multiworld-installer.exe"),
@@ -500,10 +522,11 @@ impl Progress for BuildInstaller {
         Percent::fraction(match self {
             Self::Deps(..) => 0,
             Self::Build(..) => 1,
-            Self::Read(..) => 2,
-            Self::WaitRelease(..) => 3,
-            Self::Upload(..) => 4,
-        }, 5)
+            Self::Glow(..) => 2,
+            Self::Read(..) => 3,
+            Self::WaitRelease(..) => 4,
+            Self::Upload(..) => 5,
+        }, 6)
     }
 }
 
@@ -518,6 +541,10 @@ impl Task<Result<(), Error>> for BuildInstaller {
             }).await,
             Self::Build(client, repo, release_rx) => gres::transpose(async move {
                 Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-installer").check("cargo build --package=multiworld-installer").await?;
+                Ok(Err(Self::Glow(client, repo, release_rx)))
+            }).await,
+            Self::Glow(client, repo, release_rx) => gres::transpose(async move {
+                Command::new("cargo").arg("build").arg("--no-default-features").arg("--features=glow").arg("--target-dir=target/glow").arg("--release").arg("--package=multiworld-installer").check("cargo build --package=multiworld-installer").await?;
                 Ok(Err(Self::Read(client, repo, release_rx)))
             }).await,
             Self::Read(client, repo, release_rx) => gres::transpose(async move {
