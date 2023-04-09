@@ -850,7 +850,7 @@ enum MainError {
     #[error(transparent)] Icon(#[from] iced::window::icon::Error),
 }
 
-#[wheel::main]
+#[wheel::main(debug)]
 fn main(args: Args) -> Result<(), MainError> {
     let icon = ::image::load_from_memory(include_bytes!("../../../assets/icon.ico")).expect("failed to load embedded DynamicImage").to_rgba8();
     State::run(Settings {

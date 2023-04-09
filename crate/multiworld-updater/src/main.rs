@@ -574,7 +574,7 @@ enum MainError {
     MissingHomeDir,
 }
 
-#[wheel::main]
+#[wheel::main(debug)]
 fn main(args: Args) -> Result<(), MainError> {
     match args {
         Args::Emu(args) => {

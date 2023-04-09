@@ -989,7 +989,7 @@ struct CliArgs {
     frontend: Option<FrontendArgs>,
 }
 
-#[wheel::main]
+#[wheel::main(debug)]
 fn main(CliArgs { log, port, frontend }: CliArgs) -> Result<(), MainError> {
     State::run(Settings {
         window: window::Settings {

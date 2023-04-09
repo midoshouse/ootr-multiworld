@@ -537,7 +537,7 @@ enum Error {
     Server(String),
 }
 
-#[wheel::main]
+#[wheel::main(debug)]
 async fn main(Args { port, database, subcommand }: Args) -> Result<(), Error> {
     if let Some(subcommand) = subcommand {
         let mut tcp_stream = TcpStream::connect((Ipv6Addr::LOCALHOST, port)).await?;
