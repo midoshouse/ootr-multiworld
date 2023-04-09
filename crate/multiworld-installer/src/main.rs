@@ -428,7 +428,9 @@ impl Application for State {
                                     runas::Command::new(&prereqs_path).status().at_command("runas")?.check("BizHawk-Prereqs")?; //TODO show message in GUI saying to check the BizHawk-Prereqs GUI
                                 }
                                 // install BizHawk itself
-                                let release = Repo::new("TASEmulators", "BizHawk").latest_release(&http_client).await?.ok_or(Error::NoBizHawkReleases)?;
+                                let version_str = include!(concat!(env!("OUT_DIR"), "/bizhawk_version.rs")).to_string();
+                                let version_str = version_str.trim_end_matches(".0");
+                                let release = Repo::new("TASEmulators", "BizHawk").release_by_tag(&http_client, version_str).await?.ok_or(Error::NoBizHawkReleases)?;
                                 #[cfg(all(windows, target_arch = "x86_64"))] let asset = release.assets.into_iter()
                                     .filter(|asset| regex_is_match!(r"^BizHawk-.+-win-x64\.zip$", &asset.name))
                                     .exactly_one()?;
@@ -452,12 +454,12 @@ impl Application for State {
                         }
                         Emulator::Project64 => {
                             //TODO indicate progress
-                            let client = self.http_client.clone();
+                            let http_client = self.http_client.clone();
                             let emulator_path_arg = format!("/DIR={emulator_path}");
                             let create_desktop_shortcut = self.create_desktop_shortcut;
                             return cmd(async move {
                                 let front_page_url = Url::parse("https://www.pj64-emu.com/")?;
-                                let front_page = client.get(front_page_url.clone())
+                                let front_page = http_client.get(front_page_url.clone())
                                     .send().await?
                                     .error_for_status()?
                                     .text().await?;
@@ -465,7 +467,7 @@ impl Application for State {
                                     .select_first("a.download").map_err(|()| Error::ParsePj64Html)?
                                     .attributes.borrow()
                                     .get("href").ok_or(Error::ParsePj64Html)?)?;
-                                let download_page = client.get(download_page_url.clone())
+                                let download_page = http_client.get(download_page_url.clone())
                                     .send().await?
                                     .error_for_status()?
                                     .text().await?;
@@ -477,7 +479,7 @@ impl Application for State {
                                     .get("href").ok_or(Error::ParsePj64Html)?)?;
                                 {
                                     let installer = tempfile::Builder::new().prefix("pj64-installer-").suffix(".exe").tempfile()?;
-                                    io::copy_buf(&mut StreamReader::new(client.get(download_url).send().await?.error_for_status()?.bytes_stream().map_err(io_error_from_reqwest)), &mut tokio::fs::File::from_std(installer.reopen()?)).await?;
+                                    io::copy_buf(&mut StreamReader::new(http_client.get(download_url).send().await?.error_for_status()?.bytes_stream().map_err(io_error_from_reqwest)), &mut tokio::fs::File::from_std(installer.reopen()?)).await?;
                                     let installer_path = installer.into_temp_path();
                                     let mut installer = tokio::process::Command::new(&installer_path);
                                     installer.arg("/SILENT");
@@ -525,18 +527,18 @@ impl Application for State {
                     }
                 },
                 Page::AskBizHawkUpdate { ref emulator_path, ref multiworld_path } => {
-                    let client = self.http_client.clone();
+                    let http_client = self.http_client.clone();
                     let emulator_path_buf = PathBuf::from(emulator_path.clone());
                     self.page = Page::InstallEmulator { update: true, emulator: Emulator::BizHawk, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
                     return cmd(async move {
                         //TODO also update prereqs
                         let version_str = include!(concat!(env!("OUT_DIR"), "/bizhawk_version.rs")).to_string();
                         let version_str = version_str.trim_end_matches(".0");
-                        let release = Repo::new("TASEmulators", "BizHawk").release_by_tag(&client, version_str).await?.ok_or(Error::NoBizHawkReleases)?;
+                        let release = Repo::new("TASEmulators", "BizHawk").release_by_tag(&http_client, version_str).await?.ok_or(Error::NoBizHawkReleases)?;
                         let (asset,) = release.assets.into_iter()
                             .filter(|asset| asset.name.ends_with(BIZHAWK_PLATFORM_SUFFIX))
                             .collect_tuple().ok_or(Error::MissingBizHawkAsset)?;
-                        let response = client.get(asset.browser_download_url).send().await?.error_for_status()?;
+                        let response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?;
                         let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.bytes().await?.into()).await?;
                         let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), emulator_path_buf.join(entry.entry().filename()))).collect_vec();
                         for (idx, is_dir, path) in entries {
