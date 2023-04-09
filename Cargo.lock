@@ -3091,6 +3091,8 @@ dependencies = [
  "lazy-regex",
  "semver 1.0.17",
  "thiserror",
+ "tokio",
+ "wheel",
  "winver",
 ]
 

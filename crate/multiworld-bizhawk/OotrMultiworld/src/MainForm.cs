@@ -115,21 +115,21 @@ namespace MidosHouse.OotrMultiworld {
             }
         }
 
-        internal void SetPlayerName(List<byte> name) {
+        internal void SetPlayerName(IReadOnlyList<byte> name) {
             var namePtr = Marshal.AllocHGlobal(8);
             Marshal.Copy(name.ToArray(), 0, namePtr, 8);
             Native.client_set_player_name(this, namePtr);
             Marshal.FreeHGlobal(namePtr);
         }
 
-        internal void SendSaveData(List<byte> saveData) {
+        internal void SendSaveData(IReadOnlyList<byte> saveData) {
             var savePtr = Marshal.AllocHGlobal(0x1450);
             Marshal.Copy(saveData.ToArray(), 0, savePtr, 0x1450);
             Native.client_set_save_data(this, savePtr);
             Marshal.FreeHGlobal(savePtr);
         }
 
-        internal void SendFileHash(List<byte> fileHash) {
+        internal void SendFileHash(IReadOnlyList<byte> fileHash) {
             var hashPtr = Marshal.AllocHGlobal(5);
             Marshal.Copy(fileHash.ToArray(), 0, hashPtr, 5);
             Native.client_set_file_hash(this, hashPtr);
@@ -469,7 +469,7 @@ namespace MidosHouse.OotrMultiworld {
                                         var newFileHash = APIs.Memory.ReadByteRange(newCoopContextAddr + 0x0814, 5, "System Bus");
                                         if (this.client != null && !Enumerable.SequenceEqual(this.fileHash, newFileHash)) {
                                             this.client.SendFileHash(newFileHash);
-                                            this.fileHash = newFileHash;
+                                            this.fileHash = new List<byte>(newFileHash);
                                         }
                                         break;
                                     default:
@@ -501,7 +501,7 @@ namespace MidosHouse.OotrMultiworld {
             } else {
                 if (Enumerable.SequenceEqual(APIs.Memory.ReadByteRange(0x0020 + 0x1c, 6, "SRAM"), new List<byte>(Encoding.UTF8.GetBytes("ZELDAZ")))) {
                     // get own player name from save file
-                    this.playerName = APIs.Memory.ReadByteRange(0x0020 + 0x0024, 8, "SRAM");
+                    this.playerName = new List<byte>(APIs.Memory.ReadByteRange(0x0020 + 0x0024, 8, "SRAM"));
                     // always fill player names in co-op context (some player names may go missing seemingly at random while others stay intact, so this has to run every frame)
                     if (this.coopContextAddr != null) {
                         for (var world = 1; world < 256; world++) {

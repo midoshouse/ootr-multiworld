@@ -8,6 +8,14 @@ edition.workspace = true
 lazy-regex = "2"
 thiserror = "1"
 
+[build-dependencies.tokio]
+version = "1"
+features = ["process"]
+
+[build-dependencies.wheel]
+git = "https://github.com/fenhl/wheel"
+branch = "main"
+
 [dependencies]
 semver = "1"
 
