@@ -11,14 +11,10 @@ use {
     },
 };
 
-fn make_default_port() -> u16 { crate::SERVER_PORT }
-
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Default, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub log: bool,
     pub pj64_script_path: Option<PathBuf>,
-    #[serde(default = "make_default_port")]
-    pub port: u16,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -35,16 +31,6 @@ impl Config {
         fs::create_dir_all(project_dirs.config_dir())?;
         fs::write(project_dirs.config_dir().join("config.json"), serde_json::to_vec_pretty(self)?)?;
         Ok(())
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            log: false,
-            pj64_script_path: None,
-            port: crate::SERVER_PORT,
-        }
     }
 }
 

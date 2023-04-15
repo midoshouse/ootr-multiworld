@@ -24,7 +24,10 @@ use {
     chrono::prelude::*,
     dark_light::Mode::*,
     directories::ProjectDirs,
-    futures::future,
+    futures::{
+        future,
+        stream::Stream,
+    },
     iced::{
         Application,
         Command,
@@ -61,6 +64,7 @@ use {
             sleep_until,
         },
     },
+    tokio_tungstenite::tungstenite,
     url::Url,
     wheel::{
         fs,
@@ -80,6 +84,7 @@ use {
         frontend,
         github::Repo,
     },
+    crate::subscriptions::WsSink,
 };
 #[cfg(not(feature = "glow"))] use wheel::traits::SyncCommandOutputExt as _;
 
@@ -105,14 +110,21 @@ impl LoggingReader {
         }
         Ok(msg)
     }
+}
 
-    async fn read_owned<T: Protocol + fmt::Debug>(self) -> Result<(Self, T), async_proto::ReadError> {
-        let Self { log, context, inner } = self;
-        let (inner, msg) = T::read_owned(inner).await?;
-        if log {
-            writeln!(&*LOG.lock().await, "{}: {msg:?}", context)?;
+struct LoggingStream<R> {
+    log: bool,
+    context: &'static str,
+    inner: R,
+}
+
+impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send> LoggingStream<R> {
+    async fn read_owned(mut self) -> Result<(Self, ServerMessage), async_proto::ReadError> {
+        let msg = ServerMessage::read_ws(&mut self.inner).await?;
+        if self.log {
+            writeln!(&*LOG.lock().await, "{}: {msg:?}", self.context)?;
         }
-        Ok((Self { log, context, inner }, msg))
+        Ok((self, msg))
     }
 }
 
@@ -132,6 +144,22 @@ impl LoggingWriter {
     }
 }
 
+#[derive(Clone)]
+struct LoggingSink {
+    log: bool,
+    context: &'static str,
+    inner: Arc<Mutex<WsSink>>,
+}
+
+impl LoggingSink {
+    async fn write(&self, msg: ClientMessage) -> Result<(), async_proto::WriteError> {
+        if self.log {
+            writeln!(&*LOG.lock().await, "{}: {msg:?}", self.context)?;
+        }
+        msg.write_ws(&mut *self.inner.lock().await).await
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error(transparent)] Client(#[from] multiworld::ClientError),
@@ -142,6 +170,7 @@ enum Error {
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Semver(#[from] semver::Error),
     #[error(transparent)] Url(#[from] url::ParseError),
+    #[error(transparent)] WebSocket(#[from] tungstenite::Error),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("tried to copy debug info with no active error")]
@@ -191,7 +220,7 @@ enum Message {
     SendAll,
     SendAllBrowse,
     Server(ServerMessage),
-    ServerConnected(Arc<Mutex<OwnedWriteHalf>>),
+    ServerConnected(Arc<Mutex<WsSink>>),
     ServerSubscriptionError(Arc<Error>),
     SetAutoDeleteDelta(DurationFormatter),
     SetCreateNewRoom(bool),
@@ -221,9 +250,8 @@ struct State {
     frontend_connection_id: u8,
     frontend_writer: Option<LoggingWriter>,
     log: bool,
-    port: u16,
     server_connection: SessionState<Arc<Error>>,
-    server_writer: Option<LoggingWriter>,
+    server_writer: Option<LoggingSink>,
     retry: Instant,
     wait_time: Duration,
     last_world: Option<NonZeroU8>,
@@ -308,7 +336,6 @@ impl Application for State {
             frontend_connection_id: 0,
             frontend_writer: None,
             log: CONFIG.log,
-            port: CONFIG.port,
             server_connection: SessionState::Init,
             server_writer: None,
             retry: Instant::now(),
@@ -687,7 +714,7 @@ impl Application for State {
                     _ => {}
                 }
             }
-            Message::ServerConnected(writer) => self.server_writer = Some(LoggingWriter { log: self.log, context: "to server", inner: writer }),
+            Message::ServerConnected(sink) => self.server_writer = Some(LoggingSink { log: self.log, context: "to server", inner: sink }),
             Message::ServerSubscriptionError(e) => if !matches!(self.server_connection, SessionState::Error { .. }) {
                 if e.is_network_error() {
                     if self.retry.elapsed() >= Duration::from_secs(60 * 60 * 24) {
@@ -922,7 +949,7 @@ impl Application for State {
                 FrontendFlags::Pj64V3 => Subscription::from_recipe(subscriptions::Listener { frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id }),
             });
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
-                subscriptions.push(Subscription::from_recipe(subscriptions::Client { log: self.log, port: self.port }));
+                subscriptions.push(Subscription::from_recipe(subscriptions::Client { log: self.log }));
             }
         }
         Subscription::batch(subscriptions)

@@ -6,7 +6,6 @@ use {
         borrow::Cow,
         convert::Infallible as Never,
         io::stdout,
-        net::IpAddr,
         time::Duration,
     },
     async_proto::Protocol as _,
@@ -34,7 +33,6 @@ use {
     futures::stream::StreamExt as _,
     itertools::Itertools as _,
     tokio::{
-        net::TcpStream,
         select,
         time::{
             Instant,
@@ -46,6 +44,7 @@ use {
         ClientMessage,
         ServerMessage,
         SessionState,
+        websocket_url,
     },
     crate::parse::FromExpr as _,
 };
@@ -77,10 +76,6 @@ fn parse_api_key(s: &str) -> Result<[u8; 32], ParseApiKeyError> {
 #[derive(clap::Parser)]
 #[clap(version)]
 struct Args {
-    #[clap(long)]
-    server_ip: Option<IpAddr>,
-    #[clap(short, long, default_value_t = multiworld::SERVER_PORT)]
-    port: u16,
     id: Option<u64>,
     #[clap(value_parser = parse_api_key)]
     api_key: Option<[u8; 32]>,
@@ -95,6 +90,7 @@ enum Error {
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Syn(#[from] syn::Error),
     #[error(transparent)] TryFromSlice(#[from] std::array::TryFromSliceError),
+    #[error(transparent)] WebSocket(#[from] tokio_tungstenite::tungstenite::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("expected exactly one element, got zero or multiple")]
     ExactlyOne,
@@ -133,16 +129,15 @@ fn prompt(session_state: &SessionState<Never>) -> Cow<'static, str> {
     }
 }
 
-async fn cli(Args { server_ip, port, id, api_key }: Args) -> Result<(), Error> {
+async fn cli(Args { id, api_key }: Args) -> Result<(), Error> {
     let mut cli_events = EventStream::default().fuse();
-    let mut tcp_stream = TcpStream::connect((server_ip.unwrap_or(IpAddr::V4(multiworld::ADDRESS_V4)), port)).await?;
-    multiworld::handshake(&mut tcp_stream).await?;
+    let (mut websocket, _) = tokio_tungstenite::connect_async(websocket_url()).await?;
     if let (Some(id), Some(api_key)) = (id, api_key) {
-        ClientMessage::Login { id, api_key }.write(&mut tcp_stream).await?;
+        ClientMessage::Login { id, api_key }.write_ws(&mut websocket).await?;
     }
-    let (reader, mut writer) = tcp_stream.into_split();
+    let (mut writer, reader) = websocket.split();
     let mut session_state = SessionState::<Never>::Init;
-    let mut read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_owned(reader)));
+    let mut read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_ws_owned(reader)));
     let mut cmd_buf = String::default();
     let mut interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
     let mut stdout = stdout();
@@ -161,7 +156,7 @@ async fn cli(Args { server_ip, port, id, api_key }: Args) -> Result<(), Error> {
                         Print(format_args!("{msg:#?}\r\n{}> {cmd_buf}", prompt(&session_state))),
                     )?;
                 }
-                read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_owned(reader)));
+                read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_ws_owned(reader)));
             },
             cli_event = cli_events.select_next_some() => match cli_event? {
                 Event::Key(key_event) => if key_event == KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL) {
@@ -170,7 +165,7 @@ async fn cli(Args { server_ip, port, id, api_key }: Args) -> Result<(), Error> {
                     match key_event.code {
                         KeyCode::Enter => if key_event.kind == KeyEventKind::Press {
                             if !cmd_buf.is_empty() {
-                                ClientMessage::from_expr(syn::parse_str(&cmd_buf)?)?.write(&mut writer).await?;
+                                ClientMessage::from_expr(syn::parse_str(&cmd_buf)?)?.write_ws(&mut writer).await?;
                             }
                             cmd_buf.clear();
                             crossterm::execute!(stdout,
@@ -195,7 +190,7 @@ async fn cli(Args { server_ip, port, id, api_key }: Args) -> Result<(), Error> {
                 Event::Paste(text) => cmd_buf.push_str(&text),
                 _ => {}
             },
-            _ = interval.tick() => ClientMessage::Ping.write(&mut writer).await?,
+            _ = interval.tick() => ClientMessage::Ping.write_ws(&mut writer).await?,
         }
     }
     disable_raw_mode()?;

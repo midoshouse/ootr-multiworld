@@ -12,6 +12,7 @@ itertools = "0.10"
 lazy-regex = "2"
 proc-macro2 = "1"
 quote = "1"
+semver = "1"
 
 [dependencies.syn]
 version = "2"

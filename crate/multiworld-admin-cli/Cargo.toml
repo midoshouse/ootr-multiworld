@@ -32,7 +32,11 @@ features = ["full"]
 
 [dependencies.tokio]
 version = "1"
-features = ["net", "time"]
+features = ["time"]
+
+[dependencies.tokio-tungstenite]
+version = "0.18"
+features = ["rustls-tls-webpki-roots"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"

@@ -16,7 +16,11 @@ use {
         quote,
         quote_spanned,
     },
-    syn::*,
+    semver::Version,
+    syn::{
+        *,
+        punctuated::Punctuated,
+    },
 };
 
 fn csharp_extern_function_signatures() -> HashMap<String, (Vec<String>, String)> {
@@ -92,4 +96,15 @@ pub fn csharp_ffi(_: TokenStream, item: TokenStream) -> TokenStream {
             #block
         }
     })
+}
+
+#[proc_macro]
+pub fn routes(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input with Punctuated::<Ident, Token![,]>::parse_terminated);
+    let version = Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version");
+    let route_names = (10..=version.major).map(|version| Ident::new(&format!("v{version}"), Span::call_site()));
+    TokenStream::from(quote!(rocket::routes![
+        #input
+        #(#route_names,)*
+    ]))
 }

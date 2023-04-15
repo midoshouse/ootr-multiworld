@@ -10,29 +10,35 @@ use {
             HashSet,
         },
         fmt,
+        hash::Hash,
         mem,
-        net::{
-            Ipv4Addr,
-            Ipv6Addr,
-        },
         num::NonZeroU8,
         sync::Arc,
         time::Duration,
     },
     async_proto::Protocol,
     async_recursion::async_recursion,
+    async_trait::async_trait,
     chrono::prelude::*,
+    futures::stream::{
+        SplitSink,
+        SplitStream,
+    },
     itertools::Itertools as _,
     ootr_utils::spoiler::{
         HashIcon,
         SpoilerLog,
     },
     oottracker::websocket::MwItem as Item,
+    rocket_ws::WebSocket,
     semver::Version,
     tokio::{
         net::{
             TcpStream,
-            tcp::OwnedWriteHalf,
+            tcp::{
+                OwnedReadHalf,
+                OwnedWriteHalf,
+            },
         },
         sync::{
             Mutex,
@@ -40,6 +46,7 @@ use {
             oneshot,
         },
     },
+    url::Url,
     wheel::traits::IsNetworkError,
 };
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
@@ -51,22 +58,15 @@ pub mod config;
 pub mod frontend;
 pub mod github;
 
-pub const ADDRESS_V4: Ipv4Addr = Ipv4Addr::new(37, 252, 122, 84);
-pub const ADDRESS_V6: Ipv6Addr = Ipv6Addr::new(0x2a02, 0x2770, 0x8, 0, 0x21a, 0x4aff, 0xfee1, 0xf281);
-pub const SERVER_PORT: u16 = 24809;
+pub const DEFAULT_TCP_PORT: u16 = 24809; //TODO use for LAN support
 
 pub const CREDENTIAL_LEN: usize = ring::digest::SHA512_OUTPUT_LEN;
 
 pub fn version() -> Version { Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version") }
 pub fn proto_version() -> u8 { version().major.try_into().expect("version number does not fit into u8") }
+pub fn websocket_url() -> Url { Url::parse(&format!("https://mw.midos.house/v{}", version().major)).expect("failed to parse WebSocket URL") }
 
 const TRIFORCE_PIECE: u16 = 0x00ca;
-
-#[cfg(unix)] pub type SocketId = std::os::unix::io::RawFd;
-#[cfg(windows)] pub type SocketId = std::os::windows::io::RawSocket;
-
-#[cfg(unix)] pub fn socket_id<T: AsRawFd>(socket: &T) -> SocketId { socket.as_raw_fd() }
-#[cfg(windows)] pub fn socket_id<T: AsRawSocket>(socket: &T) -> SocketId { socket.as_raw_socket() }
 
 fn natjoin<T: fmt::Display>(elts: impl IntoIterator<Item = T>) -> Option<String> {
     let mut elts = elts.into_iter().fuse();
@@ -211,20 +211,92 @@ pub enum EndRoomSession {
     Disconnect,
 }
 
-#[derive(Debug)]
-pub struct Client {
-    pub writer: Arc<Mutex<OwnedWriteHalf>>,
+#[async_trait]
+pub trait ClientReader: Unpin + Send + Sized + 'static {
+    async fn read_owned(self) -> Result<(Self, ClientMessage), async_proto::ReadError>;
+}
+
+#[async_trait]
+pub trait ClientWriter: Unpin + Send {
+    async fn write(&mut self, msg: &ServerMessage) -> Result<(), async_proto::WriteError>;
+}
+
+pub trait ClientKind {
+    type SessionId: fmt::Debug + Copy + Eq + Hash + Send + Sync;
+    type Reader: ClientReader;
+    type Writer: ClientWriter;
+}
+
+impl ClientKind for WebSocket {
+    type SessionId = usize;
+    type Reader = SplitStream<rocket_ws::stream::DuplexStream>;
+    type Writer = SplitSink<rocket_ws::stream::DuplexStream, rocket_ws::Message>;
+}
+
+#[async_trait]
+impl ClientReader for SplitStream<rocket_ws::stream::DuplexStream> {
+    async fn read_owned(self) -> Result<(Self, ClientMessage), async_proto::ReadError> {
+        ClientMessage::read_ws_owned(self).await
+    }
+}
+
+#[async_trait]
+impl ClientWriter for SplitSink<rocket_ws::stream::DuplexStream, rocket_ws::Message> {
+    async fn write(&mut self, msg: &ServerMessage) -> Result<(), async_proto::WriteError> {
+        msg.write_ws(self).await
+    }
+}
+
+#[cfg(unix)] pub type SocketId = std::os::unix::io::RawFd;
+#[cfg(windows)] pub type SocketId = std::os::windows::io::RawSocket;
+
+#[cfg(unix)] pub fn socket_id<T: AsRawFd>(socket: &T) -> SocketId { socket.as_raw_fd() }
+#[cfg(windows)] pub fn socket_id<T: AsRawSocket>(socket: &T) -> SocketId { socket.as_raw_socket() }
+
+impl ClientKind for SocketId {
+    type SessionId = Self;
+    type Reader = OwnedReadHalf;
+    type Writer = OwnedWriteHalf;
+}
+
+#[async_trait]
+impl ClientReader for OwnedReadHalf {
+    async fn read_owned(self) -> Result<(Self, ClientMessage), async_proto::ReadError> {
+        ClientMessage::read_owned(self).await
+    }
+}
+
+#[async_trait]
+impl ClientWriter for OwnedWriteHalf {
+    async fn write(&mut self, msg: &ServerMessage) -> Result<(), async_proto::WriteError> {
+        msg.write(self).await
+    }
+}
+
+pub struct Client<C: ClientKind> {
+    pub writer: Arc<Mutex<C::Writer>>,
     pub end_tx: oneshot::Sender<EndRoomSession>,
     pub player: Option<Player>,
     pub save_data: Option<oottracker::Save>,
 }
 
-#[derive(Debug)]
-pub struct Room {
+impl<C: ClientKind> fmt::Debug for Client<C> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self { writer: _, end_tx, player, save_data } = self;
+        f.debug_struct("Client")
+            .field("writer", &format_args!("_"))
+            .field("end_tx", end_tx)
+            .field("player", player)
+            .field("save_data", save_data)
+            .finish()
+    }
+}
+
+pub struct Room<C: ClientKind> {
     pub name: String,
     pub password_hash: [u8; CREDENTIAL_LEN],
     pub password_salt: [u8; CREDENTIAL_LEN],
-    pub clients: HashMap<SocketId, Client>,
+    pub clients: HashMap<C::SessionId, Client<C>>,
     pub file_hash: Option<[HashIcon; 5]>,
     pub base_queue: Vec<Item>,
     pub player_queues: HashMap<NonZeroU8, Vec<Item>>,
@@ -235,6 +307,32 @@ pub struct Room {
     pub db_pool: PgPool,
     #[cfg(feature = "tokio-tungstenite")]
     pub tracker_state: Option<(String, tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>)>,
+}
+
+impl<C: ClientKind> fmt::Debug for Room<C> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            password_hash: _,
+            password_salt: _,
+            name, clients, file_hash, base_queue, player_queues, last_saved, autodelete_delta, autodelete_tx,
+            #[cfg(feature = "sqlx")] db_pool,
+            #[cfg(feature = "tokio-tungstenite")] tracker_state,
+        } = self;
+        let mut struct_f = f.debug_struct("Room");
+        struct_f.field("name", name);
+        struct_f.field("password_hash", &format_args!("_"));
+        struct_f.field("password_salt", &format_args!("_"));
+        struct_f.field("clients", clients);
+        struct_f.field("file_hash", file_hash);
+        struct_f.field("base_queue", base_queue);
+        struct_f.field("player_queues", player_queues);
+        struct_f.field("last_saved", last_saved);
+        struct_f.field("autodelete_delta", autodelete_delta);
+        struct_f.field("autodelete_tx", autodelete_tx);
+        #[cfg(feature = "sqlx")] struct_f.field("db_pool", db_pool);
+        #[cfg(feature = "tokio-tungstenite")] struct_f.field("tracker_state", tracker_state);
+        struct_f.finish()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -284,11 +382,11 @@ pub enum SendAllError {
     Items(Vec<SendItemError>),
 }
 
-impl Room {
-    async fn write(&mut self, client_id: SocketId, msg: &ServerMessage) {
+impl<C: ClientKind> Room<C> {
+    async fn write(&mut self, client_id: C::SessionId, msg: &ServerMessage) {
         if let Some(client) = self.clients.get(&client_id) {
             let mut writer = client.writer.lock().await;
-            if let Err(e) = msg.write(&mut *writer).await {
+            if let Err(e) = writer.write(msg).await {
                 eprintln!("error sending message: {e} ({e:?})");
                 drop(writer);
                 self.remove_client(client_id, EndRoomSession::Disconnect).await;
@@ -300,7 +398,7 @@ impl Room {
         let mut notified = HashSet::new();
         while let Some((&client_id, client)) = self.clients.iter().find(|&(client_id, _)| !notified.contains(client_id)) {
             let mut writer = client.writer.lock().await;
-            if let Err(e) = msg.write(&mut *writer).await {
+            if let Err(e) = writer.write(msg).await {
                 eprintln!("error sending message: {e} ({e:?})");
                 drop(writer);
                 self.remove_client(client_id, EndRoomSession::Disconnect).await;
@@ -309,7 +407,7 @@ impl Room {
         }
     }
 
-    pub async fn add_client(&mut self, client_id: SocketId, writer: Arc<Mutex<OwnedWriteHalf>>, end_tx: oneshot::Sender<EndRoomSession>) {
+    pub async fn add_client(&mut self, client_id: C::SessionId, writer: Arc<Mutex<C::Writer>>, end_tx: oneshot::Sender<EndRoomSession>) {
         // the client doesn't need to be told that it has connected, so notify everyone *before* adding it
         self.write_all(&ServerMessage::ClientConnected).await;
         self.clients.insert(client_id, Client {
@@ -319,12 +417,12 @@ impl Room {
         });
     }
 
-    pub fn has_client(&self, client_id: SocketId) -> bool {
+    pub fn has_client(&self, client_id: C::SessionId) -> bool {
         self.clients.contains_key(&client_id)
     }
 
     #[async_recursion]
-    pub async fn remove_client(&mut self, client_id: SocketId, to: EndRoomSession) {
+    pub async fn remove_client(&mut self, client_id: C::SessionId, to: EndRoomSession) {
         if let Some(client) = self.clients.remove(&client_id) {
             let _ = client.end_tx.send(to);
             let msg = if let Some(Player { world, .. }) = client.player {
@@ -352,7 +450,7 @@ impl Room {
     }
 
     /// Moves a player from unloaded (no world assigned) to the given `world`.
-    pub async fn load_player(&mut self, client_id: SocketId, world: NonZeroU8) -> Result<bool, async_proto::WriteError> {
+    pub async fn load_player(&mut self, client_id: C::SessionId, world: NonZeroU8) -> Result<bool, async_proto::WriteError> {
         if self.clients.iter().any(|(&iter_client_id, iter_client)| iter_client.player.as_ref().map_or(false, |p| p.world == world) && iter_client_id != client_id) {
             return Ok(false)
         }
@@ -380,13 +478,13 @@ impl Room {
         Ok(true)
     }
 
-    pub async fn unload_player(&mut self, client_id: SocketId) {
+    pub async fn unload_player(&mut self, client_id: C::SessionId) {
         if let Some(prev_player) = self.clients.get_mut(&client_id).expect("no such client").player.take() {
             self.write_all(&ServerMessage::ResetPlayerId(prev_player.world)).await;
         }
     }
 
-    pub async fn set_player_name(&mut self, client_id: SocketId, name: Filename) -> bool {
+    pub async fn set_player_name(&mut self, client_id: C::SessionId, name: Filename) -> bool {
         if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").player {
             let world = player.world;
             player.name = name;
@@ -398,7 +496,7 @@ impl Room {
         }
     }
 
-    pub async fn set_file_hash(&mut self, client_id: SocketId, hash: [HashIcon; 5]) -> Result<(), SetHashError> {
+    pub async fn set_file_hash(&mut self, client_id: C::SessionId, hash: [HashIcon; 5]) -> Result<(), SetHashError> {
         if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").player {
             if self.file_hash.map_or(false, |room_hash| room_hash != hash) {
                 return Err(SetHashError::FileHash)
@@ -457,7 +555,7 @@ impl Room {
         Ok(())
     }
 
-    pub async fn queue_item(&mut self, source_client: SocketId, key: u32, kind: u16, target_world: NonZeroU8) -> Result<(), QueueItemError> {
+    pub async fn queue_item(&mut self, source_client: C::SessionId, key: u32, kind: u16, target_world: NonZeroU8) -> Result<(), QueueItemError> {
         if let Some(source) = self.clients.get(&source_client).expect("no such client").player {
             if let Some(player_hash) = source.file_hash {
                 if let Some(room_hash) = self.file_hash {
@@ -510,7 +608,7 @@ impl Room {
         Ok(())
     }
 
-    pub async fn set_save_data(&mut self, client_id: SocketId, save: oottracker::Save) -> Result<(), async_proto::WriteError> {
+    pub async fn set_save_data(&mut self, client_id: C::SessionId, save: oottracker::Save) -> Result<(), async_proto::WriteError> {
         let client = self.clients.get_mut(&client_id).expect("no such client");
         client.save_data = Some(save.clone());
         #[cfg(feature = "tokio-tungstenite")]

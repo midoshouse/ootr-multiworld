@@ -72,6 +72,10 @@ features = ["utils"]
 version = "1"
 features = ["fs", "net", "sync", "time"]
 
+[dependencies.tokio-tungstenite]
+version = "0.18"
+features = ["rustls-tls-webpki-roots"]
+
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
 branch = "main"

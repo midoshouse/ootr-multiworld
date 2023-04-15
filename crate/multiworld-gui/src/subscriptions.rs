@@ -6,6 +6,7 @@ use {
             Hasher,
         },
         net::Ipv4Addr,
+        pin::pin,
         sync::Arc,
         time::Duration,
     },
@@ -18,6 +19,7 @@ use {
         stream::{
             self,
             BoxStream,
+            SplitSink,
             StreamExt as _,
             TryStreamExt as _,
         },
@@ -28,7 +30,6 @@ use {
             TcpListener,
             TcpStream,
         },
-        pin,
         select,
         sync::Mutex,
         time::{
@@ -37,14 +38,21 @@ use {
             timeout,
         },
     },
-    multiworld::frontend,
+    tokio_tungstenite::tungstenite,
+    multiworld::{
+        frontend,
+        websocket_url,
+    },
     crate::{
         Error,
         FrontendFlags,
         LoggingReader,
+        LoggingStream,
         Message,
     },
 };
+
+pub(crate) type WsSink = SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>, tungstenite::Message>;
 
 pub(crate) struct Connection {
     pub(crate) frontend: FrontendFlags,
@@ -146,7 +154,6 @@ impl<H: Hasher, I> Recipe<H, I> for Listener {
 
 pub(crate) struct Client {
     pub(crate) log: bool,
-    pub(crate) port: u16,
 }
 
 impl<H: Hasher, I> Recipe<H, I> for Client {
@@ -158,27 +165,24 @@ impl<H: Hasher, I> Recipe<H, I> for Client {
 
     fn stream(self: Box<Self>, _: BoxStream<'_, I>) -> BoxStream<'_, Message> {
         let log = self.log;
-        stream::once(TcpStream::connect((multiworld::ADDRESS_V4, self.port)))
+        stream::once(tokio_tungstenite::connect_async(websocket_url()))
             .err_into::<Error>()
-            .and_then(move |mut tcp_stream| async move {
-                multiworld::handshake(&mut tcp_stream).await?;
-                let (reader, writer) = tcp_stream.into_split();
-                let reader = LoggingReader { context: "from server", inner: reader, log };
-                let writer = Arc::new(Mutex::new(writer));
+            .and_then(move |(websocket, _)| async move {
+                let (sink, stream) = websocket.split();
+                let stream = LoggingStream { context: "from server", inner: stream, log };
+                let sink = Arc::new(Mutex::new(sink));
                 let interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
                 Ok(
-                    stream::once(future::ok(Message::ServerConnected(writer.clone())))
-                    .chain(stream::try_unfold((reader, writer, interval), |(reader, writer, mut interval)| async move {
-                        pin! {
-                            let read = timeout(Duration::from_secs(60), reader.read_owned::<multiworld::ServerMessage>());
-                        }
+                    stream::once(future::ok(Message::ServerConnected(sink.clone())))
+                    .chain(stream::try_unfold((stream, sink, interval), |(stream, sink, mut interval)| async move {
+                        let mut read = pin!(timeout(Duration::from_secs(60), stream.read_owned()));
                         Ok(loop {
                             select! {
                                 res = &mut read => {
-                                    let (reader, msg) = res??;
-                                    break Some((Message::Server(msg), (reader, writer, interval)))
+                                    let (stream, msg) = res??;
+                                    break Some((Message::Server(msg), (stream, sink, interval)))
                                 },
-                                _ = interval.tick() => multiworld::ClientMessage::Ping.write(&mut *writer.lock().await).await?,
+                                _ = interval.tick() => multiworld::ClientMessage::Ping.write_ws(&mut *sink.lock().await).await?,
                             }
                         })
                     }))

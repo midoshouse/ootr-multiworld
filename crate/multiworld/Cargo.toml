@@ -9,8 +9,10 @@ pyo3 = ["dep:pyo3", "ootr-utils/pyo3"]
 
 [dependencies]
 async-recursion = "1"
+async-trait = "0.1"
 chrono = "0.4"
 directories = "5"
+futures = "0.3"
 itertools = "0.10"
 once_cell = "1"
 ring = "0.16"
@@ -39,6 +41,10 @@ optional = true
 version = "0.11"
 default-features = false
 features = ["blocking", "json"]
+
+[dependencies.rocket_ws]
+git = "https://github.com/SergioBenitez/Rocket"
+branch = "master"
 
 [dependencies.serde]
 version = "1"
