@@ -160,6 +160,43 @@ impl LoggingSink {
     }
 }
 
+fn hash_icon(icon: HashIcon) -> Image {
+    Image::new(image::Handle::from_memory(match icon {
+        HashIcon::Beans => &include_bytes!("../../../assets/hash-icon/deku-stick.png")[..],
+        HashIcon::BigMagic => &include_bytes!("../../../assets/hash-icon/deku-nut.png")[..],
+        HashIcon::Bombchu => &include_bytes!("../../../assets/hash-icon/bow.png")[..],
+        HashIcon::Boomerang => &include_bytes!("../../../assets/hash-icon/slingshot.png")[..],
+        HashIcon::BossKey => &include_bytes!("../../../assets/hash-icon/fairy-ocarina.png")[..],
+        HashIcon::BottledFish => &include_bytes!("../../../assets/hash-icon/bombchu.png")[..],
+        HashIcon::BottledMilk => &include_bytes!("../../../assets/hash-icon/longshot.png")[..],
+        HashIcon::Bow => &include_bytes!("../../../assets/hash-icon/boomerang.png")[..],
+        HashIcon::Compass => &include_bytes!("../../../assets/hash-icon/lens-of-truth.png")[..],
+        HashIcon::Cucco => &include_bytes!("../../../assets/hash-icon/beans.png")[..],
+        HashIcon::DekuNut => &include_bytes!("../../../assets/hash-icon/megaton-hammer.png")[..],
+        HashIcon::DekuStick => &include_bytes!("../../../assets/hash-icon/bottled-fish.png")[..],
+        HashIcon::FairyOcarina => &include_bytes!("../../../assets/hash-icon/bottled-milk.png")[..],
+        HashIcon::Frog => &include_bytes!("../../../assets/hash-icon/mask-of-truth.png")[..],
+        HashIcon::GoldScale => &include_bytes!("../../../assets/hash-icon/sold-out.png")[..],
+        HashIcon::HeartContainer => &include_bytes!("../../../assets/hash-icon/cucco.png")[..],
+        HashIcon::HoverBoots => &include_bytes!("../../../assets/hash-icon/mushroom.png")[..],
+        HashIcon::KokiriTunic => &include_bytes!("../../../assets/hash-icon/saw.png")[..],
+        HashIcon::LensOfTruth => &include_bytes!("../../../assets/hash-icon/frog.png")[..],
+        HashIcon::Longshot => &include_bytes!("../../../assets/hash-icon/master-sword.png")[..],
+        HashIcon::Map => &include_bytes!("../../../assets/hash-icon/mirror-shield.png")[..],
+        HashIcon::MaskOfTruth => &include_bytes!("../../../assets/hash-icon/kokiri-tunic.png")[..],
+        HashIcon::MasterSword => &include_bytes!("../../../assets/hash-icon/hover-boots.png")[..],
+        HashIcon::MegatonHammer => &include_bytes!("../../../assets/hash-icon/silver-gauntlets.png")[..],
+        HashIcon::MirrorShield => &include_bytes!("../../../assets/hash-icon/gold-scale.png")[..],
+        HashIcon::Mushroom => &include_bytes!("../../../assets/hash-icon/stone-of-agony.png")[..],
+        HashIcon::Saw => &include_bytes!("../../../assets/hash-icon/skull-token.png")[..],
+        HashIcon::SilverGauntlets => &include_bytes!("../../../assets/hash-icon/heart-container.png")[..],
+        HashIcon::SkullToken => &include_bytes!("../../../assets/hash-icon/boss-key.png")[..],
+        HashIcon::Slingshot => &include_bytes!("../../../assets/hash-icon/compass.png")[..],
+        HashIcon::SoldOut => &include_bytes!("../../../assets/hash-icon/map.png")[..],
+        HashIcon::StoneOfAgony => &include_bytes!("../../../assets/hash-icon/big-magic.png")[..],
+    }))
+}
+
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error(transparent)] Client(#[from] multiworld::ClientError),
@@ -695,7 +732,7 @@ impl Application for State {
                             Ok(Message::Nop)
                         })
                     },
-                    ServerMessage::ItemQueue(queue) => if let SessionState::Room { wrong_file_hash: false, .. } = self.server_connection {
+                    ServerMessage::ItemQueue(queue) => if let SessionState::Room { wrong_file_hash: None, .. } = self.server_connection {
                         if let Some(writer) = self.frontend_writer.clone() {
                             return cmd(async move {
                                 writer.write(frontend::ServerMessage::ItemQueue(queue)).await?;
@@ -703,7 +740,7 @@ impl Application for State {
                             })
                         }
                     },
-                    ServerMessage::GetItem(item) => if let SessionState::Room { wrong_file_hash: false, .. } = self.server_connection {
+                    ServerMessage::GetItem(item) => if let SessionState::Room { wrong_file_hash: None, .. } = self.server_connection {
                         if let Some(writer) = self.frontend_writer.clone() {
                             return cmd(async move {
                                 writer.write(frontend::ServerMessage::GetItem(item)).await?;
@@ -864,8 +901,28 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                SessionState::Room { wrong_file_hash: true, .. } => Column::new()
+                SessionState::Room { wrong_file_hash: Some([[server1, server2, server3, server4, server5], [client1, client2, client3, client4, client5]]), .. } => Column::new()
                     .push("This room is for a different seed.")
+                    .push(Row::new()
+                        .push("Room:")
+                        //TODO add gray background in light mode
+                        .push(hash_icon(server1))
+                        .push(hash_icon(server2))
+                        .push(hash_icon(server3))
+                        .push(hash_icon(server4))
+                        .push(hash_icon(server5))
+                        .spacing(8)
+                    )
+                    .push(Row::new()
+                        .push("You:")
+                        //TODO add gray background in light mode
+                        .push(hash_icon(client1))
+                        .push(hash_icon(client2))
+                        .push(hash_icon(client3))
+                        .push(hash_icon(client4))
+                        .push(hash_icon(client5))
+                        .spacing(8)
+                    )
                     .push({
                         let mut row = Row::new();
                         row = row.push(Button::new("Delete Room").on_press(Message::SetRoomView(RoomView::ConfirmDeletion)));
@@ -877,7 +934,7 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                SessionState::Room { view: RoomView::Options, wrong_file_hash: false, autodelete_delta, .. } => Column::new()
+                SessionState::Room { view: RoomView::Options, wrong_file_hash: None, autodelete_delta, .. } => Column::new()
                     .push(Button::new("Back").on_press(Message::SetRoomView(RoomView::Normal)))
                     .push("Automatically delete this room if no items are sent for:")
                     .push({
@@ -911,7 +968,7 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                SessionState::Room { view: RoomView::Normal, wrong_file_hash: false, ref players, num_unassigned_clients, .. } => {
+                SessionState::Room { view: RoomView::Normal, wrong_file_hash: None, ref players, num_unassigned_clients, .. } => {
                     let (players, other) = format_room_state(players, num_unassigned_clients, self.last_world);
                     let mut col = Column::new()
                         .push(Row::new()

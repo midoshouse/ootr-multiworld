@@ -26,4 +26,5 @@ If you can't use the installer due to antivirus software blocking it, you can fo
 # Credits
 
 * Icon based on chest image created for [Mido's House](https://midos.house/) by [Maplestar](https://github.com/Maplesstar).
+* Some seed hash icons by [Xopar](https://github.com/matthewkirby) and shiroaeli, used with permission.
 * Some code based on [Bizhawk Shuffler 2](https://github.com/authorblues/bizhawk-shuffler-2)

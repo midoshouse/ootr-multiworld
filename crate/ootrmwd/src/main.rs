@@ -380,7 +380,7 @@ async fn room_session<C: ClientKind>(db_pool: PgPool, rooms: Rooms<C>, room: Arc
                     },
                     ClientMessage::SendItem { key, kind, target_world } => match room.write().await.queue_item(socket_id, key, kind, target_world).await {
                         Ok(()) => {}
-                        Err(multiworld::QueueItemError::FileHash) => writer.lock().await.write(&ServerMessage::StructuredError(ServerError::WrongFileHash)).await?,
+                        Err(multiworld::QueueItemError::FileHash { server, client }) => writer.lock().await.write(&ServerMessage::WrongFileHash { server, client }).await?,
                         Err(e) => {
                             writer.lock().await.write(&ServerMessage::OtherError(e.to_string())).await?;
                             return Err(e.into())
@@ -403,13 +403,20 @@ async fn room_session<C: ClientKind>(db_pool: PgPool, rooms: Rooms<C>, room: Arc
                         rooms.remove(room.name.clone()).await;
                     }
                     ClientMessage::SaveData(save) => room.write().await.set_save_data(socket_id, save).await?,
-                    ClientMessage::SendAll { source_world, spoiler_log } => room.write().await.send_all(source_world, &spoiler_log).await?,
+                    ClientMessage::SendAll { source_world, spoiler_log } => match room.write().await.send_all(source_world, &spoiler_log).await {
+                        Ok(()) => {}
+                        Err(multiworld::SendAllError::FileHash { server, client }) => writer.lock().await.write(&ServerMessage::WrongFileHash { server, client }).await?,
+                        Err(e) => {
+                            writer.lock().await.write(&ServerMessage::OtherError(e.to_string())).await?;
+                            return Err(e.into())
+                        }
+                    },
                     ClientMessage::SaveDataError { debug, version } => if version >= multiworld::version() {
                         sqlx::query!("INSERT INTO save_data_errors (debug, version) VALUES ($1, $2)", debug, version.to_string()).execute(&db_pool).await?;
                     },
                     ClientMessage::FileHash(hash) => match room.write().await.set_file_hash(socket_id, hash).await {
                         Ok(()) => {}
-                        Err(multiworld::SetHashError::FileHash) => writer.lock().await.write(&ServerMessage::StructuredError(ServerError::WrongFileHash)).await?,
+                        Err(multiworld::SetHashError::FileHash { server, client }) => writer.lock().await.write(&ServerMessage::WrongFileHash { server, client }).await?,
                         Err(e) => {
                             writer.lock().await.write(&ServerMessage::OtherError(e.to_string())).await?;
                             return Err(e.into())

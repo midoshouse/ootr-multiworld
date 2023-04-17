@@ -338,16 +338,22 @@ impl<C: ClientKind> fmt::Debug for Room<C> {
 #[derive(Debug, thiserror::Error)]
 pub enum QueueItemError {
     #[error(transparent)] Write(#[from] async_proto::WriteError),
-    #[error("this room is for a different seed")]
-    FileHash,
+    #[error("this room is for a different seed: server has {} but client has {}", natjoin(.server).unwrap(), natjoin(.client).unwrap())]
+    FileHash {
+        server: [HashIcon; 5],
+        client: [HashIcon; 5],
+    },
     #[error("please claim a world before sending items")]
     NoSourceWorld,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum SetHashError {
-    #[error("this room is for a different seed")]
-    FileHash,
+    #[error("this room is for a different seed: server has {} but client has {}", natjoin(.server).unwrap(), natjoin(.client).unwrap())]
+    FileHash {
+        server: [HashIcon; 5],
+        client: [HashIcon; 5],
+    },
     #[error("please claim a world before reporting your file hash")]
     NoSourceWorld,
 }
@@ -376,8 +382,11 @@ pub enum SendAllError {
     #[error(transparent)] Clone(#[from] ootr_utils::CloneError),
     #[error(transparent)] Python(#[from] PyErr),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
-    #[error("this room is for a different seed")]
-    FileHash,
+    #[error("this room is for a different seed: server has {} but client has {}", natjoin(.server).unwrap(), natjoin(.client).unwrap())]
+    FileHash {
+        server: [HashIcon; 5],
+        client: [HashIcon; 5],
+    },
     #[error("{}", display_send_item_errors(.0))]
     Items(Vec<SendItemError>),
 }
@@ -498,8 +507,10 @@ impl<C: ClientKind> Room<C> {
 
     pub async fn set_file_hash(&mut self, client_id: C::SessionId, hash: [HashIcon; 5]) -> Result<(), SetHashError> {
         if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").player {
-            if self.file_hash.map_or(false, |room_hash| room_hash != hash) {
-                return Err(SetHashError::FileHash)
+            if let Some(room_hash) = self.file_hash {
+                if room_hash != hash {
+                    return Err(SetHashError::FileHash { server: room_hash, client: hash })
+                }
             }
             let world = player.world;
             player.file_hash = Some(hash);
@@ -560,7 +571,7 @@ impl<C: ClientKind> Room<C> {
             if let Some(player_hash) = source.file_hash {
                 if let Some(room_hash) = self.file_hash {
                     if player_hash != room_hash {
-                        return Err(QueueItemError::FileHash)
+                        return Err(QueueItemError::FileHash { server: room_hash, client: player_hash })
                     }
                 } else {
                     self.file_hash = Some(player_hash);
@@ -575,8 +586,12 @@ impl<C: ClientKind> Room<C> {
 
     #[cfg(feature = "pyo3")]
     pub async fn send_all(&mut self, source_world: NonZeroU8, spoiler_log: &SpoilerLog) -> Result<(), SendAllError> {
-        if self.file_hash.map_or(false, |room_hash| spoiler_log.file_hash != room_hash) {
-            return Err(SendAllError::FileHash)
+        if let Some(room_hash) = self.file_hash {
+            if spoiler_log.file_hash != room_hash {
+                return Err(SendAllError::FileHash { server: room_hash, client: spoiler_log.file_hash })
+            }
+        } else {
+            self.file_hash = Some(spoiler_log.file_hash);
         }
         spoiler_log.version.clone_repo().await?;
         let items_to_queue = Python::with_gil(|py| {
@@ -788,9 +803,6 @@ server_errors! {
     /// The client sent the wrong password for the given room.
     #[error("wrong password")]
     WrongPassword,
-    /// The client has the wrong seed loaded.
-    #[error("wrong file hash")]
-    WrongFileHash,
     /// The client attempted to create a room with a duplicate name.
     #[error("a room with this name already exists")]
     RoomExists,
@@ -848,6 +860,11 @@ pub enum ServerMessage {
     AutoDeleteDelta(Duration),
     /// There are no active players in any rooms. Sent after [`ClientMessage::WaitUntilEmpty`].
     RoomsEmpty,
+    /// The client has the wrong seed loaded.
+    WrongFileHash {
+        server: [HashIcon; 5],
+        client: [HashIcon; 5],
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -921,7 +938,7 @@ pub enum SessionState<E> {
         item_queue: Vec<u16>,
         autodelete_delta: Duration,
         view: RoomView,
-        wrong_file_hash: bool,
+        wrong_file_hash: Option<[[HashIcon; 5]; 2]>,
     },
     Closed,
 }
@@ -939,8 +956,8 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::StructuredError(ServerError::WrongFileHash) => if let SessionState::Room { wrong_file_hash, .. } = self {
-                *wrong_file_hash = true;
+            ServerMessage::WrongFileHash { server, client } => if let SessionState::Room { wrong_file_hash, .. } = self {
+                *wrong_file_hash = Some([server, client]);
             } else {
                 *self = Self::Error {
                     e: SessionStateError::Mismatch,
@@ -1014,7 +1031,7 @@ impl<E> SessionState<E> {
                 *self = SessionState::Room {
                     item_queue: Vec::default(),
                     view: RoomView::Normal,
-                    wrong_file_hash: false,
+                    wrong_file_hash: None,
                     room_name, room_password, players, num_unassigned_clients, autodelete_delta,
                 };
             }
