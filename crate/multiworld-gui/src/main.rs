@@ -912,21 +912,26 @@ impl Application for State {
                     .padding(8)
                     .into(),
                 SessionState::Room { view: RoomView::Normal, wrong_file_hash: false, ref players, num_unassigned_clients, .. } => {
+                    let (players, other) = format_room_state(players, num_unassigned_clients, self.last_world);
                     let mut col = Column::new()
                         .push(Row::new()
                             .push(Button::new("Delete Room").on_press(Message::SetRoomView(RoomView::ConfirmDeletion)))
                             .push(Button::new("Options").on_press(Message::SetRoomView(RoomView::Options)))
                             .spacing(8)
-                        );
-                    let (players, other) = format_room_state(players, num_unassigned_clients, self.last_world);
-                    for (player_id, player) in players.into_iter() {
-                        col = col.push(Row::new()
-                            .push(Text::new(player))
-                            .push(Button::new(if self.last_world.map_or(false, |my_id| my_id == player_id) { "Leave" } else { "Kick" }).on_press(Message::Kick(player_id)))
-                        );
+                        )
+                        .push(Scrollable::new(Row::new()
+                            .push(Column::with_children(players.into_iter().map(|(player_id, player)| Row::new()
+                                .push(Text::new(player))
+                                .push(Button::new(if self.last_world.map_or(false, |my_id| my_id == player_id) { "Leave" } else { "Kick" }).on_press(Message::Kick(player_id)))
+                                .into()
+                            ).collect()))
+                            .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
+                            .spacing(16)
+                        ));
+                    if !other.is_empty() {
+                        col = col.push(Text::new(other));
                     }
                     col
-                        .push(Text::new(other))
                         .spacing(8)
                         .padding(8)
                         .into()
