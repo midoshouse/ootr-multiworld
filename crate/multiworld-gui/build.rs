@@ -1,3 +1,6 @@
+#![deny(rust_2018_idioms, unused, unused_crate_dependencies, unused_import_braces, unused_lifetimes, warnings)]
+#![forbid(unsafe_code)]
+
 use {
     std::io,
     winres::WindowsResource,

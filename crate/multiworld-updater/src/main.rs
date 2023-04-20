@@ -39,9 +39,10 @@ use {
         widget::*,
         window::{
             self,
-            Icon,
+            icon,
         },
     },
+    ::image::ImageFormat,
     itertools::Itertools as _,
     open::that as open,
     semver::Version,
@@ -579,11 +580,10 @@ enum MainError {
 fn main(args: Args) -> Result<(), MainError> {
     match args {
         Args::Emu(args) => {
-            let icon = ::image::load_from_memory(include_bytes!("../../../assets/icon.ico")).expect("failed to load embedded DynamicImage").to_rgba8();
             let res = App::run(Settings {
                 window: window::Settings {
                     size: (320, 240),
-                    icon: Some(Icon::from_rgba(icon.as_flat_samples().as_slice().to_owned(), icon.width(), icon.height())?),
+                    icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
                     ..window::Settings::default()
                 },
                 ..Settings::with_flags(args)

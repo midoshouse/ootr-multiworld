@@ -48,10 +48,6 @@ features = ["chrono", "postgres", "runtime-tokio-rustls"]
 version = "1"
 features = ["macros", "net", "rt-multi-thread", "sync", "time"]
 
-[dependencies.tungstenite]
-version = "0.18"
-default-features = false
-
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
 branch = "main"

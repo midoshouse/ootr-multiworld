@@ -17,7 +17,7 @@ bytes = "1"
 dark-light = "1"
 directories = "5"
 futures = "0.3"
-iced_native = "0.9"
+iced_native = "0.10"
 itertools = "0.10"
 open = "4"
 runas = "1"
@@ -37,11 +37,11 @@ version = "4"
 features = ["derive"]
 
 [dependencies.iced]
-version = "0.8"
+version = "0.9"
 features = ["default_system_font", "tokio"]
 
 [dependencies.iced_graphics]
-version = "0.7"
+version = "0.8"
 optional = true
 
 [dependencies.image]

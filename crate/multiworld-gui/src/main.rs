@@ -40,7 +40,7 @@ use {
         widget::*,
         window::{
             self,
-            Icon,
+            icon,
         },
     },
     ::image::ImageFormat,
@@ -867,10 +867,10 @@ impl Application for State {
                     .padding(8)
                     .into(),
                 SessionState::Lobby { wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } => Column::new()
-                    .push(Radio::new(false, "Connect to existing room", Some(create_new_room), Message::SetCreateNewRoom))
-                    .push(Radio::new(true, "Create new room", Some(create_new_room), Message::SetCreateNewRoom))
+                    .push(Radio::new("Connect to existing room", false, Some(create_new_room), Message::SetCreateNewRoom))
+                    .push(Radio::new("Create new room", true, Some(create_new_room), Message::SetCreateNewRoom))
                     .push(if create_new_room {
-                        Element::from(TextInput::new("Room name", new_room_name, Message::SetNewRoomName).on_submit(Message::JoinRoom).padding(5))
+                        Element::from(TextInput::new("Room name", new_room_name).on_input(Message::SetNewRoomName).on_paste(Message::SetNewRoomName).on_submit(Message::JoinRoom).padding(5))
                     } else {
                         if rooms.is_empty() {
                             Text::new("(no rooms currently open)").into()
@@ -878,7 +878,7 @@ impl Application for State {
                             PickList::new(rooms.iter().cloned().collect_vec(), existing_room_selection.clone(), Message::SetExistingRoomSelection).into()
                         }
                     })
-                    .push(TextInput::new("Password", password, Message::SetPassword).password().on_submit(Message::JoinRoom).padding(5))
+                    .push(TextInput::new("Password", password).password().on_input(Message::SetPassword).on_paste(Message::SetPassword).on_submit(Message::JoinRoom).padding(5))
                     .push(Row::new()
                         .push({
                             let mut btn = Button::new("Connect");
@@ -950,11 +950,23 @@ impl Application for State {
                     })
                     .push(Row::new()
                         .push("Send all items from world:")
-                        .push(TextInput::new("", &self.send_all_world, Message::SetSendAllWorld).width(Length::Fixed(32.0)))
+                        .push({
+                            let mut input = TextInput::new("", &self.send_all_world).on_input(Message::SetSendAllWorld).on_paste(Message::SetSendAllWorld).width(Length::Fixed(32.0));
+                            if self.send_all_world.parse::<NonZeroU8>().is_ok() {
+                                input = input.on_submit(Message::SendAll);
+                            }
+                            input
+                        })
                         .spacing(8)
                     )
                     .push(Row::new()
-                        .push(TextInput::new("Spoiler Log", &self.send_all_path, Message::SetSendAllPath))
+                        .push({
+                            let mut input = TextInput::new("Spoiler Log", &self.send_all_path).on_input(Message::SetSendAllPath).on_paste(Message::SetSendAllPath);
+                            if self.send_all_world.parse::<NonZeroU8>().is_ok() {
+                                input = input.on_submit(Message::SendAll);
+                            }
+                            input
+                        })
                         .push(Button::new("Browse…").on_press(Message::SendAllBrowse))
                         .push({
                             let mut btn = Button::new("Send");
@@ -1081,7 +1093,7 @@ fn main(CliArgs { frontend }: CliArgs) -> Result<(), MainError> {
     let res = State::run(Settings {
         window: window::Settings {
             size: (256, 256),
-            icon: Some(Icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
+            icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
             ..window::Settings::default()
         },
         ..Settings::with_flags(match frontend {

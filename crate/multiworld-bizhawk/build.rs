@@ -1,3 +1,6 @@
+#![deny(rust_2018_idioms, unused, unused_crate_dependencies, unused_import_braces, unused_lifetimes, warnings)]
+#![forbid(unsafe_code)]
+
 use {
     std::{
         collections::HashSet,
@@ -46,7 +49,7 @@ async fn main() -> Result<(), Error> {
     let is_release = match &*env::var("PROFILE").expect("missing PROFILE envar") {
         "debug" => false,
         "release" => true,
-        profile => panic!("unexpected PROFILE envar: {:?}", profile),
+        profile => panic!("unexpected PROFILE envar: {profile:?}"),
     };
     let source_path = if is_release {
         Path::new("../../target/release/multiworld.dll")

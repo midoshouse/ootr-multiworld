@@ -13,15 +13,17 @@ If you can't use the installer due to antivirus software blocking it, you can fo
 |Feature|[bizhawk-co-op](https://github.com/TestRunnerSRL/bizhawk-co-op)|Mido's House Multiworld|
 |---|---|---|
 |[Project64](https://pj64-emu.com/) support||✓|
-|support for older versions of BizHawk|✓||
+|[BizHawk](https://tasvideos.org/BizHawk) support|2.3–2.8 (no support for the current version)|2.9 only (no support for older versions)|
 |better performance on BizHawk||✓|
 |no port forwarding or Hamachi required||✓|
+|async support: players don't need to be connected at the same time||✓|
 |can be used via LAN without an internet connection|✓|planned ([#3](https://github.com/midoshouse/ootr-multiworld/issues/3))|
 |easier setup: player name and world number are read from the game||✓|
 |prevents players from accidentally using the same world number||✓|
 |support for some other games|✓||
 |automatically updates itself||✓|
-|send all items from a world using a spoiler log|using [an external service](https://pidgezero.one/zootr/mwlua.html)|built in|
+|send all remaining items from a world using a spoiler log|using [an external service](https://pidgezero.one/zootr/mwlua.html)|built in|
+|choose individual items to give to a player|using [an external service](https://pidgezero.one/zootr/mwlua.html)||
 
 # Credits
 

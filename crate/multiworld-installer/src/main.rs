@@ -36,9 +36,10 @@ use {
         widget::*,
         window::{
             self,
-            Icon,
+            icon,
         },
     },
+    ::image::ImageFormat,
     is_elevated::is_elevated,
     itertools::Itertools as _,
     kuchiki::traits::TendrilSink as _,
@@ -723,8 +724,8 @@ impl Application for State {
                 Column::new()
                     .push(Text::new("Which emulator do you want to use?"))
                     .push(Text::new("Multiworld can be added to an existing installation of the selected emulator, or it can install the emulator for you."))
-                    .push(Radio::new(Emulator::BizHawk, "BizHawk", emulator, Message::SetEmulator))
-                    .push(Radio::new(Emulator::Project64, "Project64", emulator, Message::SetEmulator))
+                    .push(Radio::new("BizHawk", Emulator::BizHawk, emulator, Message::SetEmulator))
+                    .push(Radio::new("Project64", Emulator::Project64, emulator, Message::SetEmulator))
                     .spacing(8)
                     .into(),
                 Some({
@@ -739,8 +740,8 @@ impl Application for State {
             Page::LocateEmulator { emulator, install_emulator, ref emulator_path, .. } => (
                 {
                     let mut col = Column::new();
-                    col = col.push(Radio::new(true, format!("Install {emulator} to:"), Some(install_emulator), Message::SetInstallEmulator));
-                    col = col.push(Radio::new(false, format!("I already have {emulator} at:"), Some(install_emulator), Message::SetInstallEmulator));
+                    col = col.push(Radio::new(format!("Install {emulator} to:"), true, Some(install_emulator), Message::SetInstallEmulator));
+                    col = col.push(Radio::new(format!("I already have {emulator} at:"), false, Some(install_emulator), Message::SetInstallEmulator));
                     col = col.push(Row::new()
                         .push(TextInput::new(&if install_emulator {
                             Cow::Owned(format!("{emulator} target folder"))
@@ -749,7 +750,7 @@ impl Application for State {
                                 Emulator::BizHawk => Cow::Borrowed("The folder with EmuHawk.exe in it"),
                                 Emulator::Project64 => Cow::Borrowed("The folder with Project64.exe in it"),
                             }
-                        }, emulator_path, Message::EmulatorPath).padding(5))
+                        }, emulator_path).on_input(Message::EmulatorPath).on_paste(Message::EmulatorPath).padding(5))
                         .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseEmulatorPath))
                         .spacing(8)
                     );
@@ -774,7 +775,7 @@ impl Application for State {
                 Column::new()
                     .push(Text::new("Install Multiworld to:"))
                     .push(Row::new()
-                        .push(TextInput::new("Multiworld target folder", multiworld_path, Message::MultiworldPath).padding(5))
+                        .push(TextInput::new("Multiworld target folder", multiworld_path).on_input(Message::MultiworldPath).on_paste(Message::MultiworldPath).padding(5))
                         .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseMultiworldPath))
                         .spacing(8)
                     )
@@ -855,11 +856,10 @@ enum MainError {
 
 #[wheel::main(debug)]
 fn main(args: Args) -> Result<(), MainError> {
-    let icon = ::image::load_from_memory(include_bytes!("../../../assets/icon.ico")).expect("failed to load embedded DynamicImage").to_rgba8();
     let res = State::run(Settings {
         window: window::Settings {
             size: (400, 300),
-            icon: Some(Icon::from_rgba(icon.as_flat_samples().as_slice().to_owned(), icon.width(), icon.height())?),
+            icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
             ..window::Settings::default()
         },
         ..Settings::with_flags(args)
