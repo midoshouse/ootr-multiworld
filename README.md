@@ -14,7 +14,6 @@ If you can't use the installer due to antivirus software blocking it, you can fo
 |---|---|---|
 |[Project64](https://pj64-emu.com/) support||✓|
 |[BizHawk](https://tasvideos.org/BizHawk) support|2.3–2.8 (no support for the current version)|2.9 only (no support for older versions)|
-|better performance on BizHawk||✓|
 |no port forwarding or Hamachi required||✓|
 |async support: players don't need to be connected at the same time||✓|
 |can be used via LAN without an internet connection|✓|planned ([#3](https://github.com/midoshouse/ootr-multiworld/issues/3))|
