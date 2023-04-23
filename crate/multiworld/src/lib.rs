@@ -1014,8 +1014,11 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::DeleteRoom(name) => if let SessionState::Lobby { rooms, .. } = self {
+            ServerMessage::DeleteRoom(name) => if let SessionState::Lobby { rooms, existing_room_selection, .. } = self {
                 rooms.remove(&name);
+                if existing_room_selection.as_ref().map_or(false, |existing_room_selection| *existing_room_selection == name) {
+                    *existing_room_selection = None;
+                }
             } else {
                 *self = Self::Error {
                     e: SessionStateError::Mismatch,
