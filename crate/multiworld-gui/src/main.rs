@@ -75,6 +75,7 @@ use {
         ServerMessage,
         SessionState,
         SessionStateError,
+        config::CONFIG,
         format_room_state,
         frontend,
         github::Repo,
@@ -262,12 +263,6 @@ impl State {
     }
 }
 
-struct Flags {
-    log: bool,
-    port: u16,
-    frontend: FrontendFlags,
-}
-
 #[derive(Debug, Clone)]
 enum FrontendFlags {
     BizHawk {
@@ -302,9 +297,9 @@ impl Application for State {
     type Executor = iced::executor::Default;
     type Message = Message;
     type Theme = Theme;
-    type Flags = Flags;
+    type Flags = FrontendFlags;
 
-    fn new(Flags { log, port, frontend }: Flags) -> (Self, Command<Message>) {
+    fn new(frontend: FrontendFlags) -> (Self, Command<Message>) {
         (Self {
             frontend: frontend.clone(),
             debug_info_copied: false,
@@ -312,6 +307,8 @@ impl Application for State {
             frontend_subscription_error: None,
             frontend_connection_id: 0,
             frontend_writer: None,
+            log: CONFIG.log,
+            port: CONFIG.port,
             server_connection: SessionState::Init,
             server_writer: None,
             retry: Instant::now(),
@@ -325,7 +322,6 @@ impl Application for State {
             updates_checked: false,
             send_all_path: String::default(),
             send_all_world: String::default(),
-            log, port,
         }, cmd(async move {
             let http_client = reqwest::Client::builder()
                 .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
@@ -987,29 +983,22 @@ enum FrontendArgs {
 #[derive(clap::Parser)]
 #[clap(version)]
 struct CliArgs {
-    #[clap(long)]
-    log: bool,
-    #[clap(short, long, default_value_t = multiworld::SERVER_PORT)]
-    port: u16,
     #[clap(subcommand)]
     frontend: Option<FrontendArgs>,
 }
 
 #[wheel::main(debug)]
-fn main(CliArgs { log, port, frontend }: CliArgs) -> Result<(), MainError> {
+fn main(CliArgs { frontend }: CliArgs) -> Result<(), MainError> {
     let res = State::run(Settings {
         window: window::Settings {
             size: (256, 256),
             icon: Some(Icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
             ..window::Settings::default()
         },
-        ..Settings::with_flags(Flags {
-            frontend: match frontend {
-                None => FrontendFlags::Pj64V3,
-                Some(FrontendArgs::BizHawk { path, pid, local_bizhawk_version }) => FrontendFlags::BizHawk { path, pid, local_bizhawk_version },
-                Some(FrontendArgs::Pj64V4) => FrontendFlags::Pj64V4,
-            },
-            log, port,
+        ..Settings::with_flags(match frontend {
+            None => FrontendFlags::Pj64V3,
+            Some(FrontendArgs::BizHawk { path, pid, local_bizhawk_version }) => FrontendFlags::BizHawk { path, pid, local_bizhawk_version },
+            Some(FrontendArgs::Pj64V4) => FrontendFlags::Pj64V4,
         })
     });
     #[cfg(feature = "glow")] { Ok(res?) }

@@ -275,7 +275,6 @@ impl Client {
         }
         let [major, minor, patch, _] = winver::get_file_version_info("EmuHawk.exe")?;
         Command::new(gui_path)
-            //TODO forward log and port args from config
             .arg("bizhawk")
             .arg(env::current_exe()?.canonicalize()?.parent().ok_or(Error::CurrentExeAtRoot)?)
             .arg(process::id().to_string())
