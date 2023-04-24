@@ -51,12 +51,18 @@ async fn main() -> Result<(), Error> {
         "release" => true,
         profile => panic!("unexpected PROFILE envar: {profile:?}"),
     };
-    let source_path = if is_release {
-        Path::new("../../target/release/multiworld.dll")
-    } else {
-        Path::new("../../target/debug/multiworld.dll")
+    let source_path = match (env::var_os("CARGO_CFG_WINDOWS").is_some(), is_release) {
+        (false, false) => Path::new("../../target/debug/liblinuxtest.so"),
+        (false, true) => Path::new("../../target/release/liblinuxtest.so"),
+        (true, false) => Path::new("../../target/debug/multiworld.dll"),
+        (true, true) => Path::new("../../target/release/multiworld.dll"),
     }.canonicalize()?;
-    for target_path in &[Path::new("OotrMultiworld/src/multiworld.dll"), Path::new("OotrMultiworld/BizHawk/ExternalTools/multiworld.dll")] {
+    let target_paths = if env::var_os("CARGO_CFG_WINDOWS").is_some() {
+        [Path::new("OotrMultiworld/src/multiworld.dll"), Path::new("OotrMultiworld/BizHawk/ExternalTools/multiworld.dll")]
+    } else {
+        [Path::new("LinuxTest/src/liblinuxtest.so"), Path::new("LinuxTest/BizHawk/dll/liblinuxtest.so")]
+    };
+    for target_path in target_paths {
         if let Some(parent) = target_path.parent() {
             fs::create_dir_all(parent).await?;
         }
