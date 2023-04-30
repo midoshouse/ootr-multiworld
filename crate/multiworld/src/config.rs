@@ -60,11 +60,8 @@ pub static CONFIG: Lazy<Config> = Lazy::new(|| {
         if let Ok(config) = fs::read_to_string(project_dirs.config_dir().join("config.json")) {
             match serde_json::from_str::<Config>(&config) {
                 Ok(config) => return config,
-                Err(e) => { //TODO more visible error handling
-                    #[cfg(debug_assertions)] {
-                        eprintln!("{e:?}");
-                    }
-                }
+                #[cfg(debug_assertions)] Err(e) => eprintln!("{e:?}"),
+                #[cfg(not(debug_assertions))] Err(_) => {} //TODO more visible error handling?
             }
         }
     }
