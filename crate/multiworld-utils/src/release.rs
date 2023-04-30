@@ -599,19 +599,19 @@ impl Task<Result<(), Error>> for BuildServer {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
             Self::UpdateRepo => gres::transpose(async move {
-                Command::new("ssh").arg("midos.house").arg("cd /opt/git/github.com/midoshouse/ootr-multiworld/master && git pull --ff-only").check("ssh").await?;
+                Command::new("ssh").arg("midos.house").arg("cd /opt/git/github.com/midoshouse/ootr-multiworld/master && git pull --ff-only").check("ssh midos.house git pull").await?;
                 Ok(Err(Self::Build))
             }).await,
             Self::Build => gres::transpose(async move {
-                Command::new("ssh").arg("midos.house").arg("cd /opt/git/github.com/midoshouse/ootr-multiworld/master && cargo build --release --package=ootrmwd").check("ssh").await?; //TODO build locally
+                Command::new("ssh").arg("midos.house").arg("cd /opt/git/github.com/midoshouse/ootr-multiworld/master && cargo build --release --package=ootrmwd").check("ssh midos.house cargo build").await?; //TODO build locally
                 Ok(Err(Self::WaitRestart))
             }).await,
             Self::WaitRestart => gres::transpose(async move {
-                Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then /opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd wait-until-empty; fi").check("ssh").await?; //TODO continue normally if this fails because the server is stopped
+                Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then /opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd wait-until-empty; fi").check("ssh midos.house ootrmwd wait-until-empty").await?; //TODO continue normally if this fails because the server is stopped
                 Ok(Err(Self::Restart))
             }).await,
             Self::Restart => gres::transpose(async move {
-                Command::new("ssh").arg("midos.house").arg("sudo systemctl restart ootrmw").check("ssh").await?;
+                Command::new("ssh").arg("midos.house").arg("sudo systemctl restart ootrmw").check("ssh midos.house systemctl restart ootrmw").await?;
                 Ok(Ok(()))
             }).await,
         }

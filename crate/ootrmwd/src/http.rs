@@ -120,6 +120,6 @@ pub(crate) async fn rocket(db_pool: PgPool, rng: Arc<SystemRandom>, rooms: Rooms
     .manage(db_pool)
     .manage(rng)
     .manage(rooms)
-    .manage(Arc::<AtomicUsize>::default())
+    .manage(AtomicUsize::default())
     .ignite().await?)
 }
