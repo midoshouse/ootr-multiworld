@@ -13,6 +13,8 @@ ThrowOnNativeFailure
 debian run cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/debug/ootrmwd /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/debug/ootrmwd
 ThrowOnNativeFailure
 
+ssh midos.house sudo killall -9 ootrmwd-debug
+
 scp target/wsl/debug/ootrmwd midos.house:bin/ootrmwd-debug
 ThrowOnNativeFailure
 
