@@ -26,7 +26,6 @@ sysinfo = "0.28"
 tempfile = "3"
 thiserror = "1"
 url = "2"
-winapi = "0.3"
 
 [dependencies.async_zip]
 version = "0.0.13"
@@ -38,7 +37,7 @@ features = ["derive"]
 
 [dependencies.iced]
 version = "0.9"
-features = ["default_system_font", "tokio"]
+features = ["default_system_font", "image", "tokio"]
 
 [dependencies.iced_graphics]
 version = "0.8"
@@ -73,3 +72,7 @@ features = ["io"]
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
 branch = "main"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.48"
+features = ["Win32_Storage_FileSystem"]

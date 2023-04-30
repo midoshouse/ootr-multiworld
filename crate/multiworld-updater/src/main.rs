@@ -6,15 +6,8 @@ use {
     std::{
         cmp::Ordering::*,
         env,
-        ffi::OsString,
         io::prelude::*,
-        iter,
-        os::windows::ffi::{
-            OsStrExt as _,
-            OsStringExt as _,
-        },
         path::PathBuf,
-        ptr::null_mut,
         sync::Arc,
         time::Duration,
     },
@@ -71,7 +64,6 @@ use {
             SyncCommandOutputExt as _,
         },
     },
-    winapi::um::fileapi::GetFullPathNameW,
     multiworld::{
         config::CONFIG,
         github::{
@@ -79,7 +71,10 @@ use {
             Repo,
         },
     },
+    crate::util::absolute_path,
 };
+
+mod util;
 
 #[cfg(target_arch = "x86_64")] const BIZHAWK_PLATFORM_SUFFIX: &str = "-win-x64.zip";
 
@@ -416,30 +411,8 @@ impl Application for App {
                 EmuArgs::BizHawk { ref path, .. } => {
                     self.state = State::Launch;
                     let path = path.clone();
-                    let path_wide = path.as_os_str().encode_wide().chain(iter::once(0)).collect_vec();
                     return cmd(async move {
-                        let path = unsafe {
-                            let mut buf = vec![0; 260];
-                            let result = GetFullPathNameW(path_wide.as_ptr(), buf.len().try_into().expect("buffer too large"), buf.as_mut_ptr(), null_mut());
-                            PathBuf::from(if result == 0 {
-                                drop(path_wide);
-                                return Err(Error::Io(io::Error::last_os_error()))
-                            } else if result > u32::try_from(buf.len()).expect("buffer too large") {
-                                buf = vec![0; result.try_into().expect("path too long")];
-                                let result = GetFullPathNameW(path_wide.as_ptr(), buf.len().try_into().expect("buffer too large"), buf.as_mut_ptr(), null_mut());
-                                drop(path_wide);
-                                if result == 0 {
-                                    return Err(Error::Io(io::Error::last_os_error()))
-                                } else if result > u32::try_from(buf.len()).expect("buffer too large") {
-                                    panic!("path too long")
-                                } else {
-                                    OsString::from_wide(&buf[0..result.try_into().expect("path too long")])
-                                }
-                            } else {
-                                drop(path_wide);
-                                OsString::from_wide(&buf[0..result.try_into().expect("path too long")])
-                            })
-                        };
+                        let path = absolute_path(path).await?;
                         std::process::Command::new(path.join("EmuHawk.exe")).arg("--open-ext-tool-dll=OotrMultiworld").current_dir(path).spawn()?;
                         Ok(Message::Done)
                     })
@@ -596,8 +569,10 @@ fn main(args: Args) -> Result<(), MainError> {
                         let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
                         std::fs::create_dir_all(project_dirs.cache_dir())?;
                         let glow_updater_path = project_dirs.cache_dir().join("updater-glow.exe");
-                        #[cfg(all(target_arch = "x86_64", debug_assertions))] let glow_updater_data = include_bytes!("../../../target/glow/debug/multiworld-updater.exe");
-                        #[cfg(all(target_arch = "x86_64", not(debug_assertions)))] let glow_updater_data = include_bytes!("../../../target/glow/release/multiworld-updater.exe");
+                        #[cfg(all(target_arch = "x86_64", target_os = "linux", debug_assertions))] let glow_updater_data = include_bytes!("../../../target/glow/debug/multiworld-updater");
+                        #[cfg(all(target_arch = "x86_64", target_os = "linux", not(debug_assertions)))] let glow_updater_data = include_bytes!("../../../target/glow/release/multiworld-updater");
+                        #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let glow_updater_data = include_bytes!("../../../target/glow/debug/multiworld-updater.exe");
+                        #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let glow_updater_data = include_bytes!("../../../target/glow/release/multiworld-updater.exe");
                         std::fs::write(&glow_updater_path, glow_updater_data)?;
                         std::process::Command::new(glow_updater_path)
                             .args(env::args_os().skip(1))
@@ -609,7 +584,7 @@ fn main(args: Args) -> Result<(), MainError> {
                 }
             }
         }
-        Args::Pj64Script { src, dst } => match std::fs::rename(src, dst) {
+        Args::Pj64Script { src, dst } => match std::fs::rename(src, dst) { //TODO on Windows, don't use fs::rename if src and dst are on different drives (can't match on error kind because io::ErrorKind::CrossesDevices is unstable)
             Ok(()) => Ok(()),
             Err(e) => {
                 if CONFIG.log {

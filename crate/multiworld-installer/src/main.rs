@@ -609,8 +609,8 @@ impl Application for State {
                         let external_tools_dir = emulator_dir.join("ExternalTools");
                         fs::create_dir(&external_tools_dir).await.exist_ok()?;
                         //TODO download latest release instead of embedding in installer
-                        #[cfg(debug_assertions)] fs::write(external_tools_dir.join("multiworld.dll"), include_bytes!("../../../target/debug/multiworld.dll")).await?;
-                        #[cfg(not(debug_assertions))] fs::write(external_tools_dir.join("multiworld.dll"), include_bytes!("../../../target/release/multiworld.dll")).await?;
+                        #[cfg(all(target_os = "windows", debug_assertions))] fs::write(external_tools_dir.join("multiworld.dll"), include_bytes!("../../../target/debug/multiworld.dll")).await?;
+                        #[cfg(all(target_os = "windows", not(debug_assertions)))] fs::write(external_tools_dir.join("multiworld.dll"), include_bytes!("../../../target/release/multiworld.dll")).await?;
                         fs::write(external_tools_dir.join("OotrMultiworld.dll"), include_bytes!("../../multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/OotrMultiworld.dll")).await?;
                         Ok(Message::MultiworldInstalled)
                     }),
@@ -619,8 +619,8 @@ impl Application for State {
                         return cmd(async move {
                             fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
                             //TODO download latest release instead of embedding in installer
-                            #[cfg(debug_assertions)] fs::write(multiworld_path, include_bytes!("../../../target/debug/multiworld-gui.exe")).await?;
-                            #[cfg(not(debug_assertions))] fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-gui.exe")).await?;
+                            #[cfg(all(target_os = "windows", debug_assertions))] fs::write(multiworld_path, include_bytes!("../../../target/debug/multiworld-gui.exe")).await?;
+                            #[cfg(all(target_os = "windows", not(debug_assertions)))] fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-gui.exe")).await?;
                             let scripts_path = emulator_dir.join("Scripts");
                             fs::create_dir(&scripts_path).await.exist_ok()?;
                             let script_path = scripts_path.join("ootrmw.js");
@@ -872,8 +872,8 @@ fn main(args: Args) -> Result<(), MainError> {
                 let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
                 std::fs::create_dir_all(project_dirs.cache_dir())?;
                 let glow_installer_path = project_dirs.cache_dir().join("installer-glow.exe");
-                #[cfg(all(target_arch = "x86_64", debug_assertions))] let glow_installer_data = include_bytes!("../../../target/glow/debug/multiworld-installer.exe");
-                #[cfg(all(target_arch = "x86_64", not(debug_assertions)))] let glow_installer_data = include_bytes!("../../../target/glow/release/multiworld-installer.exe");
+                #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let glow_installer_data = include_bytes!("../../../target/glow/debug/multiworld-installer.exe");
+                #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let glow_installer_data = include_bytes!("../../../target/glow/release/multiworld-installer.exe");
                 std::fs::write(&glow_installer_path, glow_installer_data)?;
                 std::process::Command::new(glow_installer_path)
                     .args(env::args_os().skip(1))

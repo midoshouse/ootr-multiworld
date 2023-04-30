@@ -39,7 +39,6 @@ use {
         config::CONFIG,
         frontend::{
             ClientMessage,
-            PORT,
             PROTOCOL_VERSION,
             ServerMessage,
         },
@@ -259,7 +258,7 @@ impl Client {
 
 #[csharp_ffi] pub extern "C" fn open_gui() -> HandleOwned<Result<Client, Error>> {
     fn inner() -> Result<Client, Error> {
-        let tcp_listener = TcpListener::bind((Ipv4Addr::LOCALHOST, PORT))?;
+        let tcp_listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         tcp_listener.set_nonblocking(true)?;
         let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
         let gui_path = project_dirs.cache_dir().join("gui.exe");
@@ -269,8 +268,8 @@ impl Client {
         };
         if write_gui {
             fs::create_dir_all(project_dirs.cache_dir())?;
-            #[cfg(all(target_arch = "x86_64", debug_assertions))] let gui_data = include_bytes!("../../../target/debug/multiworld-gui.exe");
-            #[cfg(all(target_arch = "x86_64", not(debug_assertions)))] let gui_data = include_bytes!("../../../target/release/multiworld-gui.exe");
+            #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let gui_data = include_bytes!("../../../target/debug/multiworld-gui.exe");
+            #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let gui_data = include_bytes!("../../../target/release/multiworld-gui.exe");
             fs::write(&gui_path, gui_data)?;
         }
         let [major, minor, patch, _] = winver::get_file_version_info("EmuHawk.exe")?;
@@ -279,6 +278,7 @@ impl Client {
             .arg(env::current_exe()?.canonicalize()?.parent().ok_or(Error::CurrentExeAtRoot)?)
             .arg(process::id().to_string())
             .arg(format!("{major}.{minor}.{patch}"))
+            .arg(tcp_listener.local_addr()?.port().to_string())
             .spawn()?;
         Ok(Client {
             tcp_stream: None,

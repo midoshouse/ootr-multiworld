@@ -55,6 +55,7 @@ use {
 pub(crate) type WsSink = SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>, tungstenite::Message>;
 
 pub(crate) struct Connection {
+    pub(crate) port: u16,
     pub(crate) frontend: FrontendFlags,
     pub(crate) log: bool,
     pub(crate) connection_id: u8,
@@ -71,7 +72,7 @@ impl<H: Hasher, I> Recipe<H, I> for Connection {
     fn stream(self: Box<Self>, _: BoxStream<'_, I>) -> BoxStream<'_, Message> {
         let frontend = self.frontend.clone();
         let log = self.log;
-        stream::once(TcpStream::connect((Ipv4Addr::LOCALHOST, frontend::PORT)).map_err(Error::from))
+        stream::once(TcpStream::connect((Ipv4Addr::LOCALHOST, self.port)).map_err(Error::from))
             .and_then(move |mut tcp_stream| {
                 let frontend = frontend.clone();
                 async move {

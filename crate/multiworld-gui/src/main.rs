@@ -334,6 +334,7 @@ enum FrontendFlags {
         path: PathBuf,
         pid: Pid,
         local_bizhawk_version: Version,
+        port: u16,
     },
     Pj64V3,
     Pj64V4,
@@ -401,12 +402,14 @@ impl Application for State {
                     let cache_dir = project_dirs.cache_dir();
                     fs::create_dir_all(cache_dir).await?;
                     let updater_path = cache_dir.join("updater.exe");
-                    #[cfg(all(target_arch = "x86_64", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater.exe");
-                    #[cfg(all(target_arch = "x86_64", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
+                    #[cfg(all(target_arch = "x86_64", target_os = "linux", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater");
+                    #[cfg(all(target_arch = "x86_64", target_os = "linux", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater");
+                    #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater.exe");
+                    #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
                     fs::write(&updater_path, updater_data).await?;
                     let mut cmd = std::process::Command::new(updater_path);
                     match frontend {
-                        FrontendFlags::BizHawk { path, pid, local_bizhawk_version } => {
+                        FrontendFlags::BizHawk { path, pid, local_bizhawk_version, port: _ } => {
                             cmd.arg("bizhawk");
                             cmd.arg(process::id().to_string());
                             cmd.arg(path);
@@ -1019,7 +1022,8 @@ impl Application for State {
         let mut subscriptions = Vec::with_capacity(2);
         if self.updates_checked {
             subscriptions.push(match self.frontend {
-                FrontendFlags::BizHawk { .. } | FrontendFlags::Pj64V4 => Subscription::from_recipe(subscriptions::Connection { frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id }),
+                FrontendFlags::BizHawk { port, .. } => Subscription::from_recipe(subscriptions::Connection { port, frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id }),
+                FrontendFlags::Pj64V4 => Subscription::from_recipe(subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id }),
                 FrontendFlags::Pj64V3 => Subscription::from_recipe(subscriptions::Listener { frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id }),
             });
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
@@ -1077,6 +1081,7 @@ enum FrontendArgs {
         path: PathBuf,
         pid: Pid,
         local_bizhawk_version: Version,
+        port: u16,
     },
     Pj64V4,
 }
@@ -1098,7 +1103,7 @@ fn main(CliArgs { frontend }: CliArgs) -> Result<(), MainError> {
         },
         ..Settings::with_flags(match frontend {
             None => FrontendFlags::Pj64V3,
-            Some(FrontendArgs::BizHawk { path, pid, local_bizhawk_version }) => FrontendFlags::BizHawk { path, pid, local_bizhawk_version },
+            Some(FrontendArgs::BizHawk { path, pid, local_bizhawk_version, port }) => FrontendFlags::BizHawk { path, pid, local_bizhawk_version, port },
             Some(FrontendArgs::Pj64V4) => FrontendFlags::Pj64V4,
         })
     });
@@ -1109,9 +1114,12 @@ fn main(CliArgs { frontend }: CliArgs) -> Result<(), MainError> {
             Err(e) => if let iced::Error::GraphicsCreationFailed(iced_graphics::Error::GraphicsAdapterNotFound) = e {
                 let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
                 std::fs::create_dir_all(project_dirs.cache_dir())?;
-                let glow_gui_path = project_dirs.cache_dir().join("gui-glow.exe");
-                #[cfg(all(target_arch = "x86_64", debug_assertions))] let glow_gui_data = include_bytes!("../../../target/glow/debug/multiworld-gui.exe");
-                #[cfg(all(target_arch = "x86_64", not(debug_assertions)))] let glow_gui_data = include_bytes!("../../../target/glow/release/multiworld-gui.exe");
+                #[cfg(unix)] let glow_gui_path = project_dirs.cache_dir().join("gui-glow");
+                #[cfg(windows)] let glow_gui_path = project_dirs.cache_dir().join("gui-glow.exe");
+                #[cfg(all(target_arch = "x86_64", target_os = "linux", debug_assertions))] let glow_gui_data = include_bytes!("../../../target/glow/debug/multiworld-gui");
+                #[cfg(all(target_arch = "x86_64", target_os = "linux", not(debug_assertions)))] let glow_gui_data = include_bytes!("../../../target/glow/release/multiworld-gui");
+                #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let glow_gui_data = include_bytes!("../../../target/glow/debug/multiworld-gui.exe");
+                #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let glow_gui_data = include_bytes!("../../../target/glow/release/multiworld-gui.exe");
                 std::fs::write(&glow_gui_path, glow_gui_data)?;
                 std::process::Command::new(glow_gui_path)
                     .args(env::args_os().skip(1))

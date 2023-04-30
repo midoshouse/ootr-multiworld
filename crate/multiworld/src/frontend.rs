@@ -5,6 +5,8 @@ use {
     crate::Filename,
 };
 
+/// The default port used for connections between client and frontend.
+/// If possible, prefer having the OS select an unused port dynamically, to allow multiple instances of multiworld to run in parallel on the same computer.
 pub const PORT: u16 = 24818;
 pub const PROTOCOL_VERSION: u8 = 3; //TODO sync with JS code
 

@@ -312,7 +312,7 @@ if (typeof PJ64_JSAPI_VERSION === 'undefined') {
                 });
             });
         });
-        server.listen(TCP_PORT, '127.0.0.1');
+        server.listen(TCP_PORT, '127.0.0.1'); //TODO test if port 0 is supported here, pass `server.port` to gui.exe if it is
         exec('PowerShell -Command "Start-Process \'' + appdata.replace('"', '""').replace("'", "''") + '\\Fenhl\\OoTR Multiworld\\cache\\gui.exe\' pj64v4"');
         setInterval(function() {
             if (sockets.length > 0) {
