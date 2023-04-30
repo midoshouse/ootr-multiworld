@@ -14,8 +14,10 @@ use {
 
 fn default_websocket_hostname() -> String { format!("mw.midos.house") }
 
-#[derive(Default, Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
     pub log: bool,
     pub pj64_script_path: Option<PathBuf>,
     #[serde(default = "default_websocket_hostname")]
@@ -43,11 +45,26 @@ impl Config {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            log: false,
+            pj64_script_path: None,
+            websocket_hostname: default_websocket_hostname(),
+        }
+    }
+}
+
 pub static CONFIG: Lazy<Config> = Lazy::new(|| {
     if let Some(project_dirs) = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld") {
         if let Ok(config) = fs::read_to_string(project_dirs.config_dir().join("config.json")) {
-            if let Ok(config) = serde_json::from_str::<Config>(&config) {
-                return config
+            match serde_json::from_str::<Config>(&config) {
+                Ok(config) => return config,
+                Err(e) => { //TODO more visible error handling
+                    #[cfg(debug_assertions)] {
+                        eprintln!("{e:?}");
+                    }
+                }
             }
         }
     }
