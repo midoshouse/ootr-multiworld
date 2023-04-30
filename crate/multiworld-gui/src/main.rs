@@ -307,19 +307,19 @@ impl State {
     fn error_to_markdown(&self) -> Option<String> {
         Some(if let Some(ref e) = self.command_error {
             MessageBuilder::default()
-                .push_line(concat!("error in ", env!("CARGO_PKG_NAME"), " version ", env!("CARGO_PKG_VERSION"), ":"))
+                .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), ":"))
                 .push_line_safe(e)
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
         } else if let Some(ref e) = self.frontend_subscription_error {
             MessageBuilder::default()
-                .push_line(format!("error in {} version {} during communication with {}:", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), self.frontend.display_with_version()))
+                .push_line(format!("error in Mido's House Multiworld version {} during communication with {}:", env!("CARGO_PKG_VERSION"), self.frontend.display_with_version()))
                 .push_line_safe(e)
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
         } else if let SessionState::Error { ref e, .. } = self.server_connection {
             MessageBuilder::default()
-                .push_line(concat!("error in ", env!("CARGO_PKG_NAME"), " version ", env!("CARGO_PKG_VERSION"), " during communication with the server:"))
+                .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), " during communication with the server:"))
                 .push_line_safe(e)
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
@@ -845,6 +845,11 @@ impl Application for State {
                 SessionState::Error { auto_retry: true, ref e } => Column::new()
                     .push("A network error occurred:")
                     .push(Text::new(e.to_string()))
+                    .push(Row::new()
+                        .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
+                        .push(if self.debug_info_copied { "Copied!" } else { "for pasting into Discord" })
+                        .spacing(8)
+                    )
                     .push(Text::new(if let Ok(retry) = chrono::Duration::from_std(self.retry.duration_since(Instant::now())) {
                         format!("Reconnecting at {}", (Local::now() + retry).format("%H:%M:%S"))
                     } else {

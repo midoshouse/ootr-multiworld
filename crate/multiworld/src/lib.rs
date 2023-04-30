@@ -215,7 +215,7 @@ pub trait ClientReader: Unpin + Send + Sized + 'static {
 }
 
 #[async_trait]
-pub trait ClientWriter: Unpin + Send {
+pub trait ClientWriter: Unpin + Send + 'static {
     async fn write(&mut self, msg: &ServerMessage) -> Result<(), async_proto::WriteError>;
 }
 

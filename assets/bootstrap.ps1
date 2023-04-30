@@ -47,8 +47,8 @@ ThrowOnNativeFailure
 
 # Linux
 # build on Debian because Ubuntu's glibc is too new for compatibility with Debian
-debian run sudo apt-get install -y rsync
-debian run mkdir -p /home/fenhl/wslgit/github.com/midoshouse
+debian run sudo apt-get install -y libssl-dev pkg-config python3 rsync
+debian run mkdir -p /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/debug
 debian run rsync --delete -av /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/ /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/ --exclude .cargo/config.toml --exclude target --exclude crate/multiworld-bizhawk/OotrMultiworld/BizHawk --exclude crate/multiworld-bizhawk/OotrMultiworld/src/bin --exclude crate/multiworld-bizhawk/OotrMultiworld/src/obj --exclude crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll
 ThrowOnNativeFailure
 debian run env -C /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld assets/bootstrap-linux.sh

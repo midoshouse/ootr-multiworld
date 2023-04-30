@@ -54,6 +54,8 @@ use {
             oneshot,
         },
         time::{
+            Instant,
+            interval_at,
             sleep,
             timeout,
         },
@@ -117,8 +119,16 @@ enum SessionError {
 }
 
 async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms<C>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, shutdown: rocket::Shutdown) -> Result<(), SessionError> {
+    let ping_writer = Arc::clone(&writer);
+    let ping_task = tokio::spawn(async move {
+        let mut interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            if let Err(_) = ping_writer.lock().await.write(&ServerMessage::Ping).await { break }
+        }
+    });
     let mut read = next_message::<C>(reader);
-    Ok(loop {
+    loop {
         let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), rooms.clone(), socket_id, read, writer.clone(), shutdown.clone()).await?;
         let _ = rooms.0.lock().await.change_tx.send(RoomListChange::Join);
         let (lobby_reader, end) = room_session(db_pool.clone(), rooms.clone(), room, socket_id, room_reader, writer.clone(), end_rx, shutdown.clone()).await?;
@@ -130,7 +140,9 @@ async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, room
                 break
             }
         }
-    })
+    }
+    ping_task.abort();
+    Ok(())
 }
 
 type NextMessage<C> = Pin<Box<dyn Future<Output = Result<Result<(<C as ClientKind>::Reader, ClientMessage), async_proto::ReadError>, tokio::time::error::Elapsed>> + Send>>;
