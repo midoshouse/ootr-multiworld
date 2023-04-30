@@ -232,21 +232,21 @@ impl Task<Result<Release, Error>> for CreateRelease {
 }
 
 enum BuildUpdater {
-    Default(broadcast::Sender<()>),
     Glow(broadcast::Sender<()>),
+    Wgpu(broadcast::Sender<()>),
 }
 
 impl BuildUpdater {
     fn new(notifier: broadcast::Sender<()>) -> Self {
-        Self::Default(notifier)
+        Self::Glow(notifier)
     }
 }
 
 impl fmt::Display for BuildUpdater {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Default(..) => write!(f, "building multiworld-updater.exe"),
             Self::Glow(..) => write!(f, "building multiworld-updater-glow.exe"),
+            Self::Wgpu(..) => write!(f, "building multiworld-updater.exe"),
         }
     }
 }
@@ -254,8 +254,8 @@ impl fmt::Display for BuildUpdater {
 impl Progress for BuildUpdater {
     fn progress(&self) -> Percent {
         Percent::fraction(match self {
-            Self::Default(..) => 0,
-            Self::Glow(..) => 1,
+            Self::Glow(..) => 0,
+            Self::Wgpu(..) => 1,
         }, 2)
     }
 }
@@ -264,12 +264,12 @@ impl Progress for BuildUpdater {
 impl Task<Result<(), Error>> for BuildUpdater {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
-            Self::Default(notifier) => gres::transpose(async move {
-                Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-updater").check("cargo build --package=multiworld-updater").await?;
-                Ok(Err(Self::Glow(notifier)))
-            }).await,
             Self::Glow(notifier) => gres::transpose(async move {
                 Command::new("cargo").arg("build").arg("--no-default-features").arg("--features=glow").arg("--target-dir=target/glow").arg("--release").arg("--package=multiworld-updater").check("cargo build --package=multiworld-updater").await?;
+                Ok(Err(Self::Wgpu(notifier)))
+            }).await,
+            Self::Wgpu(notifier) => gres::transpose(async move {
+                Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-updater").check("cargo build --package=multiworld-updater").await?;
                 let _ = notifier.send(());
                 Ok(Ok(()))
             }).await,
@@ -279,8 +279,8 @@ impl Task<Result<(), Error>> for BuildUpdater {
 
 enum BuildGui {
     Updater(reqwest::Client, Repo, broadcast::Receiver<()>, broadcast::Receiver<Release>, broadcast::Sender<()>),
-    Build(reqwest::Client, Repo, broadcast::Receiver<Release>, broadcast::Sender<()>),
     Glow(reqwest::Client, Repo, broadcast::Receiver<Release>, broadcast::Sender<()>),
+    Wgpu(reqwest::Client, Repo, broadcast::Receiver<Release>, broadcast::Sender<()>),
     Read(reqwest::Client, Repo, broadcast::Receiver<Release>),
     WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
     Upload(reqwest::Client, Repo, Release, Vec<u8>),
@@ -296,8 +296,8 @@ impl fmt::Display for BuildGui {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Updater(..) => write!(f, "waiting for updater build to finish"),
-            Self::Build(..) => write!(f, "building multiworld-gui.exe"),
             Self::Glow(..) => write!(f, "building multiworld-gui-glow.exe"),
+            Self::Wgpu(..) => write!(f, "building multiworld-gui.exe"),
             Self::Read(..) => write!(f, "reading multiworld-gui.exe"),
             Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
             Self::Upload(..) => write!(f, "uploading multiworld-pj64.exe"),
@@ -309,8 +309,8 @@ impl Progress for BuildGui {
     fn progress(&self) -> Percent {
         Percent::fraction(match self {
             Self::Updater(..) => 0,
-            Self::Build(..) => 1,
-            Self::Glow(..) => 2,
+            Self::Glow(..) => 1,
+            Self::Wgpu(..) => 2,
             Self::Read(..) => 3,
             Self::WaitRelease(..) => 4,
             Self::Upload(..) => 5,
@@ -324,14 +324,14 @@ impl Task<Result<(), Error>> for BuildGui {
         match self {
             Self::Updater(client, repo, mut updater_rx, release_rx, gui_tx) => gres::transpose(async move {
                 let () = updater_rx.recv().await?;
-                Ok(Err(Self::Build(client, repo, release_rx, gui_tx)))
-            }).await,
-            Self::Build(client, repo, release_rx, gui_tx) => gres::transpose(async move {
-                Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-gui").check("cargo build --package=multiworld-gui").await?;
                 Ok(Err(Self::Glow(client, repo, release_rx, gui_tx)))
             }).await,
             Self::Glow(client, repo, release_rx, gui_tx) => gres::transpose(async move {
                 Command::new("cargo").arg("build").arg("--no-default-features").arg("--features=glow").arg("--target-dir=target/glow").arg("--release").arg("--package=multiworld-gui").check("cargo build --package=multiworld-gui").await?;
+                Ok(Err(Self::Wgpu(client, repo, release_rx, gui_tx)))
+            }).await,
+            Self::Wgpu(client, repo, release_rx, gui_tx) => gres::transpose(async move {
+                Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-gui").check("cargo build --package=multiworld-gui").await?;
                 let _ = gui_tx.send(());
                 Ok(Err(Self::Read(client, repo, release_rx)))
             }).await,
@@ -491,8 +491,8 @@ impl Task<Result<(), Error>> for BuildPj64 {
 
 enum BuildInstaller {
     Deps(reqwest::Client, Repo, broadcast::Receiver<()>, broadcast::Receiver<()>, broadcast::Receiver<Release>),
-    Build(reqwest::Client, Repo, broadcast::Receiver<Release>),
     Glow(reqwest::Client, Repo, broadcast::Receiver<Release>),
+    Wgpu(reqwest::Client, Repo, broadcast::Receiver<Release>),
     Read(reqwest::Client, Repo, broadcast::Receiver<Release>),
     WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
     Upload(reqwest::Client, Repo, Release, Vec<u8>),
@@ -508,8 +508,8 @@ impl fmt::Display for BuildInstaller {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Deps(..) => write!(f, "waiting for dependency builds to finish"),
-            Self::Build(..) => write!(f, "building multiworld-installer.exe"),
             Self::Glow(..) => write!(f, "building multiworld-installer-glow.exe"),
+            Self::Wgpu(..) => write!(f, "building multiworld-installer.exe"),
             Self::Read(..) => write!(f, "reading multiworld-installer.exe"),
             Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
             Self::Upload(..) => write!(f, "uploading multiworld-installer.exe"),
@@ -521,8 +521,8 @@ impl Progress for BuildInstaller {
     fn progress(&self) -> Percent {
         Percent::fraction(match self {
             Self::Deps(..) => 0,
-            Self::Build(..) => 1,
-            Self::Glow(..) => 2,
+            Self::Glow(..) => 1,
+            Self::Wgpu(..) => 2,
             Self::Read(..) => 3,
             Self::WaitRelease(..) => 4,
             Self::Upload(..) => 5,
@@ -537,14 +537,14 @@ impl Task<Result<(), Error>> for BuildInstaller {
             Self::Deps(client, repo, mut bizhawk_rx, mut gui_rx, release_rx) => gres::transpose(async move {
                 let () = bizhawk_rx.recv().await?;
                 let () = gui_rx.recv().await?;
-                Ok(Err(Self::Build(client, repo, release_rx)))
-            }).await,
-            Self::Build(client, repo, release_rx) => gres::transpose(async move {
-                Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-installer").check("cargo build --package=multiworld-installer").await?;
                 Ok(Err(Self::Glow(client, repo, release_rx)))
             }).await,
             Self::Glow(client, repo, release_rx) => gres::transpose(async move {
                 Command::new("cargo").arg("build").arg("--no-default-features").arg("--features=glow").arg("--target-dir=target/glow").arg("--release").arg("--package=multiworld-installer").check("cargo build --package=multiworld-installer").await?;
+                Ok(Err(Self::Wgpu(client, repo, release_rx)))
+            }).await,
+            Self::Wgpu(client, repo, release_rx) => gres::transpose(async move {
+                Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-installer").check("cargo build --package=multiworld-installer").await?;
                 Ok(Err(Self::Read(client, repo, release_rx)))
             }).await,
             Self::Read(client, repo, release_rx) => gres::transpose(async move {
@@ -607,7 +607,7 @@ impl Task<Result<(), Error>> for BuildServer {
                 Ok(Err(Self::WaitRestart))
             }).await,
             Self::WaitRestart => gres::transpose(async move {
-                Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then /opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd wait-until-empty; fi").check("ssh midos.house ootrmwd wait-until-empty").await?; //TODO continue normally if this fails because the server is stopped
+                Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd wait-until-empty; fi").check("ssh midos.house ootrmwd wait-until-empty").await?; //TODO continue normally if this fails because the server is stopped
                 Ok(Err(Self::Restart))
             }).await,
             Self::Restart => gres::transpose(async move {
