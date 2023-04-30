@@ -103,10 +103,10 @@ async fn internal_server_error() -> RawHtml<String> {
     }
 }
 
-pub(crate) async fn rocket(db_pool: PgPool, rng: Arc<SystemRandom>, rooms: Rooms<WebSocket>) -> Result<Rocket<rocket::Ignite>, crate::Error> {
+pub(crate) async fn rocket(db_pool: PgPool, rng: Arc<SystemRandom>, port: u16, rooms: Rooms<WebSocket>) -> Result<Rocket<rocket::Ignite>, crate::Error> {
     Ok(rocket::custom(rocket::Config {
         log_level: rocket::config::LogLevel::Critical,
-        port: 24819,
+        port,
         ..rocket::Config::default()
     })
     .mount("/", multiworld_derive::routes![

@@ -514,6 +514,8 @@ impl<C: ClientKind> Default for Rooms<C> {
 struct Args {
     #[clap(short, long, default_value = "ootr_multiworld")]
     database: String,
+    #[clap(short, long, default_value = "24819")]
+    port: u16,
     #[clap(subcommand)]
     subcommand: Option<Subcommand>,
 }
@@ -538,7 +540,7 @@ enum Error {
 }
 
 #[wheel::main(debug, rocket)]
-async fn main(Args { database, subcommand }: Args) -> Result<(), Error> {
+async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
     if let Some(subcommand) = subcommand {
         #[cfg(unix)] let mut sock = UnixStream::connect(unix_socket::PATH).await?;
         #[cfg(unix)] subcommand.write(&mut sock).await?;
@@ -579,7 +581,7 @@ async fn main(Args { database, subcommand }: Args) -> Result<(), Error> {
                 }))).await);
             }
         }
-        let rocket = http::rocket(db_pool.clone(), rng.clone(), rooms.clone()).await?;
+        let rocket = http::rocket(db_pool.clone(), rng.clone(), port, rooms.clone()).await?;
         #[cfg(unix)] let unix_socket_task = tokio::spawn(unix_socket::listen(rocket.shutdown(), rooms.clone())).map(|res| match res {
             Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => Err(Error::from(e)),
