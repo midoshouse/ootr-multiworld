@@ -39,10 +39,8 @@ use {
         },
     },
     tokio_tungstenite::tungstenite,
-    multiworld::{
-        frontend,
-        websocket_url,
-    },
+    url::Url,
+    multiworld::frontend,
     crate::{
         Error,
         FrontendFlags,
@@ -155,6 +153,7 @@ impl<H: Hasher, I> Recipe<H, I> for Listener {
 
 pub(crate) struct Client {
     pub(crate) log: bool,
+    pub(crate) websocket_url: Url,
 }
 
 impl<H: Hasher, I> Recipe<H, I> for Client {
@@ -166,7 +165,7 @@ impl<H: Hasher, I> Recipe<H, I> for Client {
 
     fn stream(self: Box<Self>, _: BoxStream<'_, I>) -> BoxStream<'_, Message> {
         let log = self.log;
-        stream::once(tokio_tungstenite::connect_async(websocket_url()))
+        stream::once(tokio_tungstenite::connect_async(self.websocket_url))
             .err_into::<Error>()
             .and_then(move |(websocket, _)| async move {
                 let (sink, stream) = websocket.split();

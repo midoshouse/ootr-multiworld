@@ -46,7 +46,6 @@ use {
             oneshot,
         },
     },
-    url::Url,
     wheel::traits::IsNetworkError,
 };
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
@@ -64,7 +63,6 @@ pub const CREDENTIAL_LEN: usize = ring::digest::SHA512_OUTPUT_LEN;
 
 pub fn version() -> Version { Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version") }
 pub fn proto_version() -> u8 { version().major.try_into().expect("version number does not fit into u8") }
-pub fn websocket_url() -> Url { Url::parse(&format!("wss://mw.midos.house/v{}", version().major)).expect("failed to parse WebSocket URL") }
 
 const TRIFORCE_PIECE: u16 = 0x00ca;
 

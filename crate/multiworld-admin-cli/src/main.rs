@@ -44,7 +44,7 @@ use {
         ClientMessage,
         ServerMessage,
         SessionState,
-        websocket_url,
+        config::CONFIG,
     },
     crate::parse::FromExpr as _,
 };
@@ -90,6 +90,7 @@ enum Error {
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Syn(#[from] syn::Error),
     #[error(transparent)] TryFromSlice(#[from] std::array::TryFromSliceError),
+    #[error(transparent)] UrlParse(#[from] url::ParseError),
     #[error(transparent)] WebSocket(#[from] tokio_tungstenite::tungstenite::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("expected exactly one element, got zero or multiple")]
@@ -131,7 +132,7 @@ fn prompt(session_state: &SessionState<Never>) -> Cow<'static, str> {
 
 async fn cli(Args { id, api_key }: Args) -> Result<(), Error> {
     let mut cli_events = EventStream::default().fuse();
-    let (mut websocket, _) = tokio_tungstenite::connect_async(websocket_url()).await?;
+    let (mut websocket, _) = tokio_tungstenite::connect_async(CONFIG.websocket_url()?).await?;
     if let (Some(id), Some(api_key)) = (id, api_key) {
         ClientMessage::Login { id, api_key }.write_ws(&mut websocket).await?;
     }

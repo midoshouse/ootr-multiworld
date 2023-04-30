@@ -287,6 +287,7 @@ struct State {
     frontend_connection_id: u8,
     frontend_writer: Option<LoggingWriter>,
     log: bool,
+    websocket_url: Url,
     server_connection: SessionState<Arc<Error>>,
     server_writer: Option<LoggingSink>,
     retry: Instant,
@@ -374,6 +375,7 @@ impl Application for State {
             frontend_connection_id: 0,
             frontend_writer: None,
             log: CONFIG.log,
+            websocket_url: CONFIG.websocket_url().expect("failed to parse WebSocket URL"),
             server_connection: SessionState::Init,
             server_writer: None,
             retry: Instant::now(),
@@ -1027,7 +1029,7 @@ impl Application for State {
                 FrontendFlags::Pj64V3 => Subscription::from_recipe(subscriptions::Listener { frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id }),
             });
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
-                subscriptions.push(Subscription::from_recipe(subscriptions::Client { log: self.log }));
+                subscriptions.push(Subscription::from_recipe(subscriptions::Client { log: self.log, websocket_url: self.websocket_url.clone() }));
             }
         }
         Subscription::batch(subscriptions)

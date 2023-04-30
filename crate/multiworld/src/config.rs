@@ -9,12 +9,17 @@ use {
         Deserialize,
         Serialize,
     },
+    url::Url,
 };
+
+fn default_websocket_hostname() -> String { format!("mw.midos.house") }
 
 #[derive(Default, Clone, Deserialize, Serialize)]
 pub struct Config {
     pub log: bool,
     pub pj64_script_path: Option<PathBuf>,
+    #[serde(default = "default_websocket_hostname")]
+    pub websocket_hostname: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -31,6 +36,10 @@ impl Config {
         fs::create_dir_all(project_dirs.config_dir())?;
         fs::write(project_dirs.config_dir().join("config.json"), serde_json::to_vec_pretty(self)?)?;
         Ok(())
+    }
+
+    pub fn websocket_url(&self) -> Result<Url, url::ParseError> {
+        Url::parse(&format!("wss://{}/v{}", self.websocket_hostname, crate::version().major))
     }
 }
 
