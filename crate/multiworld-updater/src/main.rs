@@ -513,6 +513,23 @@ impl Application for App {
     }
 }
 
+fn pj64script(src: PathBuf, dst: PathBuf) -> io::Result<()> {
+    let is_same_drive = {
+        #[cfg(windows)] {
+            src.components().find_map(|component| if let std::path::Component::Prefix(prefix) = component { Some(prefix) } else { None })
+            == dst.components().find_map(|component| if let std::path::Component::Prefix(prefix) = component { Some(prefix) } else { None })
+        }
+        #[cfg(not(windows))] { true }
+    };
+    if is_same_drive {
+        std::fs::rename(src, dst)?;
+    } else {
+        std::fs::copy(&src, dst)?;
+        std::fs::remove_file(src)?;
+    }
+    Ok(())
+}
+
 #[derive(Clone, clap::Subcommand)]
 #[clap(rename_all = "lower")]
 enum EmuArgs {
@@ -584,7 +601,7 @@ fn main(args: Args) -> Result<(), MainError> {
                 }
             }
         }
-        Args::Pj64Script { src, dst } => match std::fs::rename(src, dst) { //TODO on Windows, don't use fs::rename if src and dst are on different drives (can't match on error kind because io::ErrorKind::CrossesDevices is unstable)
+        Args::Pj64Script { src, dst } => match pj64script(src, dst) {
             Ok(()) => Ok(()),
             Err(e) => {
                 if CONFIG.log {
