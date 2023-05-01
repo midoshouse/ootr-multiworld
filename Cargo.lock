@@ -266,6 +266,7 @@ checksum = "443570a12595335a03353936b15b0edc42de75ea7c5d32e870299f4799eee907"
 dependencies = [
  "async-proto-derive",
  "byteorder",
+ "chrono",
  "futures",
  "semver 1.0.17",
  "serde_json",

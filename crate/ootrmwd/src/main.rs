@@ -76,7 +76,10 @@ use {
 };
 #[cfg(unix)] use {
     tokio::net::UnixStream,
-    crate::unix_socket::ClientMessage as Subcommand,
+    crate::unix_socket::{
+        ClientMessage as Subcommand,
+        WaitUntilInactiveMessage,
+    },
 };
 
 mod http;
@@ -459,6 +462,8 @@ struct RoomsInner<C: ClientKind> {
     list: HashMap<String, Arc<RwLock<Room<C>>>>,
     change_tx: broadcast::Sender<RoomListChange<C>>,
     autodelete_tx: broadcast::Sender<(String, DateTime<Utc>)>,
+    #[cfg(unix)]
+    inactive_tx: broadcast::Sender<(String, DateTime<Utc>)>,
 }
 
 #[derive(Derivative)]
@@ -509,6 +514,38 @@ impl<C: ClientKind> Rooms<C> {
             }
         })
     }
+
+    #[cfg(unix)]
+    async fn wait_inactive(&self, mut shutdown: rocket::Shutdown) -> Result<(), broadcast::error::RecvError> {
+        let (mut inactive_at, mut inactive_rx) = {
+            let lock = self.0.lock().await;
+            (
+                stream::iter(&lock.list).then(|(name, room)| async move { (name.clone(), room.read().await.last_saved + chrono::Duration::hours(1)) }).collect::<HashMap<_, _>>().await,
+                lock.inactive_tx.subscribe(),
+            )
+        };
+        Ok(loop {
+            let now = Utc::now();
+            let sleep = if let Some(&time) = inactive_at.values().min() {
+                Either::Left(if let Ok(delta) = (time - now).to_std() {
+                    Either::Left(sleep(delta))
+                } else {
+                    // target time is in the past
+                    Either::Right(future::ready(()))
+                })
+            } else {
+                Either::Right(future::pending())
+            };
+            select! {
+                () = &mut shutdown => break,
+                () = sleep => break,
+                res = inactive_rx.recv() => {
+                    let (name, time) = res?;
+                    inactive_at.insert(name, time);
+                }
+            }
+        })
+    }
 }
 
 impl<C: ClientKind> Default for Rooms<C> {
@@ -517,6 +554,8 @@ impl<C: ClientKind> Default for Rooms<C> {
             list: HashMap::default(),
             change_tx: broadcast::channel(1_024).0,
             autodelete_tx: broadcast::channel(1_024).0,
+            #[cfg(unix)]
+            inactive_tx: broadcast::channel(1_024).0,
         })))
     }
 }
@@ -549,15 +588,38 @@ enum Error {
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
     #[cfg(unix)] #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[cfg(unix)]
+    #[error("error while waiting until inactive")]
+    WaitUntilInactive,
 }
 
 #[wheel::main(debug, rocket)]
 async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
     if let Some(subcommand) = subcommand {
-        #[cfg(unix)] let mut sock = UnixStream::connect(unix_socket::PATH).await?;
-        #[cfg(unix)] subcommand.write(&mut sock).await?;
-        #[cfg(unix)] u8::read(&mut sock).await?;
-        #[cfg(unix)] return Ok(());
+        #[cfg(unix)] {
+            let mut sock = UnixStream::connect(unix_socket::PATH).await?;
+            subcommand.write(&mut sock).await?;
+            match subcommand {
+                Subcommand::Stop | Subcommand::StopWhenEmpty | Subcommand::WaitUntilEmpty => { u8::read(&mut sock).await?; }
+                Subcommand::WaitUntilInactive => loop {
+                    match WaitUntilInactiveMessage::read(&mut sock).await? {
+                        WaitUntilInactiveMessage::Error => return Err(Error::WaitUntilInactive),
+                        WaitUntilInactiveMessage::ActiveRooms(rooms) => {
+                            wheel::print_flush!(
+                                "\r[....] waiting for {} rooms to be inactive (current ETA: {}) ",
+                                rooms.len(),
+                                rooms.values().map(|(inactive_at, _)| inactive_at).max().expect("waiting for 0 rooms").format("%Y-%m-%d %H:%M:%S UTC"),
+                            )?;
+                        }
+                        WaitUntilInactiveMessage::Inactive => {
+                            println!("[ ok ]");
+                            break
+                        }
+                    }
+                },
+            }
+            return Ok(())
+        }
         #[cfg(not(unix))] match subcommand {}
     } else {
         let rng = Arc::new(SystemRandom::new());
