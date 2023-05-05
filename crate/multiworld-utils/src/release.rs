@@ -198,11 +198,14 @@ impl Task<Result<Release, Error>> for CreateRelease {
                     }
                     ("editor", Some(cli.lock().await))
                 } else {
-                    if env::var("TERM_PROGRAM").as_deref() == Ok("vscode") && env::var_os("STY").is_none() && env::var_os("SSH_CLIENT").is_none() && env::var_os("SSH_TTY").is_none() {
-                        cmd = Command::new("C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd");
+                    if env::var("TERM_PROGRAM").as_deref() == Ok("vscode") {
+                        cmd = Command::new("code.cmd");
                         if !args.no_wait {
                             cmd.arg("--wait");
                         }
+                        ("code", None)
+                    } else if env::var_os("STY").is_none() && env::var_os("SSH_CLIENT").is_none() && env::var_os("SSH_TTY").is_none() {
+                        cmd = Command::new("C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd");
                         ("code", None)
                     } else {
                         cmd = Command::new("C:\\ProgramData\\chocolatey\\bin\\nano.exe");
@@ -586,7 +589,9 @@ impl Task<Result<(), Error>> for BuildServer {
                 Ok(Err(Self::WaitRestart))
             }).await,
             Self::WaitRestart => gres::transpose(async move {
-                Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd wait-until-empty; fi").check("ssh midos.house ootrmwd wait-until-empty").await?; //TODO continue normally if this fails because the server is stopped
+                //TODO only wait until inactive (not empty) for minor/patch releases
+                //TODO continue normally if this fails because the server is stopped
+                Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd wait-until-empty; fi").check("ssh midos.house ootrmwd wait-until-empty").await?;
                 Ok(Err(Self::Restart))
             }).await,
             Self::Restart => gres::transpose(async move {
