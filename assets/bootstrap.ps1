@@ -48,22 +48,24 @@ cargo build --release --package=multiworld-installer
 ThrowOnNativeFailure
 
 # Linux
-# build on Debian because Ubuntu's glibc is too new for compatibility with Debian
-"installing prerequisite packages on Debian"
-debian run sudo apt-get install -y cmake libfontconfig-dev libssl-dev pkg-config python3 rsync
-"creating target dir on Debian"
-debian run mkdir -p /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/debug
-"syncing repo to Debian"
-debian run rsync --delete -av /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/ /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/ --exclude .cargo/config.toml --exclude target --exclude crate/multiworld-bizhawk/OotrMultiworld/BizHawk --exclude crate/multiworld-bizhawk/OotrMultiworld/src/bin --exclude crate/multiworld-bizhawk/OotrMultiworld/src/obj --exclude crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll
+"installing prerequisite packages on Linux"
+wsl sudo apt-get install -y cmake libfontconfig1-dev libfreetype6-dev libssl-dev pkg-config python3 rsync
 ThrowOnNativeFailure
-"running bootstrap-linux.sh on Debian"
-debian run env -C /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld assets/bootstrap-linux.sh
+"creating target dir on Linux"
+wsl mkdir -p /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/debug
+ThrowOnNativeFailure
+"syncing repo to Linux"
+wsl rsync --delete -av /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/ /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/ --exclude .cargo/config.toml --exclude target --exclude crate/multiworld-bizhawk/OotrMultiworld/BizHawk --exclude crate/multiworld-bizhawk/OotrMultiworld/src/bin --exclude crate/multiworld-bizhawk/OotrMultiworld/src/obj --exclude crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll
+ThrowOnNativeFailure
+"running bootstrap-linux.sh on Linux"
+wsl env -C /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld assets/bootstrap-linux.sh
 ThrowOnNativeFailure
 
 #TODO move to release script
 "creating WSL target dir"
-debian run mkdir -p /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release
+wsl mkdir -p /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release
+ThrowOnNativeFailure
 "copying Linux artifacts to Windows file system"
-debian run cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/multiworld-gui /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/multiworld-gui
+wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/multiworld-gui /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/multiworld-gui
 ThrowOnNativeFailure
 "bootstrap done"
