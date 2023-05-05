@@ -1470,22 +1470,22 @@ dependencies = [
 
 [[package]]
 name = "enum-iterator"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "706d9e7cf1c7664859d79cd524e4e53ea2b67ea03c98cc2870c5e539695d597e"
+checksum = "7add3873b5dd076766ee79c8e406ad1a472c385476b9e38849f8eec24f1be689"
 dependencies = [
  "enum-iterator-derive",
 ]
 
 [[package]]
 name = "enum-iterator-derive"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "355f93763ef7b0ae1c43c4d8eccc9d5848d84ad1a1d8ce61c421d1ac85a19d05"
+checksum = "eecf8589574ce9b895052fa12d69af7a233f99e6107f5cb8dd1044f2a17bfdcb"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.15",
 ]
 
 [[package]]
@@ -3076,9 +3076,9 @@ checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
 
 [[package]]
 name = "linux-raw-sys"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b64f40e5e03e0d54f03845c8197d0291253cdbedfb1cb46b13c2c117554a9f4c"
+checksum = "ece97ea872ece730aed82664c424eb4c8291e1ff2480247ccf7409044bc6479f"
 
 [[package]]
 name = "lock_api"
@@ -3309,7 +3309,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld"
-version = "10.0.3"
+version = "10.0.4"
 dependencies = [
  "async-proto",
  "async-recursion",
@@ -3338,7 +3338,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-admin-cli"
-version = "10.0.3"
+version = "10.0.4"
 dependencies = [
  "async-proto",
  "clap",
@@ -3358,7 +3358,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-bizhawk"
-version = "10.0.3"
+version = "10.0.4"
 dependencies = [
  "lazy-regex",
  "semver 1.0.17",
@@ -3370,7 +3370,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-csharp"
-version = "10.0.3"
+version = "10.0.4"
 dependencies = [
  "async-proto",
  "directories 5.0.1",
@@ -3387,7 +3387,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-derive"
-version = "10.0.3"
+version = "10.0.4"
 dependencies = [
  "itertools",
  "lazy-regex",
@@ -3399,7 +3399,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-gui"
-version = "10.0.3"
+version = "10.0.4"
 dependencies = [
  "async-proto",
  "chrono",
@@ -3409,7 +3409,6 @@ dependencies = [
  "futures",
  "iced",
  "iced_futures",
- "iced_graphics",
  "iced_native",
  "image",
  "itertools",
@@ -3434,7 +3433,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-installer"
-version = "10.0.3"
+version = "10.0.4"
 dependencies = [
  "async_zip",
  "clap",
@@ -3442,7 +3441,6 @@ dependencies = [
  "directories 5.0.1",
  "futures",
  "iced",
- "iced_graphics",
  "iced_native",
  "image",
  "is_elevated",
@@ -3471,7 +3469,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-updater"
-version = "10.0.3"
+version = "10.0.4"
 dependencies = [
  "async_zip",
  "bytes",
@@ -3480,7 +3478,6 @@ dependencies = [
  "directories 5.0.1",
  "futures",
  "iced",
- "iced_graphics",
  "iced_native",
  "image",
  "itertools",
@@ -3503,7 +3500,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-utils"
-version = "10.0.3"
+version = "10.0.4"
 dependencies = [
  "async-trait",
  "clap",
@@ -3909,7 +3906,7 @@ dependencies = [
 
 [[package]]
 name = "ootrmwd"
-version = "10.0.3"
+version = "10.0.4"
 dependencies = [
  "async-proto",
  "chrono",
@@ -4904,7 +4901,7 @@ dependencies = [
 [[package]]
 name = "rocket"
 version = "0.5.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#6ab85b6643289016be5e7905ad5c1fa44e9ce2d6"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#c1ead84ec503b2be118676f6eb8b421bd5b37e59"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -4962,7 +4959,7 @@ dependencies = [
 [[package]]
 name = "rocket_codegen"
 version = "0.5.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#6ab85b6643289016be5e7905ad5c1fa44e9ce2d6"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#c1ead84ec503b2be118676f6eb8b421bd5b37e59"
 dependencies = [
  "devise",
  "glob",
@@ -4977,7 +4974,7 @@ dependencies = [
 [[package]]
 name = "rocket_http"
 version = "0.5.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#6ab85b6643289016be5e7905ad5c1fa44e9ce2d6"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#c1ead84ec503b2be118676f6eb8b421bd5b37e59"
 dependencies = [
  "cookie",
  "either",
@@ -5003,7 +5000,7 @@ dependencies = [
 [[package]]
 name = "rocket_ws"
 version = "0.1.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#6ab85b6643289016be5e7905ad5c1fa44e9ce2d6"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#c1ead84ec503b2be118676f6eb8b421bd5b37e59"
 dependencies = [
  "rocket",
  "tokio-tungstenite",
@@ -5061,9 +5058,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.37.18"
+version = "0.37.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bbfc1d1c7c40c01715f47d71444744a81669ca84e8b63e25a55e169b1f86433"
+checksum = "acf8729d8542766f1b2cf77eb034d52f40d375bb8b615d0b147089946e16613d"
 dependencies = [
  "bitflags 1.3.2",
  "errno",
@@ -5210,9 +5207,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.160"
+version = "1.0.161"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb2f3770c8bce3bcda7e149193a069a0f4365bda1fa5cd88e03bca26afc1216c"
+checksum = "857797cdf00136f50d70a64b9ba8967892eb9df26cbffb0beefa9c71194b85ef"
 dependencies = [
  "serde_derive",
 ]
@@ -5229,9 +5226,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.160"
+version = "1.0.161"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "291a097c63d8497e00160b166a967a4a79c64f3facdd01cbd7502231688d77df"
+checksum = "6ea3780fe4396cc8077e44623443a923e400f4a6015249de6d38ba064bed79d8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7145,9 +7142,9 @@ checksum = "a67300977d3dc3f8034dae89778f502b6ba20b269527b3223ba59c0cf393bb8a"
 
 [[package]]
 name = "xml-rs"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2d7d3948613f75c98fd9328cfdcc45acc4d360655289d0a7d4ec931392200a3"
+checksum = "374b609fb36c36ce3501094dc0548f7df5d8d102224b65bc59812e4a5425d571"
 
 [[package]]
 name = "xz2"

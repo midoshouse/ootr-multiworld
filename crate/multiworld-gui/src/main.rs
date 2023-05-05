@@ -86,7 +86,6 @@ use {
     },
     crate::subscriptions::WsSink,
 };
-#[cfg(not(feature = "glow"))] use wheel::traits::SyncCommandOutputExt as _;
 
 mod subscriptions;
 
@@ -1102,7 +1101,7 @@ struct CliArgs {
 
 #[wheel::main(debug)]
 fn main(CliArgs { frontend }: CliArgs) -> Result<(), MainError> {
-    let res = State::run(Settings {
+    Ok(State::run(Settings {
         window: window::Settings {
             size: (256, 256),
             icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
@@ -1113,28 +1112,5 @@ fn main(CliArgs { frontend }: CliArgs) -> Result<(), MainError> {
             Some(FrontendArgs::BizHawk { path, pid, local_bizhawk_version, port }) => FrontendFlags::BizHawk { path, pid, local_bizhawk_version, port },
             Some(FrontendArgs::Pj64V4) => FrontendFlags::Pj64V4,
         })
-    });
-    #[cfg(feature = "glow")] { Ok(res?) }
-    #[cfg(not(feature = "glow"))] {
-        match res {
-            Ok(()) => Ok(()),
-            Err(e) => if let iced::Error::GraphicsCreationFailed(iced_graphics::Error::GraphicsAdapterNotFound) = e {
-                let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
-                std::fs::create_dir_all(project_dirs.cache_dir())?;
-                #[cfg(unix)] let glow_gui_path = project_dirs.cache_dir().join("gui-glow");
-                #[cfg(windows)] let glow_gui_path = project_dirs.cache_dir().join("gui-glow.exe");
-                #[cfg(all(target_arch = "x86_64", target_os = "linux", debug_assertions))] let glow_gui_data = include_bytes!("../../../target/glow/debug/multiworld-gui");
-                #[cfg(all(target_arch = "x86_64", target_os = "linux", not(debug_assertions)))] let glow_gui_data = include_bytes!("../../../target/glow/release/multiworld-gui");
-                #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let glow_gui_data = include_bytes!("../../../target/glow/debug/multiworld-gui.exe");
-                #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let glow_gui_data = include_bytes!("../../../target/glow/release/multiworld-gui.exe");
-                std::fs::write(&glow_gui_path, glow_gui_data)?;
-                std::process::Command::new(glow_gui_path)
-                    .args(env::args_os().skip(1))
-                    .check("multiworld-gui-glow")?;
-                Ok(())
-            } else {
-                Err(e.into())
-            },
-        }
-    }
+    })?)
 }

@@ -71,7 +71,6 @@ use {
         github::Repo,
     },
 };
-#[cfg(not(feature = "glow"))] use directories::ProjectDirs;
 
 #[cfg(target_arch = "x86_64")] const BIZHAWK_PLATFORM_SUFFIX: &str = "-win-x64.zip";
 
@@ -856,32 +855,12 @@ enum MainError {
 
 #[wheel::main(debug)]
 fn main(args: Args) -> Result<(), MainError> {
-    let res = State::run(Settings {
+    Ok(State::run(Settings {
         window: window::Settings {
             size: (400, 300),
             icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
             ..window::Settings::default()
         },
         ..Settings::with_flags(args)
-    });
-    #[cfg(feature = "glow")] { Ok(res?) }
-    #[cfg(not(feature = "glow"))] {
-        match res {
-            Ok(()) => Ok(()),
-            Err(e) => if let iced::Error::GraphicsCreationFailed(iced_graphics::Error::GraphicsAdapterNotFound) = e {
-                let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
-                std::fs::create_dir_all(project_dirs.cache_dir())?;
-                let glow_installer_path = project_dirs.cache_dir().join("installer-glow.exe");
-                #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let glow_installer_data = include_bytes!("../../../target/glow/debug/multiworld-installer.exe");
-                #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let glow_installer_data = include_bytes!("../../../target/glow/release/multiworld-installer.exe");
-                std::fs::write(&glow_installer_path, glow_installer_data)?;
-                std::process::Command::new(glow_installer_path)
-                    .args(env::args_os().skip(1))
-                    .check("multiworld-installer-glow")?;
-                Ok(())
-            } else {
-                Err(e.into())
-            },
-        }
-    }
+    })?)
 }

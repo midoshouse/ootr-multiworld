@@ -4,11 +4,6 @@ version.workspace = true
 authors.workspace = true
 edition.workspace = true
 
-[features]
-default = ["wgpu"]
-glow = ["iced/glow"]
-wgpu = ["iced_graphics"]
-
 [build-dependencies]
 winres = "0.1"
 
@@ -40,11 +35,7 @@ features = ["derive"]
 
 [dependencies.iced]
 version = "0.9"
-features = ["default_system_font", "image", "tokio"]
-
-[dependencies.iced_graphics]
-version = "0.8"
-optional = true
+features = ["default_system_font", "glow", "image", "tokio"]
 
 [dependencies.image]
 version = "0.24"

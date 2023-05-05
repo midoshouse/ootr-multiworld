@@ -569,38 +569,14 @@ enum MainError {
 #[wheel::main(debug)]
 fn main(args: Args) -> Result<(), MainError> {
     match args {
-        Args::Emu(args) => {
-            let res = App::run(Settings {
-                window: window::Settings {
-                    size: (320, 240),
-                    icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
-                    ..window::Settings::default()
-                },
-                ..Settings::with_flags(args)
-            });
-            #[cfg(feature = "glow")] { Ok(res?) }
-            #[cfg(not(feature = "glow"))] {
-                match res {
-                    Ok(()) => Ok(()),
-                    Err(e) => if let iced::Error::GraphicsCreationFailed(iced_graphics::Error::GraphicsAdapterNotFound) = e {
-                        let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
-                        std::fs::create_dir_all(project_dirs.cache_dir())?;
-                        let glow_updater_path = project_dirs.cache_dir().join("updater-glow.exe");
-                        #[cfg(all(target_arch = "x86_64", target_os = "linux", debug_assertions))] let glow_updater_data = include_bytes!("../../../target/glow/debug/multiworld-updater");
-                        #[cfg(all(target_arch = "x86_64", target_os = "linux", not(debug_assertions)))] let glow_updater_data = include_bytes!("../../../target/glow/release/multiworld-updater");
-                        #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let glow_updater_data = include_bytes!("../../../target/glow/debug/multiworld-updater.exe");
-                        #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let glow_updater_data = include_bytes!("../../../target/glow/release/multiworld-updater.exe");
-                        std::fs::write(&glow_updater_path, glow_updater_data)?;
-                        std::process::Command::new(glow_updater_path)
-                            .args(env::args_os().skip(1))
-                            .check("multiworld-updater-glow")?;
-                        Ok(())
-                    } else {
-                        Err(e.into())
-                    },
-                }
-            }
-        }
+        Args::Emu(args) => Ok(App::run(Settings {
+            window: window::Settings {
+                size: (320, 240),
+                icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
+                ..window::Settings::default()
+            },
+            ..Settings::with_flags(args)
+        })?),
         Args::Pj64Script { src, dst } => match pj64script(src, dst) {
             Ok(()) => Ok(()),
             Err(e) => {
