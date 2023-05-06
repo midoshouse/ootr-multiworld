@@ -31,6 +31,7 @@ use {
         str::FromStr as _,
     },
     async_proto::Protocol as _,
+    chrono::prelude::*,
     directories::ProjectDirs,
     itertools::Itertools as _,
     libc::c_char,
@@ -235,7 +236,7 @@ impl Client {
 /// `msg` must be a null-terminated UTF-8 string.
 #[csharp_ffi] pub unsafe extern "C" fn log(msg: *const c_char) {
     if CONFIG.log {
-        writeln!(&*LOG, "{}", CStr::from_ptr(msg).to_str().expect("log text was not valid UTF-8")).expect("failed to write log entry");
+        writeln!(&*LOG, "{} {}", Utc::now().format("%Y-%m-%d %H:%M:%S"), CStr::from_ptr(msg).to_str().expect("log text was not valid UTF-8")).expect("failed to write log entry");
     }
 }
 

@@ -105,7 +105,7 @@ impl LoggingReader {
     async fn read<T: Protocol + fmt::Debug>(&mut self) -> Result<T, async_proto::ReadError> {
         let msg = T::read(&mut self.inner).await?;
         if self.log {
-            writeln!(&*LOG.lock().await, "{}: {msg:?}", self.context)?;
+            writeln!(&*LOG.lock().await, "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
         }
         Ok(msg)
     }
@@ -121,7 +121,7 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
     async fn read_owned(mut self) -> Result<(Self, ServerMessage), async_proto::ReadError> {
         let msg = ServerMessage::read_ws(&mut self.inner).await?;
         if self.log {
-            writeln!(&*LOG.lock().await, "{}: {msg:?}", self.context)?;
+            writeln!(&*LOG.lock().await, "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
         }
         Ok((self, msg))
     }
@@ -137,7 +137,7 @@ struct LoggingWriter {
 impl LoggingWriter {
     async fn write(&self, msg: impl Protocol + fmt::Debug) -> Result<(), async_proto::WriteError> {
         if self.log {
-            writeln!(&*LOG.lock().await, "{}: {msg:?}", self.context)?;
+            writeln!(&*LOG.lock().await, "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
         }
         msg.write(&mut *self.inner.lock().await).await
     }
@@ -153,7 +153,7 @@ struct LoggingSink {
 impl LoggingSink {
     async fn write(&self, msg: ClientMessage) -> Result<(), async_proto::WriteError> {
         if self.log {
-            writeln!(&*LOG.lock().await, "{}: {msg:?}", self.context)?;
+            writeln!(&*LOG.lock().await, "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
         }
         msg.write_ws(&mut *self.inner.lock().await).await
     }

@@ -12,6 +12,7 @@ use {
         time::Duration,
     },
     bytes::Bytes,
+    chrono::prelude::*,
     dark_light::Mode::*,
     directories::ProjectDirs,
     futures::{
@@ -583,7 +584,7 @@ fn main(args: Args) -> Result<(), MainError> {
                 if CONFIG.log {
                     let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(MainError::MissingHomeDir)?;
                     std::fs::create_dir_all(project_dirs.data_dir())?;
-                    write!(std::fs::File::create(project_dirs.data_dir().join("updater.log"))?, "error in pj64script subcommand: {e}\ndebug info: {e:?}")?;
+                    write!(std::fs::File::create(project_dirs.data_dir().join("updater.log"))?, "{} error in pj64script subcommand: {e}\ndebug info: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"))?;
                 }
                 Err(e.into())
             }

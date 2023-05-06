@@ -26,6 +26,11 @@ url = "2"
 version = "0.0.13"
 features = ["full"]
 
+[dependencies.chrono]
+version = "0.4"
+default-features = false
+features = ["clock", "std"]
+
 [dependencies.clap]
 version = "4"
 features = ["derive"]

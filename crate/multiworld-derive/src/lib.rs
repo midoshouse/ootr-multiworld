@@ -92,7 +92,9 @@ pub fn csharp_ffi(_: TokenStream, item: TokenStream) -> TokenStream {
     }
     TokenStream::from(quote! {
         #[no_mangle] #(#attrs)* #vis #sig {
-            if CONFIG.log { writeln!(&*LOG, concat!("called ", stringify!(#fn_name))).expect("failed to write log entry"); }
+            if CONFIG.log {
+                writeln!(&*LOG, concat!("{} called ", stringify!(#fn_name)), Utc::now().format("%Y-%m-%d %H:%M:%S")).expect("failed to write log entry");
+            }
             #block
         }
     })
