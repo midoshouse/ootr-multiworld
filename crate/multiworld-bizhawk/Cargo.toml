@@ -19,6 +19,6 @@ branch = "main"
 [dependencies]
 semver = "1"
 
-[dependencies.winver]
+[target.'cfg(windows)'.dependencies.winver]
 git = "https://github.com/fenhl/winver"
 branch = "main"

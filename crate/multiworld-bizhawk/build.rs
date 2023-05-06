@@ -14,13 +14,15 @@ use {
     },
     wheel::{
         fs,
-        traits::AsyncCommandOutputExt as _,
+        traits::{
+            AsyncCommandOutputExt as _,
+            IoResultExt as _,
+        },
     },
 };
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
-    #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error("function `{0}` declared as extern in C# is not defined in Rust")]
     UndefinedCsharpFunction(String),
@@ -52,15 +54,16 @@ async fn main() -> Result<(), Error> {
         profile => panic!("unexpected PROFILE envar: {profile:?}"),
     };
     let source_path = match (env::var_os("CARGO_CFG_WINDOWS").is_some(), is_release) {
-        (false, false) => Path::new("../../target/debug/liblinuxtest.so"),
-        (false, true) => Path::new("../../target/release/liblinuxtest.so"),
+        (false, false) => Path::new("../../target/debug/libmultiworld.so"),
+        (false, true) => Path::new("../../target/release/libmultiworld.so"),
         (true, false) => Path::new("../../target/debug/multiworld.dll"),
         (true, true) => Path::new("../../target/release/multiworld.dll"),
-    }.canonicalize()?;
+    };
+    let source_path = source_path.canonicalize().at(source_path)?;
     let target_paths = if env::var_os("CARGO_CFG_WINDOWS").is_some() {
         [Path::new("OotrMultiworld/src/multiworld.dll"), Path::new("OotrMultiworld/BizHawk/ExternalTools/multiworld.dll")]
     } else {
-        [Path::new("LinuxTest/src/liblinuxtest.so"), Path::new("LinuxTest/BizHawk/dll/liblinuxtest.so")]
+        [Path::new("OotrMultiworld/src/libmultiworld.so"), Path::new("OotrMultiworld/BizHawk/dll/libmultiworld.so")]
     };
     for target_path in target_paths {
         if let Some(parent) = target_path.parent() {
@@ -70,9 +73,9 @@ async fn main() -> Result<(), Error> {
             Ok(metadata) if metadata.is_symlink() || metadata.is_file() => fs::remove_file(target_path).await?,
             Ok(metadata) => panic!("unexpected file type: {metadata:?}"),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
+            Err(e) => Err(e).at(target_path)?,
         }
-        fs::copy(&source_path, &target_path).await?;
+        fs::copy(&source_path, target_path).await?;
     }
     let mut dotnet_command = Command::new("dotnet");
     dotnet_command.arg("build");
@@ -80,6 +83,6 @@ async fn main() -> Result<(), Error> {
         dotnet_command.arg("--configuration=Release");
     }
     dotnet_command.current_dir("OotrMultiworld/src");
-    dotnet_command.spawn()?.check("dotnet").await?;
+    dotnet_command.spawn().at_command("dotnet")?.check("dotnet").await?;
     Ok(())
 }

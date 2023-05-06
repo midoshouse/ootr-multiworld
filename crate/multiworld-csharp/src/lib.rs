@@ -16,6 +16,7 @@ use {
             self,
             prelude::*,
         },
+        iter,
         net::{
             Ipv4Addr,
             TcpListener,
@@ -27,13 +28,14 @@ use {
             Command,
         },
         slice,
+        str::FromStr as _,
     },
     async_proto::Protocol as _,
     directories::ProjectDirs,
+    itertools::Itertools as _,
     libc::c_char,
     once_cell::sync::Lazy,
     ootr_utils::spoiler::HashIcon,
-    semver::Version,
     multiworld_derive::csharp_ffi,
     multiworld::{
         config::CONFIG,
@@ -44,6 +46,7 @@ use {
         },
     },
 };
+#[cfg(windows)] use semver::Version;
 
 static LOG: Lazy<File> = Lazy::new(|| {
     let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
@@ -172,8 +175,9 @@ impl StringHandle {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)] Io(#[from] io::Error),
+    #[error(transparent)] ParseInt(#[from] std::num::ParseIntError),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
-    #[error(transparent)] Winver(#[from] winver::Error),
+    #[cfg(windows)] #[error(transparent)] Winver(#[from] winver::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("current executable at filesystem root")]
     CurrentExeAtRoot,
@@ -256,28 +260,33 @@ impl Client {
     StringHandle::from_string(error)
 }
 
-#[csharp_ffi] pub extern "C" fn open_gui() -> HandleOwned<Result<Client, Error>> {
-    fn inner() -> Result<Client, Error> {
+#[csharp_ffi] pub unsafe extern "C" fn open_gui(version: *const c_char) -> HandleOwned<Result<Client, Error>> {
+    fn inner(version: &str) -> Result<Client, Error> {
         let tcp_listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         tcp_listener.set_nonblocking(true)?;
         let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
         let gui_path = project_dirs.cache_dir().join("gui.exe");
         let write_gui = !gui_path.exists() || {
-            let [major, minor, patch, _] = winver::get_file_version_info(&gui_path)?;
-            Version::new(major.into(), minor.into(), patch.into()) != multiworld::version()
+            #[cfg(unix)] { true } //TODO skip if already at the current version (check using --version CLI flag?)
+            #[cfg(windows)] {
+                let [major, minor, patch, _] = winver::get_file_version_info(&gui_path)?;
+                Version::new(major.into(), minor.into(), patch.into()) != multiworld::version()
+            }
         };
         if write_gui {
             fs::create_dir_all(project_dirs.cache_dir())?;
+            #[cfg(all(target_arch = "x86_64", target_os = "linux", debug_assertions))] let gui_data = include_bytes!("../../../target/debug/multiworld-gui");
+            #[cfg(all(target_arch = "x86_64", target_os = "linux", not(debug_assertions)))] let gui_data = include_bytes!("../../../target/release/multiworld-gui");
             #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let gui_data = include_bytes!("../../../target/debug/multiworld-gui.exe");
             #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let gui_data = include_bytes!("../../../target/release/multiworld-gui.exe");
             fs::write(&gui_path, gui_data)?;
         }
-        let [major, minor, patch, _] = winver::get_file_version_info("EmuHawk.exe")?;
+        let (major, minor, patch) = version.split('.').map(u64::from_str).chain(iter::repeat(Ok(0))).next_tuple().expect("iter::repeat produces an infinite iterator");
         Command::new(gui_path)
             .arg("bizhawk")
             .arg(env::current_exe()?.canonicalize()?.parent().ok_or(Error::CurrentExeAtRoot)?)
             .arg(process::id().to_string())
-            .arg(format!("{major}.{minor}.{patch}"))
+            .arg(format!("{}.{}.{}", major?, minor?, patch?))
             .arg(tcp_listener.local_addr()?.port().to_string())
             .spawn()?;
         Ok(Client {
@@ -288,7 +297,7 @@ impl Client {
         })
     }
 
-    HandleOwned::new(inner())
+    HandleOwned::new(inner(CStr::from_ptr(version).to_str().expect("version text was not valid UTF-8")))
 }
 
 #[csharp_ffi] pub unsafe extern "C" fn client_result_free(client_res: HandleOwned<Result<Client, Error>>) {

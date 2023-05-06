@@ -49,7 +49,7 @@ ThrowOnNativeFailure
 
 # Linux
 "installing prerequisite packages on Linux"
-wsl sudo apt-get install -y cmake libfontconfig1-dev libfreetype6-dev libssl-dev pkg-config python3 rsync
+wsl sudo apt-get install -y cmake dotnet-sdk-6.0 libfontconfig1-dev libfreetype6-dev libssl-dev pkg-config python3 rsync
 ThrowOnNativeFailure
 "creating target dir on Linux"
 wsl mkdir -p /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/debug
@@ -68,4 +68,16 @@ ThrowOnNativeFailure
 "copying Linux artifacts to Windows file system"
 wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/multiworld-gui /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/multiworld-gui
 ThrowOnNativeFailure
+wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/BizHawk/dll/libmultiworld.so /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/libmultiworld.so
+ThrowOnNativeFailure
+wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/OotrMultiworld.dll /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/OotrMultiworld.dll
+ThrowOnNativeFailure
+
+#TODO move to a testing script?
+"copying Linux artifacts to peterpc3"
+scp .\target\wsl\release\libmultiworld.so 192.168.178.77:bin/BizHawk/dll
+ThrowOnNativeFailure
+scp .\target\wsl\release\OotrMultiworld.dll 192.168.178.77:bin/BizHawk/ExternalTools
+ThrowOnNativeFailure
+
 "bootstrap done"

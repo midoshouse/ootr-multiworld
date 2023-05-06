@@ -3374,6 +3374,7 @@ version = "10.0.4"
 dependencies = [
  "async-proto",
  "directories 5.0.1",
+ "itertools",
  "libc",
  "multiworld",
  "multiworld-derive",

@@ -7,6 +7,7 @@ using System.Text;
 using System.Windows.Forms;
 using BizHawk.Client.Common;
 using BizHawk.Client.EmuHawk;
+using BizHawk.Common;
 
 namespace MidosHouse.OotrMultiworld;
 
@@ -16,7 +17,7 @@ internal class Native {
     [DllImport("multiworld")] internal static extern Error error_from_string(OwnedStringHandle text);
     [DllImport("multiworld")] internal static extern StringHandle error_debug(Error error);
     [DllImport("multiworld")] internal static extern StringHandle error_display(Error error);
-    [DllImport("multiworld")] internal static extern ClientResult open_gui();
+    [DllImport("multiworld")] internal static extern ClientResult open_gui(OwnedStringHandle version);
     [DllImport("multiworld")] internal static extern void client_result_free(IntPtr client_res);
     [DllImport("multiworld")] internal static extern bool client_result_is_ok(ClientResult client_res);
     [DllImport("multiworld")] internal static extern Client client_result_unwrap(IntPtr client_res);
@@ -67,6 +68,12 @@ internal class StringHandle : SafeHandle {
 
 internal class ClientResult : SafeHandle {
     internal ClientResult() : base(IntPtr.Zero, true) {}
+
+    static internal ClientResult open() {
+        using (var versionHandle = new OwnedStringHandle(VersionInfo.MainVersion)) {
+            return Native.open_gui(versionHandle);
+        }
+    }
 
     public override bool IsInvalid {
         get { return this.handle == IntPtr.Zero; }
@@ -241,7 +248,8 @@ internal class OwnedStringHandle : SafeHandle {
 }
 
 [ExternalTool("Mido's House Multiworld", Description = "Play interconnected Ocarina of Time Randomizer seeds")]
-[ExternalToolEmbeddedIcon("MidosHouse.OotrMultiworld.Resources.icon.ico")]
+//TODO reenable icon (crashes on Linux)
+//[ExternalToolEmbeddedIcon("MidosHouse.OotrMultiworld.Resources.icon.ico")]
 public sealed class MainForm : ToolFormBase, IExternalToolForm {
     private Client? client;
     private uint? coopContextAddr;
@@ -288,7 +296,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
     public override void Restart() {
         APIs.Memory.SetBigEndian(true);
         if (this.client == null) {
-            using (var res = Native.open_gui()) {
+            using (var res = ClientResult.open()) {
                 if (res.IsOk()) {
                     this.client = res.Unwrap();
                 } else {
