@@ -585,7 +585,8 @@ impl Task<Result<(), Error>> for BuildServer {
                 Ok(Err(Self::Build))
             }).await,
             Self::Build => gres::transpose(async move {
-                Command::new("ssh").arg("midos.house").arg("cd /opt/git/github.com/midoshouse/ootr-multiworld/master && cargo build --release --package=ootrmwd").check("ssh midos.house cargo build").await?; //TODO build locally
+                //TODO build locally
+                Command::new("ssh").arg("midos.house").arg("cd /opt/git/github.com/midoshouse/ootr-multiworld/master && cargo build --release --package=ootrmwd").check("ssh midos.house cargo build").await?;
                 Ok(Err(Self::WaitRestart))
             }).await,
             Self::WaitRestart => gres::transpose(async move {

@@ -14,7 +14,6 @@ use {
     bytes::Bytes,
     chrono::prelude::*,
     dark_light::Mode::*,
-    directories::ProjectDirs,
     futures::{
         future::{
             self,
@@ -74,6 +73,8 @@ use {
     },
     crate::util::absolute_path,
 };
+#[cfg(unix)] use xdg::BaseDirectories;
+#[cfg(windows)] use directories::ProjectDirs;
 
 mod util;
 
@@ -563,6 +564,7 @@ enum MainError {
     #[error(transparent)] Icon(#[from] iced::window::icon::Error),
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] Wheel(#[from] wheel::Error),
+    #[cfg(windows)]
     #[error("user folder not found")]
     MissingHomeDir,
 }
@@ -582,9 +584,17 @@ fn main(args: Args) -> Result<(), MainError> {
             Ok(()) => Ok(()),
             Err(e) => {
                 if CONFIG.log {
-                    let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(MainError::MissingHomeDir)?;
-                    std::fs::create_dir_all(project_dirs.data_dir())?;
-                    write!(std::fs::File::create(project_dirs.data_dir().join("updater.log"))?, "{} error in pj64script subcommand: {e}\ndebug info: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"))?;
+                    let path = {
+                        #[cfg(unix)] {
+                            BaseDirectories::new().expect("failed to determine XDG base directories").place_data_file("midos-house/multiworld-updater.log").expect("failed to create log dir")
+                        }
+                        #[cfg(windows)] {
+                            let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(MainError::MissingHomeDir)?;
+                            std::fs::create_dir_all(project_dirs.data_dir())?;
+                            project_dirs.data_dir().join("updater.log")
+                        }
+                    };
+                    write!(std::fs::File::create(path)?, "{} error in pj64script subcommand: {e}\ndebug info: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"))?;
                 }
                 Err(e.into())
             }

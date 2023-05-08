@@ -3,7 +3,7 @@ use {
         fs,
         path::PathBuf,
     },
-    directories::ProjectDirs,
+    if_chain::if_chain,
     once_cell::sync::Lazy,
     serde::{
         Deserialize,
@@ -11,6 +11,8 @@ use {
     },
     url::Url,
 };
+#[cfg(unix)] use xdg::BaseDirectories;
+#[cfg(windows)] use directories::ProjectDirs;
 
 fn default_websocket_hostname() -> String { format!("mw.midos.house") }
 
@@ -25,18 +27,48 @@ pub struct Config {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum SaveError {
+pub enum Error {
     #[error(transparent)] Io(#[from] std::io::Error),
     #[error(transparent)] Json(#[from] serde_json::Error),
+    #[cfg(unix)] #[error(transparent)] Xdg(#[from] xdg::BaseDirectoriesError),
+    #[cfg(windows)]
     #[error("failed to find project folder")]
     ProjectDirs,
 }
 
 impl Config {
-    pub fn save(&self) -> Result<(), SaveError> {
-        let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(SaveError::ProjectDirs)?;
-        fs::create_dir_all(project_dirs.config_dir())?;
-        fs::write(project_dirs.config_dir().join("config.json"), serde_json::to_vec_pretty(self)?)?;
+    fn load() -> Result<Self, Error> {
+        let path = {
+            #[cfg(unix)] {
+                BaseDirectories::new()?.find_config_file("midos-house/multiworld.json")
+            }
+            #[cfg(windows)] {
+                Some(ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::ProjectDirs)?.config_dir().join("config.json"))
+            }
+        };
+        Ok(if_chain! {
+            if let Some(path) = path;
+            if path.exists();
+            then {
+                serde_json::from_str(&fs::read_to_string(path)?)?
+            } else {
+                Self::default()
+            }
+        })
+    }
+
+    pub fn save(&self) -> Result<(), Error> {
+        let path = {
+            #[cfg(unix)] {
+                BaseDirectories::new()?.place_config_file("midos-house/multiworld.json")?
+            }
+            #[cfg(windows)] {
+                let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::ProjectDirs)?;
+                fs::create_dir_all(project_dirs.config_dir())?;
+                project_dirs.config_dir().join("config.json")
+            }
+        };
+        fs::write(path, serde_json::to_vec_pretty(self)?)?;
         Ok(())
     }
 
@@ -55,15 +87,12 @@ impl Default for Config {
     }
 }
 
+//TODO only use this where proper error reporting is infeasible
 pub static CONFIG: Lazy<Config> = Lazy::new(|| {
-    if let Some(project_dirs) = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld") {
-        if let Ok(config) = fs::read_to_string(project_dirs.config_dir().join("config.json")) {
-            match serde_json::from_str::<Config>(&config) {
-                Ok(config) => return config,
-                #[cfg(debug_assertions)] Err(e) => eprintln!("{e:?}"),
-                #[cfg(not(debug_assertions))] Err(_) => {} //TODO more visible error handling?
-            }
-        }
+    match Config::load() {
+        Ok(config) => return config,
+        #[cfg(debug_assertions)] Err(e) => eprintln!("{e:?}"),
+        #[cfg(not(debug_assertions))] Err(_) => {}
     }
     Config::default()
 });

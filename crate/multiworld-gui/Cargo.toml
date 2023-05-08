@@ -10,7 +10,6 @@ winres = "0.1"
 [dependencies]
 async-proto = "0.16"
 dark-light = "1"
-directories = "5"
 futures = "0.3"
 iced_futures = "0.6"
 iced_native = "0.10"
@@ -75,3 +74,9 @@ features = ["rustls-tls-webpki-roots"]
 git = "https://github.com/fenhl/wheel"
 branch = "main"
 features = ["reqwest"]
+
+[target.'cfg(unix)'.dependencies]
+xdg = "2"
+
+[target.'cfg(windows)'.dependencies]
+directories = "5"

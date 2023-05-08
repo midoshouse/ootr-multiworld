@@ -248,8 +248,7 @@ internal class OwnedStringHandle : SafeHandle {
 }
 
 [ExternalTool("Mido's House Multiworld", Description = "Play interconnected Ocarina of Time Randomizer seeds")]
-//TODO reenable icon (crashes on Linux)
-//[ExternalToolEmbeddedIcon("MidosHouse.OotrMultiworld.Resources.icon.ico")]
+[ExternalToolEmbeddedIcon("MidosHouse.OotrMultiworld.Resources.icon.ico")]
 public sealed class MainForm : ToolFormBase, IExternalToolForm {
     private Client? client;
     private uint? coopContextAddr;

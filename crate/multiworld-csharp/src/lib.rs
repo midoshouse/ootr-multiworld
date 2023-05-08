@@ -32,11 +32,11 @@ use {
     },
     async_proto::Protocol as _,
     chrono::prelude::*,
-    directories::ProjectDirs,
     itertools::Itertools as _,
     libc::c_char,
     once_cell::sync::Lazy,
     ootr_utils::spoiler::HashIcon,
+    wheel::traits::IoResultExt as _,
     multiworld_derive::csharp_ffi,
     multiworld::{
         config::CONFIG,
@@ -47,12 +47,27 @@ use {
         },
     },
 };
-#[cfg(windows)] use semver::Version;
+#[cfg(unix)] use {
+    std::os::unix::fs::PermissionsExt as _,
+    xdg::BaseDirectories,
+};
+#[cfg(windows)] use {
+    directories::ProjectDirs,
+    semver::Version,
+};
 
 static LOG: Lazy<File> = Lazy::new(|| {
-    let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
-    fs::create_dir_all(project_dirs.data_dir()).expect("failed to create log dir");
-    File::create(project_dirs.data_dir().join("ffi.log")).expect("failed to create log file")
+    let path = {
+        #[cfg(unix)] {
+            BaseDirectories::new().expect("failed to determine XDG base directories").place_data_file("midos-house/multiworld-ffi.log").expect("failed to create log dir")
+        }
+        #[cfg(windows)] {
+            let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
+            fs::create_dir_all(project_dirs.data_dir()).expect("failed to create log dir");
+            project_dirs.data_dir().join("ffi.log")
+        }
+    };
+    File::create(path).expect("failed to create log file")
 });
 
 #[repr(transparent)]
@@ -175,11 +190,12 @@ impl StringHandle {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] ParseInt(#[from] std::num::ParseIntError),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
+    #[error(transparent)] Wheel(#[from] wheel::Error),
     #[cfg(windows)] #[error(transparent)] Winver(#[from] winver::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[cfg(unix)] #[error(transparent)] Xdg(#[from] xdg::BaseDirectoriesError),
     #[error("current executable at filesystem root")]
     CurrentExeAtRoot,
     #[error("{0}")]
@@ -199,12 +215,12 @@ pub struct Client {
 impl Client {
     fn try_read(&mut self) -> Result<Option<ServerMessage>, Error> {
         if let Some(ref mut tcp_stream) = self.tcp_stream {
-            tcp_stream.set_nonblocking(true)?;
+            tcp_stream.set_nonblocking(true).at_unknown()?;
             ServerMessage::try_read(tcp_stream, &mut self.buf).map_err(Error::from)
         } else {
             match self.tcp_listener.accept() {
                 Ok((mut tcp_stream, _)) => {
-                    tcp_stream.set_nonblocking(false)?;
+                    tcp_stream.set_nonblocking(false).at_unknown()?;
                     PROTOCOL_VERSION.write_sync(&mut tcp_stream)?;
                     let frontend_version = u8::read_sync(&mut tcp_stream)?;
                     if frontend_version != PROTOCOL_VERSION { return Err(Error::VersionMismatch(frontend_version)) }
@@ -215,14 +231,14 @@ impl Client {
                     Ok(None)
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(None),
-                Err(e) => Err(e.into()),
+                Err(e) => Err(e).at_unknown().map_err(Error::from),
             }
         }
     }
 
     fn write(&mut self, msg: ClientMessage) -> Result<(), Error> {
         if let Some(ref mut tcp_stream) = self.tcp_stream {
-            tcp_stream.set_nonblocking(false)?;
+            tcp_stream.set_nonblocking(false).at_unknown()?;
             msg.write_sync(tcp_stream).map_err(Error::from)
         } else {
             self.message_queue.push(msg);
@@ -263,10 +279,18 @@ impl Client {
 
 #[csharp_ffi] pub unsafe extern "C" fn open_gui(version: *const c_char) -> HandleOwned<Result<Client, Error>> {
     fn inner(version: &str) -> Result<Client, Error> {
-        let tcp_listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
-        tcp_listener.set_nonblocking(true)?;
-        let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
-        let gui_path = project_dirs.cache_dir().join("gui.exe");
+        let tcp_listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).at_unknown()?;
+        tcp_listener.set_nonblocking(true).at_unknown()?;
+        let gui_path = {
+            #[cfg(unix)] {
+                xdg::BaseDirectories::new()?.place_cache_file("midos-house/multiworld-gui").at_unknown()?
+            }
+            #[cfg(windows)] {
+                let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
+                fs::create_dir_all(project_dirs.cache_dir()).at(project_dirs.cache_dir())?;
+                project_dirs.cache_dir().join("gui.exe")
+            }
+        };
         let write_gui = !gui_path.exists() || {
             #[cfg(unix)] { true } //TODO skip if already at the current version (check using --version CLI flag?)
             #[cfg(windows)] {
@@ -275,21 +299,21 @@ impl Client {
             }
         };
         if write_gui {
-            fs::create_dir_all(project_dirs.cache_dir())?;
             #[cfg(all(target_arch = "x86_64", target_os = "linux", debug_assertions))] let gui_data = include_bytes!("../../../target/debug/multiworld-gui");
             #[cfg(all(target_arch = "x86_64", target_os = "linux", not(debug_assertions)))] let gui_data = include_bytes!("../../../target/release/multiworld-gui");
             #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let gui_data = include_bytes!("../../../target/debug/multiworld-gui.exe");
             #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let gui_data = include_bytes!("../../../target/release/multiworld-gui.exe");
-            fs::write(&gui_path, gui_data)?;
+            fs::write(&gui_path, gui_data).at(&gui_path)?;
+            #[cfg(unix)] fs::set_permissions(&gui_path, fs::Permissions::from_mode(0o755)).at(&gui_path)?;
         }
         let (major, minor, patch) = version.split('.').map(u64::from_str).chain(iter::repeat(Ok(0))).next_tuple().expect("iter::repeat produces an infinite iterator");
-        Command::new(gui_path)
+        Command::new(&gui_path)
             .arg("bizhawk")
-            .arg(env::current_exe()?.canonicalize()?.parent().ok_or(Error::CurrentExeAtRoot)?)
+            .arg(env::current_exe().at_unknown()?.canonicalize().at_unknown()?.parent().ok_or(Error::CurrentExeAtRoot)?)
             .arg(process::id().to_string())
             .arg(format!("{}.{}.{}", major?, minor?, patch?))
-            .arg(tcp_listener.local_addr()?.port().to_string())
-            .spawn()?;
+            .arg(tcp_listener.local_addr().at_unknown()?.port().to_string())
+            .spawn().at_command(gui_path.display().to_string())?;
         Ok(Client {
             tcp_stream: None,
             buf: Vec::default(),

@@ -23,7 +23,6 @@ use {
     async_proto::Protocol,
     chrono::prelude::*,
     dark_light::Mode::*,
-    directories::ProjectDirs,
     futures::{
         future,
         stream::Stream,
@@ -86,13 +85,26 @@ use {
     },
     crate::subscriptions::WsSink,
 };
+#[cfg(unix)] use {
+    std::os::unix::fs::PermissionsExt as _,
+    xdg::BaseDirectories,
+};
+#[cfg(windows)] use directories::ProjectDirs;
 
 mod subscriptions;
 
 static LOG: Lazy<Mutex<std::fs::File>> = Lazy::new(|| {
-    let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
-    std::fs::create_dir_all(project_dirs.data_dir()).expect("failed to create log dir");
-    Mutex::new(std::fs::File::create(project_dirs.data_dir().join("gui.log")).expect("failed to create log file"))
+    let path = {
+        #[cfg(unix)] {
+            BaseDirectories::new().expect("failed to determine XDG base directories").place_data_file("midos-house/multiworld-gui.log").expect("failed to create log dir")
+        }
+        #[cfg(windows)] {
+            let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
+            std::fs::create_dir_all(project_dirs.data_dir()).expect("failed to create log dir");
+            project_dirs.data_dir().join("gui.log")
+        }
+    };
+    Mutex::new(std::fs::File::create(path).expect("failed to create log file"))
 });
 
 struct LoggingReader {
@@ -209,8 +221,10 @@ enum Error {
     #[error(transparent)] WebSocket(#[from] tungstenite::Error),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[cfg(unix)] #[error(transparent)] Xdg(#[from] xdg::BaseDirectoriesError),
     #[error("tried to copy debug info with no active error")]
     CopyDebugInfo,
+    #[cfg(windows)]
     #[error("user folder not found")]
     MissingHomeDir,
     #[error("protocol version mismatch: {frontend} plugin is version {version} but we're version {}", frontend::PROTOCOL_VERSION)]
@@ -399,15 +413,23 @@ impl Application for State {
             if let Some(release) = repo.latest_release(&http_client).await? {
                 let new_ver = release.version()?;
                 if new_ver > Version::parse(env!("CARGO_PKG_VERSION"))? {
-                    let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::MissingHomeDir)?;
-                    let cache_dir = project_dirs.cache_dir();
-                    fs::create_dir_all(cache_dir).await?;
-                    let updater_path = cache_dir.join("updater.exe");
+                    let updater_path = {
+                        #[cfg(unix)] {
+                            BaseDirectories::new()?.place_cache_file("midos-house/multiworld-updater")?
+                        }
+                        #[cfg(windows)] {
+                            let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::MissingHomeDir)?;
+                            let cache_dir = project_dirs.cache_dir();
+                            fs::create_dir_all(cache_dir).await?;
+                            cache_dir.join("updater.exe")
+                        }
+                    };
                     #[cfg(all(target_arch = "x86_64", target_os = "linux", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater");
                     #[cfg(all(target_arch = "x86_64", target_os = "linux", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater");
                     #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater.exe");
                     #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
                     fs::write(&updater_path, updater_data).await?;
+                    #[cfg(unix)] fs::set_permissions(&updater_path, fs::Permissions::from_mode(0o755)).await?;
                     let mut cmd = std::process::Command::new(updater_path);
                     match frontend {
                         FrontendFlags::BizHawk { path, pid, local_bizhawk_version, port: _ } => {

@@ -2216,9 +2216,9 @@ dependencies = [
 
 [[package]]
 name = "gpu-alloc"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7fc59e5f710e310e76e6707f86c561dd646f69a8876da9131703b2f717de818d"
+checksum = "22beaafc29b38204457ea030f6fb7a84c9e4dd1b86e311ba0542533453d87f62"
 dependencies = [
  "bitflags 1.3.2",
  "gpu-alloc-types",
@@ -2766,6 +2766,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "if_chain"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb56e1aa765b4b4f3aadfab769793b7087bb03a4ea4920644a6d238e2df5b9ed"
+
+[[package]]
 name = "image"
 version = "0.24.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3005,9 +3011,9 @@ checksum = "03087c2bad5e1034e8cace5926dec053fb3790248370865f5117a7d0213354c8"
 
 [[package]]
 name = "libc"
-version = "0.2.142"
+version = "0.2.144"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a987beff54b60ffa6d51982e1aa1146bc42f19bd26be28b0586f252fccf5317"
+checksum = "2b00cc1c228a6782d0f076e7b232802e0c5689d41bb5df366f2a6b6621cfdfe1"
 
 [[package]]
 name = "libgit2-sys"
@@ -3317,6 +3323,7 @@ dependencies = [
  "chrono",
  "directories 5.0.1",
  "futures",
+ "if_chain",
  "itertools",
  "once_cell",
  "ootr-utils",
@@ -3334,6 +3341,7 @@ dependencies = [
  "tokio-tungstenite",
  "url",
  "wheel",
+ "xdg",
 ]
 
 [[package]]
@@ -3384,6 +3392,7 @@ dependencies = [
  "oottracker",
  "semver 1.0.17",
  "thiserror",
+ "wheel",
  "winver",
 ]
 
@@ -3431,6 +3440,7 @@ dependencies = [
  "url",
  "wheel",
  "winres",
+ "xdg",
 ]
 
 [[package]]
@@ -3499,6 +3509,7 @@ dependencies = [
  "wheel",
  "windows 0.48.0",
  "winres",
+ "xdg",
 ]
 
 [[package]]
@@ -4565,9 +4576,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.26"
+version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4424af4bf778aae2051a77b60283332f386554255d722233d09fbfc7e30da2fc"
+checksum = "8f4f29d145265ec1c483c7c654450edde0bfe043d3938d6972630663356d9500"
 dependencies = [
  "proc-macro2",
 ]
@@ -4904,7 +4915,7 @@ dependencies = [
 [[package]]
 name = "rocket"
 version = "0.5.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#c1ead84ec503b2be118676f6eb8b421bd5b37e59"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#f1f533c1e5b0df5b44877d7cca39fb0f596a21b6"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -4962,7 +4973,7 @@ dependencies = [
 [[package]]
 name = "rocket_codegen"
 version = "0.5.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#c1ead84ec503b2be118676f6eb8b421bd5b37e59"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#f1f533c1e5b0df5b44877d7cca39fb0f596a21b6"
 dependencies = [
  "devise",
  "glob",
@@ -4977,7 +4988,7 @@ dependencies = [
 [[package]]
 name = "rocket_http"
 version = "0.5.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#c1ead84ec503b2be118676f6eb8b421bd5b37e59"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#f1f533c1e5b0df5b44877d7cca39fb0f596a21b6"
 dependencies = [
  "cookie",
  "either",
@@ -5003,7 +5014,7 @@ dependencies = [
 [[package]]
 name = "rocket_ws"
 version = "0.1.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#c1ead84ec503b2be118676f6eb8b421bd5b37e59"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#f1f533c1e5b0df5b44877d7cca39fb0f596a21b6"
 dependencies = [
  "rocket",
  "tokio-tungstenite",
@@ -5210,9 +5221,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.161"
+version = "1.0.162"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "857797cdf00136f50d70a64b9ba8967892eb9df26cbffb0beefa9c71194b85ef"
+checksum = "71b2f6e1ab5c2b98c05f0f35b236b22e8df7ead6ffbf51d7808da7f8817e7ab6"
 dependencies = [
  "serde_derive",
 ]
@@ -5229,9 +5240,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.161"
+version = "1.0.162"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ea3780fe4396cc8077e44623443a923e400f4a6015249de6d38ba064bed79d8"
+checksum = "a2a0814352fd64b58489904a44ea8d90cb1a91dcb6b4f5ebabc32c8318e93cb6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5757,9 +5768,9 @@ dependencies = [
 
 [[package]]
 name = "system-deps"
-version = "6.0.5"
+version = "6.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0fe581ad25d11420b873cf9aedaca0419c2b411487b134d4d21065f3d092055"
+checksum = "e5fa6fb9ee296c0dc2df41a656ca7948546d061958115ddb0bcaae43ad0d17d2"
 dependencies = [
  "cfg-expr",
  "heck",
@@ -5856,9 +5867,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.20"
+version = "0.3.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd0cbfecb4d19b5ea75bb31ad904eb5b9fa13f21079c3b92017ebdf4999a5890"
+checksum = "8f3403384eaacbca9923fa06940178ac13e4edb725486d70e8e15881d0c836cc"
 dependencies = [
  "itoa 1.0.6",
  "serde",
@@ -5868,15 +5879,15 @@ dependencies = [
 
 [[package]]
 name = "time-core"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e153e1f1acaef8acc537e68b44906d2db6436e2b35ac2c6b42640fff91f00fd"
+checksum = "7300fbefb4dadc1af235a9cef3737cea692a9d97e1b9cbcd4ebdae6f8868e6fb"
 
 [[package]]
 name = "time-macros"
-version = "0.2.8"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd80a657e71da814b8e5d60d3374fc6d35045062245d80224748ae522dd76f36"
+checksum = "372950940a5f07bf38dbe211d7283c9e6d7327df53794992d293e534c733d09b"
 dependencies = [
  "time-core",
 ]
@@ -6192,9 +6203,9 @@ dependencies = [
 
 [[package]]
 name = "uncased"
-version = "0.9.7"
+version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09b01702b0fd0b3fadcf98e098780badda8742d4f4a7676615cad90e8ac73622"
+checksum = "9b9bc53168a4be7402ab86c3aad243a84dd7381d09be0eddc81280c1da95ca68"
 dependencies = [
  "serde",
  "version_check",
@@ -6699,8 +6710,8 @@ dependencies = [
 
 [[package]]
 name = "wheel"
-version = "0.10.2"
-source = "git+https://github.com/fenhl/wheel?branch=main#3b0db784cda9949cc58899be674afdeb18759aca"
+version = "0.10.3"
+source = "git+https://github.com/fenhl/wheel?branch=main#cce532e93f60b4f0176c3e64c5310f89c65010ca"
 dependencies = [
  "async-proto",
  "async-trait",
@@ -6716,8 +6727,8 @@ dependencies = [
 
 [[package]]
 name = "wheel-derive"
-version = "0.10.2"
-source = "git+https://github.com/fenhl/wheel?branch=main#3b0db784cda9949cc58899be674afdeb18759aca"
+version = "0.10.3"
+source = "git+https://github.com/fenhl/wheel?branch=main#cce532e93f60b4f0176c3e64c5310f89c65010ca"
 dependencies = [
  "itertools",
  "proc-macro2",
@@ -7145,9 +7156,9 @@ checksum = "a67300977d3dc3f8034dae89778f502b6ba20b269527b3223ba59c0cf393bb8a"
 
 [[package]]
 name = "xml-rs"
-version = "0.8.5"
+version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "374b609fb36c36ce3501094dc0548f7df5d8d102224b65bc59812e4a5425d571"
+checksum = "699d0104bcdd7e7af6d093d6c6e2d0c479b8a129ee0d1023b31d2e0c71bfdda2"
 
 [[package]]
 name = "xz2"
@@ -7230,9 +7241,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "0.6.4"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0445d0fbc924bb93539b4316c11afb121ea39296f99a3c4c9edad09e3658cdef"
+checksum = "7e92305c174683d78035cbf1b70e18db6329cc0f1b9cae0a52ca90bf5bfe7125"
 dependencies = [
  "aes",
  "byteorder",

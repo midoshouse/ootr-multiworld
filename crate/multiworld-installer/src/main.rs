@@ -76,7 +76,7 @@ use {
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
-    #[error(transparent)] Config(#[from] multiworld::config::SaveError),
+    #[error(transparent)] Config(#[from] multiworld::config::Error),
     #[error(transparent)] IniDe(#[from] serde_ini::de::Error),
     #[error(transparent)] IniSer(#[from] serde_ini::ser::Error),
     #[error(transparent)] Io(#[from] io::Error),
