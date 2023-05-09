@@ -172,7 +172,7 @@ function handle_frame(write, error) {
         newPlayerName = mem.getblock(SRAM_START + 0x0020 + 0x0024, 8);
         // always fill player names in co-op context (some player names may go missing seemingly at random while others stay intact, so this has to run every frame)
         if (coopContextAddr !== null) {
-            for (var world = 1; world < 256; world++) {
+            for (var world = 0; world < 256; world++) {
                 for (var c = 0; c < 8; c++) {
                     mem.u8[coopContextAddr + 0x14 + world * 0x8 + c] = playerNames[world][c];
                 }
@@ -221,9 +221,9 @@ function handle_frame(write, error) {
                 sendItemPacketView.setUint8(7, player);
                 write(new Buffer(new Uint8Array(sendItemPacket)));
             }
-            mem.u32[coopContextAddr + 0xc] = 0;
             mem.u16[coopContextAddr + 0x10] = 0;
             mem.u16[coopContextAddr + 0x12] = 0;
+            mem.u32[coopContextAddr + 0xc] = 0;
         }
         // receive item
         var stateLogo = mem.u32[ADDR_ANY_RDRAM.start + 0x11f200];

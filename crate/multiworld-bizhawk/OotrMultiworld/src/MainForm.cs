@@ -410,9 +410,9 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                 //Debug($"P{this.playerID}: Found {outgoingKey}, an item {kind} for player {player}");
                 client.SendItem(outgoingKey, kind, player);
             }
-            APIs.Memory.WriteU32(coopContextAddr + 0xc, 0, "System Bus");
             APIs.Memory.WriteU16(coopContextAddr + 0x10, 0, "System Bus");
             APIs.Memory.WriteU16(coopContextAddr + 0x12, 0, "System Bus");
+            APIs.Memory.WriteU32(coopContextAddr + 0xc, 0, "System Bus");
         }
     }
 
@@ -512,7 +512,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                 this.playerName = new List<byte>(APIs.Memory.ReadByteRange(0x0020 + 0x0024, 8, "SRAM"));
                 // always fill player names in co-op context (some player names may go missing seemingly at random while others stay intact, so this has to run every frame)
                 if (this.coopContextAddr != null) {
-                    for (var world = 1; world < 256; world++) {
+                    for (var world = 0; world < 256; world++) {
                         APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + world * 0x8, this.playerNames[world], "System Bus");
                     }
                 }
