@@ -78,7 +78,8 @@ use {
 
 mod util;
 
-#[cfg(target_arch = "x86_64")] const BIZHAWK_PLATFORM_SUFFIX: &str = "-win-x64.zip";
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))] const BIZHAWK_PLATFORM_SUFFIX: &str = "-linux-x64.tar.gz";
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))] const BIZHAWK_PLATFORM_SUFFIX: &str = "-win-x64.zip";
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
@@ -237,7 +238,10 @@ impl Application for App {
             Message::Exited => {
                 self.state = State::GetMultiworldRelease;
                 let (asset_name, script_name) = match self.args {
-                    EmuArgs::BizHawk { .. } => ("multiworld-bizhawk.zip", None),
+                    EmuArgs::BizHawk { .. } => {
+                        #[cfg(target_os = "linux")] { ("multiworld-bizhawk-linux.zip", None) }
+                        #[cfg(target_os = "windows")] { ("multiworld-bizhawk.zip", None) }
+                    }
                     EmuArgs::Pj64 { .. } => ("multiworld-pj64.exe", Some("ootrmw-pj64.js")),
                 };
                 return cmd(async move {
@@ -323,8 +327,16 @@ impl Application for App {
                                     entry.reader().read_to_end_checked(&mut buf, &entry_info).await?;
                                     fs::write(external_tools.join("OotrMultiworld.dll"), &buf).await?;
                                 }
-                                "multiworld.dll" => {
-                                    let external_tools = path.join("ExternalTools");
+                                #[cfg(target_os = "linux")] "libmultiworld.so" => {
+                                    let dlls = path.join("dll");
+                                    fs::create_dir_all(&dlls).await?;
+                                    let mut buf = Vec::default();
+                                    let entry_info = entry.entry().clone();
+                                    entry.reader().read_to_end_checked(&mut buf, &entry_info).await?;
+                                    fs::write(dlls.join("libmultiworld.so"), &buf).await?;
+                                }
+                                #[cfg(target_os = "windows")] "multiworld.dll" => {
+                                    let external_tools = path.join("ExternalTools"); //TODO test if placing in `dll` works, use that and clean up `ExternalTools` if it does
                                     fs::create_dir_all(&external_tools).await?;
                                     let mut buf = Vec::default();
                                     let entry_info = entry.entry().clone();
@@ -392,7 +404,7 @@ impl Application for App {
                 self.state = State::ExtractBizHawk;
                 let path = path.clone();
                 return cmd(async move {
-                    let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
+                    let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?; //TODO support .tar.gz for Linux
                     let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), path.join(entry.entry().filename()))).collect_vec();
                     for (idx, is_dir, path) in entries {
                         if is_dir {
