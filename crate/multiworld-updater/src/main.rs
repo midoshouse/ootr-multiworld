@@ -73,7 +73,10 @@ use {
     },
     crate::util::absolute_path,
 };
-#[cfg(unix)] use xdg::BaseDirectories;
+#[cfg(unix)] use {
+    std::io::Cursor,
+    xdg::BaseDirectories,
+};
 #[cfg(windows)] use directories::ProjectDirs;
 
 mod util;
@@ -281,7 +284,6 @@ impl Application for App {
                             let temp_path = tokio::task::spawn_blocking(|| tempfile::Builder::default().prefix("ootrmw-pj64").suffix(".js").tempfile()).await??;
                             io::copy_buf(&mut &*new_script, &mut tokio::fs::File::from_std(temp_path.reopen()?)).await?;
                             tokio::task::spawn_blocking(move || {
-                                //TODO config option to log output from this command?
                                 if let Err(source) = runas::Command::new(env::current_exe()?).arg("pj64script").arg(temp_path.as_ref()).arg(&script_path).gui(true).status().at_command("runas")?.check("runas") {
                                     return Err(Error::Pj64Script {
                                         temp_path: temp_path.as_ref().to_owned(),
@@ -403,8 +405,13 @@ impl Application for App {
             Message::BizHawkZip(response) => if let EmuArgs::BizHawk { ref path, .. } = self.args {
                 self.state = State::ExtractBizHawk;
                 let path = path.clone();
-                return cmd(async move {
-                    let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?; //TODO support .tar.gz for Linux
+                #[cfg(target_os = "linux")] return cmd(async move {
+                    let tar_file = async_compression::tokio::bufread::GzipDecoder::new(Cursor::new(Vec::from(response)));
+                    tokio_tar::Archive::new(tar_file).unpack(path).await?;
+                    Ok(Message::Launch)
+                });
+                #[cfg(target_os = "windows")] return cmd(async move {
+                    let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
                     let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), path.join(entry.entry().filename()))).collect_vec();
                     for (idx, is_dir, path) in entries {
                         if is_dir {
@@ -419,7 +426,7 @@ impl Application for App {
                         }
                     }
                     Ok(Message::Launch)
-                })
+                });
             },
             Message::Launch => match self.args {
                 EmuArgs::BizHawk { ref path, .. } => {
