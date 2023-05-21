@@ -310,7 +310,9 @@ impl Application for App {
                         while let Some(mut entry) = zip_file.next_entry().await? {
                             match entry.entry().filename() {
                                 "README.txt" => {
-                                    let (readme_prefix, _) = include_str!("../../../assets/bizhawk-readme.txt").split_once("{}").expect("failed to parse readme template");
+                                    #[cfg(target_os = "linux")] let readme_template = include_str!("../../../assets/bizhawk-readme-linux.txt");
+                                    #[cfg(target_os = "windows")] let readme_template = include_str!("../../../assets/bizhawk-readme-windows.txt");
+                                    let (readme_prefix, _) = readme_template.split_once("{}").expect("failed to parse readme template");
                                     let mut buf = String::default();
                                     let entry_info = entry.entry().clone();
                                     entry.reader().read_to_string_checked(&mut buf, &entry_info).await?;

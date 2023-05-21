@@ -48,6 +48,11 @@ use {
     multiworld_utils::version,
 };
 
+#[derive(Clone)] struct WindowsUpdaterNotification;
+#[derive(Clone)] struct WindowsGuiNotification;
+#[derive(Clone)] struct LinuxBizHawkNotification;
+#[derive(Clone)] struct WindowsBizHawkNotification;
+
 enum Setup {
     CreateReqwestClient,
     CheckVersion(reqwest::Client),
@@ -235,11 +240,11 @@ impl Task<Result<Release, Error>> for CreateRelease {
 }
 
 enum BuildUpdater {
-    Glow(broadcast::Sender<()>),
+    Glow(broadcast::Sender<WindowsUpdaterNotification>),
 }
 
 impl BuildUpdater {
-    fn new(notifier: broadcast::Sender<()>) -> Self {
+    fn new(notifier: broadcast::Sender<WindowsUpdaterNotification>) -> Self {
         Self::Glow(notifier)
     }
 }
@@ -266,7 +271,7 @@ impl Task<Result<(), Error>> for BuildUpdater {
         match self {
             Self::Glow(notifier) => gres::transpose(async move {
                 Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-updater").check("cargo build --package=multiworld-updater").await?;
-                let _ = notifier.send(());
+                let _ = notifier.send(WindowsUpdaterNotification);
                 Ok(Ok(()))
             }).await,
         }
@@ -274,15 +279,15 @@ impl Task<Result<(), Error>> for BuildUpdater {
 }
 
 enum BuildGui {
-    Updater(reqwest::Client, Repo, broadcast::Receiver<()>, broadcast::Receiver<Release>, broadcast::Sender<()>),
-    Glow(reqwest::Client, Repo, broadcast::Receiver<Release>, broadcast::Sender<()>),
+    Updater(reqwest::Client, Repo, broadcast::Receiver<WindowsUpdaterNotification>, broadcast::Receiver<Release>, broadcast::Sender<WindowsGuiNotification>),
+    Glow(reqwest::Client, Repo, broadcast::Receiver<Release>, broadcast::Sender<WindowsGuiNotification>),
     Read(reqwest::Client, Repo, broadcast::Receiver<Release>),
     WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
     Upload(reqwest::Client, Repo, Release, Vec<u8>),
 }
 
 impl BuildGui {
-    fn new(client: reqwest::Client, repo: Repo, updater_rx: broadcast::Receiver<()>, release_rx: broadcast::Receiver<Release>, gui_tx: broadcast::Sender<()>) -> Self {
+    fn new(client: reqwest::Client, repo: Repo, updater_rx: broadcast::Receiver<WindowsUpdaterNotification>, release_rx: broadcast::Receiver<Release>, gui_tx: broadcast::Sender<WindowsGuiNotification>) -> Self {
         Self::Updater(client, repo, updater_rx, release_rx, gui_tx)
     }
 }
@@ -316,12 +321,12 @@ impl Task<Result<(), Error>> for BuildGui {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
             Self::Updater(client, repo, mut updater_rx, release_rx, gui_tx) => gres::transpose(async move {
-                let () = updater_rx.recv().await?;
+                let WindowsUpdaterNotification = updater_rx.recv().await?;
                 Ok(Err(Self::Glow(client, repo, release_rx, gui_tx)))
             }).await,
             Self::Glow(client, repo, release_rx, gui_tx) => gres::transpose(async move {
                 Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-gui").check("cargo build --package=multiworld-gui").await?;
-                let _ = gui_tx.send(());
+                let _ = gui_tx.send(WindowsGuiNotification);
                 Ok(Err(Self::Read(client, repo, release_rx)))
             }).await,
             Self::Read(client, repo, release_rx) => gres::transpose(async move {
@@ -341,16 +346,16 @@ impl Task<Result<(), Error>> for BuildGui {
 }
 
 enum BuildBizHawk {
-    Gui(reqwest::Client, Repo, broadcast::Receiver<()>, broadcast::Receiver<Release>, Version, broadcast::Sender<()>),
-    CSharp(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<()>),
-    BizHawk(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<()>),
+    Gui(reqwest::Client, Repo, broadcast::Receiver<WindowsGuiNotification>, broadcast::Receiver<Release>, Version, broadcast::Sender<WindowsBizHawkNotification>),
+    CSharp(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<WindowsBizHawkNotification>),
+    BizHawk(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<WindowsBizHawkNotification>),
     Zip(reqwest::Client, Repo, broadcast::Receiver<Release>, Version),
     WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
     Upload(reqwest::Client, Repo, Release, Vec<u8>),
 }
 
 impl BuildBizHawk {
-    fn new(client: reqwest::Client, repo: Repo, gui_rx: broadcast::Receiver<()>, release_rx: broadcast::Receiver<Release>, version: Version, bizhawk_tx: broadcast::Sender<()>) -> Self {
+    fn new(client: reqwest::Client, repo: Repo, gui_rx: broadcast::Receiver<WindowsGuiNotification>, release_rx: broadcast::Receiver<Release>, version: Version, bizhawk_tx: broadcast::Sender<WindowsBizHawkNotification>) -> Self {
         Self::Gui(client, repo, gui_rx, release_rx, version, bizhawk_tx)
     }
 }
@@ -359,8 +364,8 @@ impl fmt::Display for BuildBizHawk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Gui(..) => write!(f, "waiting for GUI build to finish"),
-            Self::CSharp(..) => write!(f, "building multiworld-csharp"),
-            Self::BizHawk(..) => write!(f, "building multiworld-bizhawk"),
+            Self::CSharp(..) => write!(f, "building multiworld-csharp for Windows"),
+            Self::BizHawk(..) => write!(f, "building multiworld-bizhawk for Windows"),
             Self::Zip(..) => write!(f, "creating multiworld-bizhawk.zip"),
             Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
             Self::Upload(..) => write!(f, "uploading multiworld-bizhawk.zip"),
@@ -386,7 +391,7 @@ impl Task<Result<(), Error>> for BuildBizHawk {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
             Self::Gui(client, repo, mut gui_rx, release_rx, version, bizhawk_tx) => gres::transpose(async move {
-                let () = gui_rx.recv().await?;
+                let WindowsGuiNotification = gui_rx.recv().await?;
                 Ok(Err(Self::CSharp(client, repo, release_rx, version, bizhawk_tx)))
             }).await,
             Self::CSharp(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
@@ -395,7 +400,7 @@ impl Task<Result<(), Error>> for BuildBizHawk {
             }).await,
             Self::BizHawk(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
                 Command::new("cargo").arg("build").arg("--release").arg("--package=multiworld-bizhawk").check("cargo build --package=multiworld-bizhawk").await?;
-                let _ = bizhawk_tx.send(());
+                let _ = bizhawk_tx.send(WindowsBizHawkNotification);
                 Ok(Err(Self::Zip(client, repo, release_rx, version)))
             }).await,
             Self::Zip(client, repo, release_rx, version) => gres::transpose(async move {
@@ -404,7 +409,7 @@ impl Task<Result<(), Error>> for BuildBizHawk {
                     {
                         let mut zip = ZipWriter::new(&mut buf); //TODO replace with an async zip writer
                         zip.start_file("README.txt", FileOptions::default())?;
-                        write!(&mut zip, include_str!("../../../assets/bizhawk-readme.txt"), version)?;
+                        write!(&mut zip, include_str!("../../../assets/bizhawk-readme-windows.txt"), version)?;
                         zip.start_file("OotrMultiworld.dll", FileOptions::default())?;
                         std::io::copy(&mut std::fs::File::open("crate/multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/OotrMultiworld.dll")?, &mut zip)?;
                         zip.start_file("multiworld.dll", FileOptions::default())?;
@@ -420,6 +425,108 @@ impl Task<Result<(), Error>> for BuildBizHawk {
             }).await,
             Self::Upload(client, repo, release, zip_data) => gres::transpose(async move {
                 repo.release_attach(&client, &release, "multiworld-bizhawk.zip", "application/zip", zip_data).await?;
+                Ok(Ok(()))
+            }).await,
+        }
+    }
+}
+
+enum BuildBizHawkLinux {
+    Updater(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
+    Gui(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
+    CSharp(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
+    BizHawk(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
+    Copy(reqwest::Client, Repo, broadcast::Receiver<Release>, Version),
+    Zip(reqwest::Client, Repo, broadcast::Receiver<Release>, Version),
+    WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
+    Upload(reqwest::Client, Repo, Release, Vec<u8>),
+}
+
+impl BuildBizHawkLinux {
+    fn new(client: reqwest::Client, repo: Repo, release_rx: broadcast::Receiver<Release>, version: Version, bizhawk_tx: broadcast::Sender<LinuxBizHawkNotification>) -> Self {
+        Self::Updater(client, repo, release_rx, version, bizhawk_tx)
+    }
+}
+
+impl fmt::Display for BuildBizHawkLinux {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Updater(..) => write!(f, "building multiworld-updater for Linux"),
+            Self::Gui(..) => write!(f, "building multiworld-gui for Linux"),
+            Self::CSharp(..) => write!(f, "building multiworld-csharp for Linux"),
+            Self::BizHawk(..) => write!(f, "building multiworld-bizhawk for Linux"),
+            Self::Copy(..) => write!(f, "copying multiworld-bizhawk for Linux to Windows"),
+            Self::Zip(..) => write!(f, "creating multiworld-bizhawk-linux.zip"),
+            Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
+            Self::Upload(..) => write!(f, "uploading multiworld-bizhawk-linux.zip"),
+        }
+    }
+}
+
+impl Progress for BuildBizHawkLinux {
+    fn progress(&self) -> Percent {
+        Percent::fraction(match self {
+            Self::Updater(..) => 0,
+            Self::Gui(..) => 1,
+            Self::CSharp(..) => 2,
+            Self::BizHawk(..) => 3,
+            Self::Copy(..) => 4,
+            Self::Zip(..) => 5,
+            Self::WaitRelease(..) => 6,
+            Self::Upload(..) => 7,
+        }, 8)
+    }
+}
+
+#[async_trait]
+impl Task<Result<(), Error>> for BuildBizHawkLinux {
+    async fn run(self) -> Result<Result<(), Error>, Self> {
+        match self {
+            Self::Updater(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
+                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-updater").check("wsl cargo build --package=multiworld-updater").await?;
+                Ok(Err(Self::Gui(client, repo, release_rx, version, bizhawk_tx)))
+            }).await,
+            Self::Gui(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
+                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-gui").check("wsl cargo build --package=multiworld-gui").await?;
+                Ok(Err(Self::CSharp(client, repo, release_rx, version, bizhawk_tx)))
+            }).await,
+            Self::CSharp(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
+                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-csharp").check("wsl cargo build --package=multiworld-csharp").await?;
+                Ok(Err(Self::BizHawk(client, repo, release_rx, version, bizhawk_tx)))
+            }).await,
+            Self::BizHawk(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
+                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-bizhawk").check("wsl cargo build --package=multiworld-bizhawk").await?;
+                let _ = bizhawk_tx.send(LinuxBizHawkNotification);
+                Ok(Err(Self::Copy(client, repo, release_rx, version)))
+            }).await,
+            Self::Copy(client, repo, release_rx, version) => gres::transpose(async move {
+                fs::create_dir_all("target/wsl/release").await?;
+                Command::new("wsl").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/BizHawk/dll/libmultiworld.so").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/libmultiworld.so").check("wsl cp").await?;
+                Command::new("wsl").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/OotrMultiworld.dll").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/OotrMultiworld.dll").check("wsl cp").await?;
+                Ok(Err(Self::Zip(client, repo, release_rx, version)))
+            }).await,
+            Self::Zip(client, repo, release_rx, version) => gres::transpose(async move {
+                let zip_data = tokio::task::spawn_blocking(move || {
+                    let mut buf = Cursor::<Vec<_>>::default();
+                    {
+                        let mut zip = ZipWriter::new(&mut buf); //TODO replace with an async zip writer
+                        zip.start_file("README.txt", FileOptions::default())?;
+                        write!(&mut zip, include_str!("../../../assets/bizhawk-readme-linux.txt"), version)?;
+                        zip.start_file("OotrMultiworld.dll", FileOptions::default())?;
+                        std::io::copy(&mut std::fs::File::open("target/wsl/release/OotrMultiworld.dll")?, &mut zip)?;
+                        zip.start_file("libmultiworld.so", FileOptions::default())?;
+                        std::io::copy(&mut std::fs::File::open("target/wsl/release/libmultiworld.so")?, &mut zip)?;
+                    }
+                    Ok::<_, Error>(buf.into_inner())
+                }).await??;
+                Ok(Err(Self::WaitRelease(client, repo, release_rx, zip_data)))
+            }).await,
+            Self::WaitRelease(client, repo, mut release_rx, zip_data) => gres::transpose(async move {
+                let release = release_rx.recv().await?;
+                Ok(Err(Self::Upload(client, repo, release, zip_data)))
+            }).await,
+            Self::Upload(client, repo, release, zip_data) => gres::transpose(async move {
+                repo.release_attach(&client, &release, "multiworld-bizhawk-linux.zip", "application/zip", zip_data).await?;
                 Ok(Ok(()))
             }).await,
         }
@@ -479,7 +586,7 @@ impl Task<Result<(), Error>> for BuildPj64 {
 }
 
 enum BuildInstaller {
-    Deps(reqwest::Client, Repo, broadcast::Receiver<()>, broadcast::Receiver<()>, broadcast::Receiver<Release>),
+    Deps(reqwest::Client, Repo, broadcast::Receiver<WindowsBizHawkNotification>, broadcast::Receiver<WindowsGuiNotification>, broadcast::Receiver<Release>),
     Glow(reqwest::Client, Repo, broadcast::Receiver<Release>),
     Read(reqwest::Client, Repo, broadcast::Receiver<Release>),
     WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
@@ -487,7 +594,7 @@ enum BuildInstaller {
 }
 
 impl BuildInstaller {
-    fn new(client: reqwest::Client, repo: Repo, bizhawk_rx: broadcast::Receiver<()>, gui_rx: broadcast::Receiver<()>, release_rx: broadcast::Receiver<Release>) -> Self {
+    fn new(client: reqwest::Client, repo: Repo, bizhawk_rx: broadcast::Receiver<WindowsBizHawkNotification>, gui_rx: broadcast::Receiver<WindowsGuiNotification>, release_rx: broadcast::Receiver<Release>) -> Self {
         Self::Deps(client, repo, bizhawk_rx, gui_rx, release_rx)
     }
 }
@@ -521,8 +628,8 @@ impl Task<Result<(), Error>> for BuildInstaller {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
             Self::Deps(client, repo, mut bizhawk_rx, mut gui_rx, release_rx) => gres::transpose(async move {
-                let () = bizhawk_rx.recv().await?;
-                let () = gui_rx.recv().await?;
+                let WindowsBizHawkNotification = bizhawk_rx.recv().await?;
+                let WindowsGuiNotification = gui_rx.recv().await?;
                 Ok(Err(Self::Glow(client, repo, release_rx)))
             }).await,
             Self::Glow(client, repo, release_rx) => gres::transpose(async move {
@@ -661,9 +768,11 @@ async fn main(args: Args) -> Result<(), Error> {
         let create_release_cli = Arc::clone(&cli);
         let release_notes_cli = Arc::clone(&cli);
         let (client, repo, bizhawk_version) = cli.run(Setup::default(), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
+        let bizhawk_version_linux = bizhawk_version.clone();
         let (release_tx, release_rx_installer) = broadcast::channel(1);
         let release_rx_gui = release_tx.subscribe();
         let release_rx_bizhawk = release_tx.subscribe();
+        let release_rx_bizhawk_linux = release_tx.subscribe();
         let release_rx_pj64 = release_tx.subscribe();
         let create_release_args = args.clone();
         let create_release_client = client.clone();
@@ -675,6 +784,7 @@ async fn main(args: Args) -> Result<(), Error> {
         let (gui_tx, gui_rx) = broadcast::channel(1);
         let gui_rx_installer = gui_tx.subscribe();
         let (bizhawk_tx, bizhawk_rx) = broadcast::channel(1);
+        let (linux_bizhawk_tx, _ /*TODO pass to Linux installer build task */) = broadcast::channel(1);
 
         macro_rules! with_metavariable {
             ($metavariable:tt, $($token:tt)*) => { $($token)* };
@@ -688,8 +798,9 @@ async fn main(args: Args) -> Result<(), Error> {
 
         build_tasks![
             { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildUpdater::new(updater_tx), "updater build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildGui::new(client, repo, updater_rx, release_rx_gui, gui_tx), "GUI build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawk::new(client, repo, gui_rx, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "BizHawk build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildGui::new(client, repo, updater_rx, release_rx_gui, gui_tx), "Windows GUI build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawk::new(client, repo, gui_rx, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "Windows BizHawk build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawkLinux::new(client, repo, release_rx_bizhawk_linux, bizhawk_version_linux, linux_bizhawk_tx), "Linux BizHawk build done").await? }).await? } },
             { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildPj64::new(client, repo, release_rx_pj64), "Project64 build done").await? }).await? } },
             { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstaller::new(client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "installer build done").await? }).await? } },
             if args.no_server { future::ok(()).boxed() } else { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildServer::default(), "server build done").await? }).await? }.boxed() },
