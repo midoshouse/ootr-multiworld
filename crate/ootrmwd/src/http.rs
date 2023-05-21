@@ -23,13 +23,9 @@ use {
     },
     rocket_ws::WebSocket,
     sqlx::PgPool,
-    tokio::{
-        io,
-        sync::Mutex,
-    },
+    tokio::sync::Mutex,
     crate::{
         Rooms,
-        SessionError,
         client_session,
     },
 };
@@ -47,19 +43,15 @@ fn v10(rng: &State<Arc<SystemRandom>>, db_pool: &State<PgPool>, rooms: &State<Ro
     let session_id = next_session_id.fetch_add(1, SeqCst);
     ws.channel(move |stream| Box::pin(async move {
         let (sink, stream) = stream.split();
-        client_session(&rng, db_pool, rooms, session_id, stream, Arc::new(Mutex::new(sink)), shutdown).await.map_err(|e| match e { //TODO send error to client? (currently handled individually for each error)
-            SessionError::Elapsed(e) => rocket_ws::result::Error::Io(io::Error::new(io::ErrorKind::TimedOut, e)),
-            SessionError::Read(e) => rocket_ws::result::Error::Io(e.into()),
-            SessionError::Shutdown => rocket_ws::result::Error::Io(io::Error::new(io::ErrorKind::ConnectionAborted, e)),
-            SessionError::Write(e) => rocket_ws::result::Error::Io(e.into()),
-            SessionError::OneshotRecv(_) |
-            SessionError::QueueItem(_) |
-            SessionError::Ring(_) |
-            SessionError::SendAll(_) |
-            SessionError::SetHash(_) |
-            SessionError::Sql(_) |
-            SessionError::Server(_) => rocket_ws::result::Error::Io(io::Error::new(io::ErrorKind::Other, e)),
-        })
+        match client_session(&rng, db_pool, rooms, session_id, stream, Arc::new(Mutex::new(sink)), shutdown).await {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("error in WebSocket handler: {e}");
+                eprintln!("debug info: {e:?}");
+                //TODO send error to client? (currently handled individually for each error)
+            }
+        }
+        Ok(())
     }))
 }
 
