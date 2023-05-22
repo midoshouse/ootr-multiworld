@@ -8,24 +8,36 @@ edition.workspace = true
 thiserror = "1"
 winres = "0.1"
 
-[build-dependencies.multiworld-bizhawk]
+[build-dependencies.wheel]
+git = "https://github.com/fenhl/wheel"
+branch = "main"
+
+[target.'cfg(windows)'.build-dependencies.multiworld-bizhawk]
 path = "../multiworld-bizhawk"
+
+[target.'cfg(not(windows))'.build-dependencies]
+itertools = "0.10"
+
+[target.'cfg(not(windows))'.build-dependencies.multiworld]
+path = "../multiworld"
+
+[target.'cfg(not(windows))'.build-dependencies.reqwest]
+version = "0.11"
+default-features = false
+features = ["rustls-tls"]
 
 [dependencies]
 dark-light = "1"
 directories = "5"
+enum-iterator = "1"
 futures = "0.3"
 iced_native = "0.10"
-is_elevated = "0.1"
 itertools = "0.10"
-kuchiki = "0.8"
 lazy-regex = "2"
 open = "4"
 rfd = "0.11"
-runas = "1"
 semver = "1"
 serde_ini = "0.2"
-tempfile = "3"
 thiserror = "1"
 
 [dependencies.async_zip]
@@ -66,10 +78,6 @@ features = ["utils"]
 version = "1"
 features = ["fs", "process", "rt-multi-thread"]
 
-[dependencies.tokio-util]
-version = "0.7"
-features = ["io"]
-
 [dependencies.url]
 version = "2"
 features = ["serde"]
@@ -78,6 +86,23 @@ features = ["serde"]
 git = "https://github.com/fenhl/wheel"
 branch = "main"
 
-[dependencies.winver]
+[target.'cfg(target_os = "linux")'.dependencies.async-compression]
+version = "0.4"
+features = ["gzip", "tokio"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tokio-tar = "0.3"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+is_elevated = "0.1"
+kuchiki = "0.8"
+runas = "1"
+tempfile = "3"
+
+[target.'cfg(target_os = "windows")'.dependencies.tokio-util]
+version = "0.7"
+features = ["io"]
+
+[target.'cfg(target_os = "windows")'.dependencies.winver]
 git = "https://github.com/fenhl/winver"
 branch = "main"

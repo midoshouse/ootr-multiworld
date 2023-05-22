@@ -3473,10 +3473,12 @@ dependencies = [
 name = "multiworld-installer"
 version = "10.0.5"
 dependencies = [
+ "async-compression 0.4.0",
  "async_zip",
  "clap",
  "dark-light",
  "directories 5.0.1",
+ "enum-iterator",
  "futures",
  "iced",
  "iced_native",
@@ -3498,6 +3500,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-tar",
  "tokio-util",
  "url",
  "wheel",

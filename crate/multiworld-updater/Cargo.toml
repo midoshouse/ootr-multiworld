@@ -70,11 +70,6 @@ branch = "main"
 
 [target.'cfg(unix)'.dependencies]
 xdg = "2"
-tokio-tar = "0.3"
-
-[target.'cfg(unix)'.dependencies.async-compression]
-version = "0.4"
-features = ["gzip", "tokio"]
 
 [target.'cfg(windows)'.dependencies]
 directories = "5"
@@ -82,3 +77,10 @@ directories = "5"
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.48"
 features = ["Win32_Storage_FileSystem"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tokio-tar = "0.3"
+
+[target.'cfg(target_os = "linux")'.dependencies.async-compression]
+version = "0.4"
+features = ["gzip", "tokio"]

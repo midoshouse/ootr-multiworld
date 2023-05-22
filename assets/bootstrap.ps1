@@ -62,22 +62,21 @@ wsl env -C /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld assets/boots
 ThrowOnNativeFailure
 
 #TODO move to release script
-"creating WSL target dir"
+"creating WSL target dirs"
+wsl mkdir -p /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/debug
+ThrowOnNativeFailure
 wsl mkdir -p /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release
 ThrowOnNativeFailure
 "copying Linux artifacts to Windows file system"
 wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/multiworld-gui /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/multiworld-gui
 ThrowOnNativeFailure
-wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/BizHawk/dll/libmultiworld.so /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/libmultiworld.so
+wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/debug/libmultiworld.so /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/debug/libmultiworld.so
 ThrowOnNativeFailure
-wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/OotrMultiworld.dll /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/OotrMultiworld.dll
+wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/libmultiworld.so /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/libmultiworld.so
 ThrowOnNativeFailure
-
-#TODO move to a testing script?
-"copying Linux artifacts to peterpc3"
-scp .\target\wsl\release\libmultiworld.so 192.168.178.77:bin/BizHawk/dll
+wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/src/bin/Debug/net48/OotrMultiworld.dll /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/debug/OotrMultiworld.dll
 ThrowOnNativeFailure
-scp .\target\wsl\release\OotrMultiworld.dll 192.168.178.77:bin/BizHawk/ExternalTools
+wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/src/bin/Release/net48/OotrMultiworld.dll /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/OotrMultiworld.dll
 ThrowOnNativeFailure
 
 "bootstrap done"

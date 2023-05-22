@@ -27,4 +27,10 @@ cargo build --package=multiworld-bizhawk
 echo 'WSL: building multiworld-bizhawk (release)'
 cargo build --release --package=multiworld-bizhawk
 
+# multiworld-installer
+echo 'WSL: building multiworld-installer (debug)'
+cargo build --package=multiworld-installer
+echo 'WSL: building multiworld-installer (release)'
+cargo build --release --package=multiworld-installer
+
 echo 'WSL: bootstrap done'

@@ -1,4 +1,6 @@
-#![deny(rust_2018_idioms, unused, unused_crate_dependencies, unused_import_braces, unused_lifetimes, unused_qualifications, warnings)]
+#![deny(rust_2018_idioms, unused_crate_dependencies, unused_import_braces, unused_lifetimes, unused_qualifications, warnings)]
+#![cfg_attr(target_os = "windows", deny(unused))]
+#![cfg_attr(not(target_os = "windows"), allow(unused))]
 #![forbid(unsafe_code)]
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -6,7 +8,6 @@
 use {
     std::{
         borrow::Cow,
-        cmp::Ordering::*,
         collections::BTreeMap,
         env,
         fmt,
@@ -18,12 +19,13 @@ use {
     },
     dark_light::Mode::*,
     directories::UserDirs,
-    futures::{
-        future::{
-            self,
-            Future,
-        },
-        stream::TryStreamExt as _,
+    enum_iterator::{
+        Sequence,
+        all,
+    },
+    futures::future::{
+        self,
+        Future,
     },
     iced::{
         Application,
@@ -40,9 +42,7 @@ use {
         },
     },
     ::image::ImageFormat,
-    is_elevated::is_elevated,
     itertools::Itertools as _,
-    kuchiki::traits::TendrilSink as _,
     lazy_regex::regex_is_match,
     open::that as open,
     rfd::AsyncFileDialog,
@@ -52,27 +52,31 @@ use {
         Serialize,
     },
     serenity::utils::MessageBuilder,
-    tokio::io::{
-        self,
-        AsyncWriteExt as _,
-    },
-    tokio_util::io::StreamReader,
+    tokio::io,
     url::Url,
     wheel::{
         fs,
-        traits::{
-            AsyncCommandOutputExt as _,
-            IoResultExt as _,
-            SyncCommandOutputExt as _,
-        },
+        traits::IoResultExt as _,
     },
-    multiworld::{
-        config::CONFIG,
-        github::Repo,
+    multiworld::github::Repo,
+};
+#[cfg(target_os = "linux")] use std::io::Cursor;
+#[cfg(target_os = "windows")] use {
+    std::cmp::Ordering::*,
+    futures::stream::TryStreamExt as _,
+    is_elevated::is_elevated,
+    kuchiki::traits::TendrilSink as _,
+    tokio::io::AsyncWriteExt as _,
+    tokio_util::io::StreamReader,
+    wheel::traits::{
+        AsyncCommandOutputExt as _,
+        SyncCommandOutputExt as _,
     },
+    multiworld::config::CONFIG,
 };
 
-#[cfg(target_arch = "x86_64")] const BIZHAWK_PLATFORM_SUFFIX: &str = "-win-x64.zip";
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))] const BIZHAWK_PLATFORM_SUFFIX: &str = "-linux-x64.tar.gz";
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))] const BIZHAWK_PLATFORM_SUFFIX: &str = "-win-x64.zip";
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
@@ -84,8 +88,9 @@ enum Error {
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
     #[error(transparent)] Url(#[from] url::ParseError),
     #[error(transparent)] Wheel(#[from] wheel::Error),
-    #[error(transparent)] Winver(#[from] winver::Error),
+    #[cfg(target_os = "windows")] #[error(transparent)] Winver(#[from] winver::Error),
     #[error(transparent)] Zip(#[from] async_zip::error::ZipError),
+    #[cfg(target_os = "windows")]
     #[error("The installer requires an older version of BizHawk. Install manually at your own risk, or ask Fenhl to release a new version.")]
     BizHawkVersionRegression,
     #[error("tried to copy debug info or open a GitHub issue with no active error")]
@@ -98,12 +103,18 @@ enum Error {
     MissingBizHawkAsset,
     #[error("no BizHawk releases found")]
     NoBizHawkReleases,
+    #[error("non-UTF-8 paths are currently not supported")]
+    NonUtf8Path,
+    #[cfg(target_os = "windows")]
     #[error("Mido's House Multiworld requires at least version 2.4 of Project64")]
     OutdatedProject64,
+    #[cfg(target_os = "windows")]
     #[error("failed to parse Project64 website")]
     ParsePj64Html,
+    #[cfg(target_os = "windows")]
     #[error("Project64 version too new, please tell Fenhl that Mido's House Multiworld needs to be updated")]
     Project64TooNew,
+    #[cfg(target_os = "windows")]
     #[error("can't install to the filesystem root")]
     Root,
 }
@@ -147,6 +158,7 @@ enum Message {
     MultiworldPath(String),
     NewIssue,
     Nop,
+    PlatformSupport,
     SetCreateDesktopShortcut(bool),
     SetEmulator(Emulator),
     SetInstallEmulator(bool),
@@ -231,18 +243,18 @@ enum Page {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Sequence, clap::ValueEnum)]
 #[clap(rename_all = "lower")]
 enum Emulator {
     BizHawk,
-    Project64,
+    #[cfg(target_os = "windows")] Project64,
 }
 
 impl fmt::Display for Emulator {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::BizHawk => write!(f, "BizHawk"),
-            Self::Project64 => write!(f, "Project64"),
+            #[cfg(target_os = "windows")] Self::Project64 => write!(f, "Project64"),
         }
     }
 }
@@ -262,7 +274,10 @@ impl Application for State {
     type Theme = Theme;
     type Flags = Args;
 
-    fn new(Args { emulator }: Args) -> (Self, Command<Message>) {
+    fn new(Args { mut emulator }: Args) -> (Self, Command<Message>) {
+        if let Ok(only_emulator) = all().exactly_one() {
+            emulator.get_or_insert(only_emulator);
+        }
         (Self {
             http_client: reqwest::Client::builder()
                 .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
@@ -303,7 +318,7 @@ impl Application for State {
                 Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
                 Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path, .. } | Page::AskLaunch { emulator, ref emulator_path, ref multiworld_path } => match emulator {
                     Emulator::BizHawk => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
-                    Emulator::Project64 => if let Some(multiworld_path) = multiworld_path.clone() {
+                    #[cfg(target_os = "windows")] Emulator::Project64 => if let Some(multiworld_path) = multiworld_path.clone() {
                         Page::LocateMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path }
                     } else {
                         Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: None }
@@ -316,10 +331,10 @@ impl Application for State {
                     Ok(if let Some(emulator_dir) = AsyncFileDialog::new().set_title(match (emulator, install_emulator) {
                         (Emulator::BizHawk, false) => "Select BizHawk Folder",
                         (Emulator::BizHawk, true) => "Choose Location for BizHawk Installation",
-                        (Emulator::Project64, false) => "Select Project64 Folder",
-                        (Emulator::Project64, true) => "Choose Location for Project64 Installation",
+                        #[cfg(target_os = "windows")] (Emulator::Project64, false) => "Select Project64 Folder",
+                        #[cfg(target_os = "windows")] (Emulator::Project64, true) => "Choose Location for Project64 Installation",
                     }).set_directory(Path::new(&current_path)).pick_folder().await {
-                        Message::EmulatorPath(emulator_dir.path().to_str().expect("Windows paths are valid Unicode").to_owned())
+                        Message::EmulatorPath(emulator_dir.path().to_str().ok_or(Error::NonUtf8Path)?.to_owned())
                     } else {
                         Message::Nop
                     })
@@ -336,7 +351,7 @@ impl Application for State {
                     dialog = dialog.set_file_name("Mido's House Multiworld for Project64.exe");
                     dialog = dialog.add_filter("Windows executable", &["exe"]);
                     Ok(if let Some(multiworld_path) = dialog.save_file().await {
-                        Message::MultiworldPath(multiworld_path.path().to_str().expect("Windows paths are valid Unicode").to_owned())
+                        Message::MultiworldPath(multiworld_path.path().to_str().ok_or(Error::NonUtf8Path)?.to_owned())
                     } else {
                         Message::Nop
                     })
@@ -347,7 +362,7 @@ impl Application for State {
                 Page::Error(_, _) | Page::Elevated => unreachable!(),
                 Page::SelectEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => {
                     let emulator = emulator.expect("emulator must be selected to continue here");
-                    if matches!(emulator, Emulator::Project64) && !is_elevated() {
+                    #[cfg(target_os = "windows")] if matches!(emulator, Emulator::Project64) && !is_elevated() {
                         // Project64 installation and plugin installation both require admin permissions (UAC)
                         self.page = Page::Elevated;
                         return cmd(async move {
@@ -363,10 +378,8 @@ impl Application for State {
                                 // check for existing BizHawk install in Downloads folder (where the bizhawk-co-op install scripts places it)
                                 let bizhawk_install_path = user_dirs.home_dir().join("bin").join("BizHawk");
                                 if bizhawk_install_path.exists() {
-                                    (
-                                        false,
-                                        bizhawk_install_path.into_os_string().into_string().expect("Windows paths are valid Unicode"),
-                                    )
+                                    let Ok(bizhawk_install_path) = bizhawk_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
+                                    (false, bizhawk_install_path)
                                 } else if let Some(default_bizhawk_dir) = UserDirs::new()
                                     .and_then(|dirs| dirs.download_dir().map(|downloads| downloads.to_owned()))
                                     .and_then(|downloads| downloads.read_dir().ok())
@@ -377,24 +390,19 @@ impl Application for State {
                                     .max_by_key(|entry| entry.file_name())
                                     .map(|entry| entry.path())
                                 {
-                                    (
-                                        false,
-                                        default_bizhawk_dir.into_os_string().into_string().expect("Windows paths are valid Unicode"),
-                                    )
+                                    let Ok(default_bizhawk_dir) = default_bizhawk_dir.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
+                                    (false, default_bizhawk_dir)
                                 } else {
-                                    (
-                                        true,
-                                        bizhawk_install_path.into_os_string().into_string().expect("Windows paths are valid Unicode"),
-                                    )
+                                    let Ok(bizhawk_install_path) = bizhawk_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
+                                    (true, bizhawk_install_path)
                                 }
                             } else {
                                 (true, String::default())
                             },
-                            Emulator::Project64 => if let Some(pj64_install_path) = env::var_os("ProgramFiles(x86)").or_else(|| env::var_os("ProgramFiles")).map(|program_files| PathBuf::from(program_files).join("Project64 3.0")) {
-                                (
-                                    !pj64_install_path.exists(),
-                                    pj64_install_path.into_os_string().into_string().expect("Windows paths are valid Unicode"),
-                                )
+                            #[cfg(target_os = "windows")] Emulator::Project64 => if let Some(pj64_install_path) = env::var_os("ProgramFiles(x86)").or_else(|| env::var_os("ProgramFiles")).map(|program_files| PathBuf::from(program_files).join("Project64 3.0")) {
+                                let exists = pj64_install_path.exists();
+                                let Ok(pj64_install_path) = pj64_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
+                                (!exists, pj64_install_path)
                             } else {
                                 (true, String::default())
                             },
@@ -412,48 +420,59 @@ impl Application for State {
                             let bizhawk_dir = PathBuf::from(emulator_path);
                             return cmd(async move {
                                 fs::create_dir_all(&bizhawk_dir).await?;
-                                // install BizHawk-Prereqs
-                                let release = Repo::new("TASEmulators", "BizHawk-Prereqs").latest_release(&http_client).await?.ok_or(Error::NoBizHawkReleases)?;
-                                let asset = release.assets.into_iter()
-                                    .filter(|asset| regex_is_match!(r"^bizhawk_prereqs_v.+\.zip$", &asset.name))
-                                    .exactly_one()?;
-                                let response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
-                                let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
-                                let _ = zip_file.file().entries().iter().exactly_one()?;
-                                {
-                                    let mut buf = Vec::default();
-                                    zip_file.entry(0).await?.read_to_end_checked(&mut buf, zip_file.file().entries()[0].entry()).await?;
-                                    let prereqs = tempfile::Builder::new().prefix("bizhawk_prereqs_").suffix(".exe").tempfile()?;
-                                    tokio::fs::File::from_std(prereqs.reopen()?).write_all(&buf).await?;
-                                    let prereqs_path = prereqs.into_temp_path();
-                                    runas::Command::new(&prereqs_path).status().at_command("runas")?.check("BizHawk-Prereqs")?; //TODO show message in GUI saying to check the BizHawk-Prereqs GUI
+                                #[cfg(target_os = "linux")] {
+                                    //TODO check if apt-get exists and install prerequisite packages if it does? (mono-complete & libcanberra-gtk-module)
+                                }
+                                #[cfg(target_os = "windows")] {
+                                    // install BizHawk-Prereqs
+                                    let release = Repo::new("TASEmulators", "BizHawk-Prereqs").latest_release(&http_client).await?.ok_or(Error::NoBizHawkReleases)?;
+                                    let asset = release.assets.into_iter()
+                                        .filter(|asset| regex_is_match!(r"^bizhawk_prereqs_v.+\.zip$", &asset.name))
+                                        .exactly_one()?;
+                                    let response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
+                                    let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
+                                    let _ = zip_file.file().entries().iter().exactly_one()?;
+                                    {
+                                        let mut buf = Vec::default();
+                                        zip_file.entry(0).await?.read_to_end_checked(&mut buf, zip_file.file().entries()[0].entry()).await?;
+                                        let prereqs = tempfile::Builder::new().prefix("bizhawk_prereqs_").suffix(".exe").tempfile()?;
+                                        tokio::fs::File::from_std(prereqs.reopen()?).write_all(&buf).await?;
+                                        let prereqs_path = prereqs.into_temp_path();
+                                        runas::Command::new(&prereqs_path).status().at_command("runas")?.check("BizHawk-Prereqs")?; //TODO show message in GUI saying to check the BizHawk-Prereqs GUI
+                                    }
                                 }
                                 // install BizHawk itself
                                 let version_str = include!(concat!(env!("OUT_DIR"), "/bizhawk_version.rs")).to_string();
                                 let version_str = version_str.trim_end_matches(".0");
                                 let release = Repo::new("TASEmulators", "BizHawk").release_by_tag(&http_client, version_str).await?.ok_or(Error::NoBizHawkReleases)?;
-                                #[cfg(all(windows, target_arch = "x86_64"))] let asset = release.assets.into_iter()
-                                    .filter(|asset| regex_is_match!(r"^BizHawk-.+-win-x64\.zip$", &asset.name))
+                                let asset = release.assets.into_iter()
+                                    .filter(|asset| asset.name.ends_with(BIZHAWK_PLATFORM_SUFFIX))
                                     .exactly_one()?;
                                 let response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
-                                let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
-                                let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), bizhawk_dir.join(entry.entry().filename()))).collect_vec();
-                                for (idx, is_dir, path) in entries {
-                                    if is_dir {
-                                        fs::create_dir_all(path).await?;
-                                    } else {
-                                        if let Some(parent) = path.parent() {
-                                            fs::create_dir_all(parent).await?;
+                                #[cfg(target_os = "linux")] {
+                                    let tar_file = async_compression::tokio::bufread::GzipDecoder::new(Cursor::new(Vec::from(response)));
+                                    tokio_tar::Archive::new(tar_file).unpack(bizhawk_dir).await?;
+                                }
+                                #[cfg(target_os = "windows")] {
+                                    let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
+                                    let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), bizhawk_dir.join(entry.entry().filename()))).collect_vec();
+                                    for (idx, is_dir, path) in entries {
+                                        if is_dir {
+                                            fs::create_dir_all(path).await?;
+                                        } else {
+                                            if let Some(parent) = path.parent() {
+                                                fs::create_dir_all(parent).await?;
+                                            }
+                                            let mut buf = Vec::default();
+                                            zip_file.entry(idx).await?.read_to_end_checked(&mut buf, zip_file.file().entries()[idx].entry()).await?;
+                                            fs::write(path, &buf).await?;
                                         }
-                                        let mut buf = Vec::default();
-                                        zip_file.entry(idx).await?.read_to_end_checked(&mut buf, zip_file.file().entries()[idx].entry()).await?;
-                                        fs::write(path, &buf).await?;
                                     }
                                 }
                                 Ok(Message::LocateMultiworld(None))
                             })
                         }
-                        Emulator::Project64 => {
+                        #[cfg(target_os = "windows")] Emulator::Project64 => {
                             //TODO indicate progress
                             let http_client = self.http_client.clone();
                             let emulator_path_arg = format!("/DIR={emulator_path}");
@@ -496,7 +515,7 @@ impl Application for State {
                     }
                 } else {
                     match emulator {
-                        Emulator::BizHawk => {
+                        #[cfg(target_os = "windows")] Emulator::BizHawk => {
                             let [major, minor, patch, _] = match winver::get_file_version_info(PathBuf::from(emulator_path).join("EmuHawk.exe")) {
                                 Ok(version) => version,
                                 Err(e) => return cmd(future::err(e.into())),
@@ -513,7 +532,8 @@ impl Application for State {
                             }
                             return cmd(future::ok(Message::LocateMultiworld(Some(major))))
                         }
-                        Emulator::Project64 => {
+                        #[cfg(target_os = "linux")] Emulator::BizHawk => {} //TODO BizHawk version check on Linux
+                        #[cfg(target_os = "windows")] Emulator::Project64 => {
                             let [major, minor, _, _] = match winver::get_file_version_info(PathBuf::from(emulator_path).join("Project64.exe")) {
                                 Ok(version) => version,
                                 Err(e) => return cmd(future::err(e.into())),
@@ -539,19 +559,25 @@ impl Application for State {
                         let (asset,) = release.assets.into_iter()
                             .filter(|asset| asset.name.ends_with(BIZHAWK_PLATFORM_SUFFIX))
                             .collect_tuple().ok_or(Error::MissingBizHawkAsset)?;
-                        let response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?;
-                        let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.bytes().await?.into()).await?;
-                        let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), emulator_path_buf.join(entry.entry().filename()))).collect_vec();
-                        for (idx, is_dir, path) in entries {
-                            if is_dir {
-                                fs::create_dir_all(path).await?;
-                            } else {
-                                if let Some(parent) = path.parent() {
-                                    fs::create_dir_all(parent).await?;
+                        let response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
+                        #[cfg(target_os = "linux")] {
+                            let tar_file = async_compression::tokio::bufread::GzipDecoder::new(Cursor::new(Vec::from(response)));
+                            tokio_tar::Archive::new(tar_file).unpack(emulator_path_buf).await?;
+                        }
+                        #[cfg(target_os = "windows")] {
+                            let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
+                            let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), emulator_path_buf.join(entry.entry().filename()))).collect_vec();
+                            for (idx, is_dir, path) in entries {
+                                if is_dir {
+                                    fs::create_dir_all(path).await?;
+                                } else {
+                                    if let Some(parent) = path.parent() {
+                                        fs::create_dir_all(parent).await?;
+                                    }
+                                    let mut buf = Vec::default();
+                                    zip_file.entry(idx).await?.read_to_end_checked(&mut buf, zip_file.file().entries()[idx].entry()).await?;
+                                    fs::write(path, &buf).await?;
                                 }
-                                let mut buf = Vec::default();
-                                zip_file.entry(idx).await?.read_to_end_checked(&mut buf, zip_file.file().entries()[idx].entry()).await?;
-                                fs::write(path, &buf).await?;
                             }
                         }
                         Ok(Message::LocateMultiworld(None))
@@ -562,10 +588,13 @@ impl Application for State {
                 Page::AskLaunch { emulator, ref emulator_path, ref multiworld_path } => {
                     if self.open_emulator {
                         match emulator {
-                            Emulator::BizHawk => if let Err(e) = std::process::Command::new(Path::new(emulator_path).join("EmuHawk.exe")).arg("--open-ext-tool-dll=OotrMultiworld").current_dir(emulator_path).spawn() {
+                            #[cfg(target_os = "linux")] Emulator::BizHawk => if let Err(e) = std::process::Command::new(Path::new(emulator_path).join("EmuHawkMono.sh")).arg("--open-ext-tool-dll=OotrMultiworld").current_dir(emulator_path).spawn() {
+                                return cmd(future::ready(Err(e).at(Path::new(emulator_path).join("EmuHawkMono.sh")).map_err(Error::from)))
+                            },
+                            #[cfg(target_os = "windows")] Emulator::BizHawk => if let Err(e) = std::process::Command::new(Path::new(emulator_path).join("EmuHawk.exe")).arg("--open-ext-tool-dll=OotrMultiworld").current_dir(emulator_path).spawn() {
                                 return cmd(future::ready(Err(e).at(Path::new(emulator_path).join("EmuHawk.exe")).map_err(Error::from)))
                             },
-                            Emulator::Project64 => {
+                            #[cfg(target_os = "windows")] Emulator::Project64 => {
                                 if let Err(e) = std::process::Command::new(Path::new(emulator_path).join("Project64.exe")).current_dir(emulator_path).spawn() {
                                     return cmd(future::ready(Err(e).at(Path::new(emulator_path).join("Project64.exe")).map_err(Error::from)))
                                 }
@@ -607,13 +636,21 @@ impl Application for State {
                     Emulator::BizHawk => return cmd(async move {
                         let external_tools_dir = emulator_dir.join("ExternalTools");
                         fs::create_dir(&external_tools_dir).await.exist_ok()?;
-                        //TODO download latest release instead of embedding in installer
-                        #[cfg(all(target_os = "windows", debug_assertions))] fs::write(external_tools_dir.join("multiworld.dll"), include_bytes!("../../../target/debug/multiworld.dll")).await?;
-                        #[cfg(all(target_os = "windows", not(debug_assertions)))] fs::write(external_tools_dir.join("multiworld.dll"), include_bytes!("../../../target/release/multiworld.dll")).await?;
-                        fs::write(external_tools_dir.join("OotrMultiworld.dll"), include_bytes!("../../multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/OotrMultiworld.dll")).await?;
+                        #[cfg(target_os = "linux")] {
+                            let dlls_dir = emulator_dir.join("dll");
+                            fs::create_dir(&dlls_dir).await.exist_ok()?;
+                            #[cfg(debug_assertions)] fs::write(dlls_dir.join("multiworld.dll"), include_bytes!("../../../target/debug/libmultiworld.so")).await?;
+                            #[cfg(not(debug_assertions))] fs::write(dlls_dir.join("multiworld.dll"), include_bytes!("../../../target/release/libmultiworld.so")).await?;
+                        }
+                        #[cfg(target_os = "windows")] {
+                            #[cfg(debug_assertions)] fs::write(external_tools_dir.join("multiworld.dll"), include_bytes!("../../../target/debug/multiworld.dll")).await?; //TODO test if placing in `dll` works, use that if it does to keep the external tools menu clean
+                            #[cfg(not(debug_assertions))] fs::write(external_tools_dir.join("multiworld.dll"), include_bytes!("../../../target/release/multiworld.dll")).await?; //TODO test if placing in `dll` works, use that if it does to keep the external tools menu clean
+                        }
+                        #[cfg(debug_assertions)] fs::write(external_tools_dir.join("OotrMultiworld.dll"), include_bytes!("../../multiworld-bizhawk/OotrMultiworld/src/bin/Debug/net48/OotrMultiworld.dll")).await?;
+                        #[cfg(not(debug_assertions))] fs::write(external_tools_dir.join("OotrMultiworld.dll"), include_bytes!("../../multiworld-bizhawk/OotrMultiworld/src/bin/Release/net48/OotrMultiworld.dll")).await?;
                         Ok(Message::MultiworldInstalled)
                     }),
-                    Emulator::Project64 => {
+                    #[cfg(target_os = "windows")] Emulator::Project64 => {
                         let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Project64"));
                         return cmd(async move {
                             fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
@@ -654,8 +691,20 @@ impl Application for State {
                     _ => unreachable!(),
                 };
                 match (emulator, emulator_version) {
-                    (Emulator::BizHawk, _) | (Emulator::Project64, Some(4..)) => return cmd(future::ok(Message::InstallMultiworld)),
-                    (Emulator::Project64, _) => self.page = Page::LocateMultiworld { emulator, emulator_path, multiworld_path: multiworld_path.or_else(|| UserDirs::new().map(|user_dirs| user_dirs.home_dir().join("bin").join("Mido's House Multiworld for Project64.exe").into_os_string().into_string().expect("Windows paths are valid Unicode"))).unwrap_or_default() },
+                    #[cfg(target_os = "linux")] (Emulator::BizHawk, _) => return cmd(future::ok(Message::InstallMultiworld)),
+                    #[cfg(target_os = "windows")] (Emulator::BizHawk, _) | (Emulator::Project64, Some(4..)) => return cmd(future::ok(Message::InstallMultiworld)),
+                    #[cfg(target_os = "windows")] (Emulator::Project64, _) => {
+                        let multiworld_path = if let Some(multiworld_path) = multiworld_path {
+                            multiworld_path
+                        } else if let Some(user_dirs) = UserDirs::new() {
+                            let multiworld_path = user_dirs.home_dir().join("bin").join("Mido's House Multiworld for Project64.exe");
+                            let Ok(multiworld_path) = multiworld_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
+                            multiworld_path
+                        } else {
+                            String::default()
+                        };
+                        self.page = Page::LocateMultiworld { multiworld_path, emulator, emulator_path };
+                    }
                 }
             }
             Message::MultiworldInstalled => if let Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path, .. } = self.page {
@@ -675,6 +724,9 @@ impl Application for State {
                 self.page = Page::Error(Arc::new(Error::CopyDebugInfo), false);
             },
             Message::Nop => {}
+            Message::PlatformSupport => if let Err(e) = open("https://midos.house/mw/platforms") {
+                self.page = Page::Error(Arc::new(e.into()), false);
+            },
             Message::SetCreateDesktopShortcut(create_desktop_shortcut) => self.create_desktop_shortcut = create_desktop_shortcut,
             Message::SetEmulator(new_emulator) => if let Page::SelectEmulator { ref mut emulator, .. } = self.page { *emulator = Some(new_emulator) },
             Message::SetInstallEmulator(new_install_emulator) => if let Page::LocateEmulator { ref mut install_emulator, .. } = self.page { *install_emulator = new_install_emulator },
@@ -720,16 +772,23 @@ impl Application for State {
                 None,
             ),
             Page::SelectEmulator { emulator, .. } => (
-                Column::new()
-                    .push(Text::new("Which emulator do you want to use?"))
-                    .push(Text::new("Multiworld can be added to an existing installation of the selected emulator, or it can install the emulator for you."))
-                    .push(Radio::new("BizHawk", Emulator::BizHawk, emulator, Message::SetEmulator))
-                    .push(Radio::new("Project64", Emulator::Project64, emulator, Message::SetEmulator))
-                    .spacing(8)
-                    .into(),
+                {
+                    let mut col = Column::new();
+                    col = col.push(Text::new("Which emulator do you want to use?"));
+                    col = col.push(Text::new("Multiworld can be added to an existing installation of the selected emulator, or it can install the emulator for you."));
+                    for iter_emulator in all::<Emulator>() {
+                        col = col.push(Radio::new(iter_emulator.to_string(), iter_emulator, emulator, Message::SetEmulator));
+                    }
+                    col = col.push(Row::new()
+                        .push(Text::new("Looking for a different console or emulator? "))
+                        .push(Button::new(Text::new("See platform support status")).on_press(Message::PlatformSupport))
+                        .spacing(8)
+                    );
+                    col.spacing(8).into()
+                },
                 Some({
                     let mut row = Row::new();
-                    if matches!(emulator, Some(Emulator::Project64)) && !is_elevated() {
+                    #[cfg(target_os = "windows")] if matches!(emulator, Some(Emulator::Project64)) && !is_elevated() {
                         row = row.push(Image::new(image::Handle::from_memory(include_bytes!("../../../assets/uac.png").to_vec())).height(Length::Fixed(20.0)));
                     }
                     row = row.push(Text::new("Continue"));
@@ -746,14 +805,17 @@ impl Application for State {
                             Cow::Owned(format!("{emulator} target folder"))
                         } else {
                             match emulator {
-                                Emulator::BizHawk => Cow::Borrowed("The folder with EmuHawk.exe in it"),
-                                Emulator::Project64 => Cow::Borrowed("The folder with Project64.exe in it"),
+                                Emulator::BizHawk => {
+                                    #[cfg(target_os = "linux")] { Cow::Borrowed("The folder with EmuHawkMono.sh in it") }
+                                    #[cfg(target_os = "windows")] { Cow::Borrowed("The folder with EmuHawk.exe in it") }
+                                }
+                                #[cfg(target_os = "windows")] Emulator::Project64 => Cow::Borrowed("The folder with Project64.exe in it"),
                             }
                         }, emulator_path).on_input(Message::EmulatorPath).on_paste(Message::EmulatorPath).padding(5))
                         .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseEmulatorPath))
                         .spacing(8)
                     );
-                    if install_emulator && matches!(emulator, Emulator::Project64) {
+                    #[cfg(target_os = "windows")] if install_emulator && matches!(emulator, Emulator::Project64) {
                         //TODO allow selecting between Project64 3.x and 4.0
                         col = col.push(Checkbox::new("Create desktop shortcut", self.create_desktop_shortcut, Message::SetCreateDesktopShortcut));
                     }
@@ -796,7 +858,7 @@ impl Application for State {
                             col = col.push(Text::new("To play multiworld, in BizHawk, select Tools → External Tool → Mido's House Multiworld for BizHawk."));
                             col = col.push(Checkbox::new("Open BizHawk now", self.open_emulator, Message::SetOpenEmulator));
                         }
-                        Emulator::Project64 => {
+                        #[cfg(target_os = "windows")] Emulator::Project64 => {
                             col = col.push(Text::new("To play multiworld, open the “Mido's House Multiworld for Project64” app and follow its instructions."));
                             col = col.push(Checkbox::new("Open Multiworld and Project64 now", self.open_emulator, Message::SetOpenEmulator));
                         }
@@ -830,6 +892,7 @@ impl Application for State {
     }
 }
 
+#[cfg(target_os = "windows")]
 fn io_error_from_reqwest(e: reqwest::Error) -> io::Error {
     io::Error::new(if e.is_timeout() {
         io::ErrorKind::TimedOut

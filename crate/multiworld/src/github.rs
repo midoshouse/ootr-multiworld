@@ -15,7 +15,7 @@ use {
 pub struct Release {
     pub assets: Vec<ReleaseAsset>,
     id: u64,
-    tag_name: String,
+    pub tag_name: String,
     upload_url: String,
 }
 
