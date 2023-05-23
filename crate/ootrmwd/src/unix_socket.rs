@@ -115,7 +115,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(mut shutdown: rocket::Shutdo
                                 for (room_name, room) in &rooms.0.lock().await.list {
                                     let room = room.read().await;
                                     if room.last_saved > now - chrono::Duration::hours(1) && room.clients.values().any(|client| client.player.is_some()) {
-                                        active_rooms.insert(room_name.clone(), (room.last_saved, room.clients.values().filter(|client| client.player.is_some()).count().try_into().expect("too many players")));
+                                        active_rooms.insert(room_name.clone(), (room.last_saved + chrono::Duration::hours(1), room.clients.values().filter(|client| client.player.is_some()).count().try_into().expect("too many players")));
                                     }
                                 }
                                 if active_rooms.is_empty() { break }

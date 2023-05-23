@@ -56,9 +56,9 @@ use {
 enum Setup {
     CreateReqwestClient,
     CheckVersion(reqwest::Client),
-    CheckBizHawkVersion(reqwest::Client, Repo),
-    LockRust(reqwest::Client, Repo, Version),
-    UpdateRust(reqwest::Client, Repo, Version, DirLock),
+    CheckBizHawkVersion(reqwest::Client, Repo, bool),
+    LockRust(reqwest::Client, Repo, Version, bool),
+    UpdateRust(reqwest::Client, Repo, Version, DirLock, bool),
 }
 
 impl Default for Setup {
@@ -92,8 +92,8 @@ impl Progress for Setup {
 }
 
 #[async_trait]
-impl Task<Result<(reqwest::Client, Repo, Version), Error>> for Setup {
-    async fn run(self) -> Result<Result<(reqwest::Client, Repo, Version), Error>, Self> {
+impl Task<Result<(reqwest::Client, Repo, Version, bool), Error>> for Setup {
+    async fn run(self) -> Result<Result<(reqwest::Client, Repo, Version, bool), Error>, Self> {
         match self {
             Self::CreateReqwestClient => gres::transpose(async move {
                 let mut headers = reqwest::header::HeaderMap::new();
@@ -111,17 +111,20 @@ impl Task<Result<(reqwest::Client, Repo, Version), Error>> for Setup {
             Self::CheckVersion(client) => gres::transpose(async move {
                 //TODO make sure working dir is clean and on default branch and up to date with remote and remote is up to date
                 let repo = Repo::new("midoshouse", "ootr-multiworld");
-                if let Some(latest_release) = repo.latest_release(&client).await? {
+                let is_major = if let Some(latest_release) = repo.latest_release(&client).await? {
+                    let local_version = version::version().await;
                     let remote_version = latest_release.version()?;
-                    match version::version().await.cmp(&remote_version) {
+                    match local_version.cmp(&remote_version) {
                         Less => return Err(Error::VersionRegression),
                         Equal => return Err(Error::SameVersion),
-                        Greater => {}
+                        Greater => local_version.major > remote_version.major,
                     }
-                }
-                Ok(Err(Self::CheckBizHawkVersion(client, repo)))
+                } else {
+                    true
+                };
+                Ok(Err(Self::CheckBizHawkVersion(client, repo, is_major)))
             }).await,
-            Self::CheckBizHawkVersion(client, repo) => gres::transpose(async move {
+            Self::CheckBizHawkVersion(client, repo, is_major) => gres::transpose(async move {
                 let [major, minor, patch, _] = multiworld_bizhawk::bizhawk_version();
                 let local_version = Version::new(major.into(), minor.into(), patch.into());
                 let remote_version = version::bizhawk_latest(&client).await?;
@@ -130,17 +133,17 @@ impl Task<Result<(reqwest::Client, Repo, Version), Error>> for Setup {
                     Equal => {}
                     Greater => return Err(Error::BizHawkVersionRegression),
                 }
-                Ok(Err(Self::LockRust(client, repo, local_version)))
+                Ok(Err(Self::LockRust(client, repo, local_version, is_major)))
             }).await,
-            Self::LockRust(client, repo, local_version) => gres::transpose(async move {
+            Self::LockRust(client, repo, local_version, is_major) => gres::transpose(async move {
                 let lock_dir = Path::new(&env::var_os("TEMP").ok_or(Error::MissingEnvar("TEMP"))?).join("syncbin-startup-rust.lock");
                 let lock = DirLock::new(&lock_dir).await?;
-                Ok(Err(Self::UpdateRust(client, repo, local_version, lock))) //TODO update rustup first?
+                Ok(Err(Self::UpdateRust(client, repo, local_version, lock, is_major))) //TODO update rustup first?
             }).await,
-            Self::UpdateRust(client, repo, local_version, lock) => gres::transpose(async move {
+            Self::UpdateRust(client, repo, local_version, lock, is_major) => gres::transpose(async move {
                 Command::new("rustup").arg("update").arg("stable").check("rustup").await?;
                 lock.drop_async().await?;
-                Ok(Ok((client, repo, local_version)))
+                Ok(Ok((client, repo, local_version, is_major)))
             }).await,
         }
     }
@@ -432,6 +435,7 @@ impl Task<Result<(), Error>> for BuildBizHawk {
 }
 
 enum BuildBizHawkLinux {
+    Sync(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
     Updater(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
     Gui(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
     CSharp(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
@@ -444,13 +448,14 @@ enum BuildBizHawkLinux {
 
 impl BuildBizHawkLinux {
     fn new(client: reqwest::Client, repo: Repo, release_rx: broadcast::Receiver<Release>, version: Version, bizhawk_tx: broadcast::Sender<LinuxBizHawkNotification>) -> Self {
-        Self::Updater(client, repo, release_rx, version, bizhawk_tx)
+        Self::Sync(client, repo, release_rx, version, bizhawk_tx)
     }
 }
 
 impl fmt::Display for BuildBizHawkLinux {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Sync(..) => write!(f, "syncing repo to Linux"),
             Self::Updater(..) => write!(f, "building multiworld-updater for Linux"),
             Self::Gui(..) => write!(f, "building multiworld-gui for Linux"),
             Self::CSharp(..) => write!(f, "building multiworld-csharp for Linux"),
@@ -466,15 +471,16 @@ impl fmt::Display for BuildBizHawkLinux {
 impl Progress for BuildBizHawkLinux {
     fn progress(&self) -> Percent {
         Percent::fraction(match self {
-            Self::Updater(..) => 0,
-            Self::Gui(..) => 1,
-            Self::CSharp(..) => 2,
-            Self::BizHawk(..) => 3,
-            Self::Copy(..) => 4,
-            Self::Zip(..) => 5,
-            Self::WaitRelease(..) => 6,
-            Self::Upload(..) => 7,
-        }, 8)
+            Self::Sync(..) => 0,
+            Self::Updater(..) => 1,
+            Self::Gui(..) => 2,
+            Self::CSharp(..) => 3,
+            Self::BizHawk(..) => 4,
+            Self::Copy(..) => 5,
+            Self::Zip(..) => 6,
+            Self::WaitRelease(..) => 7,
+            Self::Upload(..) => 8,
+        }, 9)
     }
 }
 
@@ -482,6 +488,10 @@ impl Progress for BuildBizHawkLinux {
 impl Task<Result<(), Error>> for BuildBizHawkLinux {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
+            Self::Sync(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
+                Command::new("wsl").arg("rsync").arg("--delete").arg("-av").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/").arg("--exclude").arg(".cargo/config.toml").arg("--exclude").arg("target").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/BizHawk").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/bin").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/obj").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll").check("wsl rsync").await?;
+                Ok(Err(Self::Updater(client, repo, release_rx, version, bizhawk_tx)))
+            }).await,
             Self::Updater(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
                 Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-updater").check("wsl cargo build --package=multiworld-updater").await?;
                 Ok(Err(Self::Gui(client, repo, release_rx, version, bizhawk_tx)))
@@ -726,21 +736,26 @@ impl Task<Result<(), Error>> for BuildInstallerLinux {
     }
 }
 
-#[derive(Default)]
 enum BuildServer {
-    #[default]
-    UpdateRepo,
-    Build,
-    WaitRestart,
+    UpdateRepo(bool),
+    Build(bool),
+    WaitRestart(bool),
     Restart,
+}
+
+impl BuildServer {
+    fn new(is_major: bool) -> Self {
+        Self::UpdateRepo(is_major)
+    }
 }
 
 impl fmt::Display for BuildServer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UpdateRepo => write!(f, "updating repo on Mido's House"),
-            Self::Build => write!(f, "building ootrmwd"),
-            Self::WaitRestart => write!(f, "waiting for rooms to be empty"),
+            Self::UpdateRepo(..) => write!(f, "updating repo on Mido's House"),
+            Self::Build(..) => write!(f, "building ootrmwd"),
+            Self::WaitRestart(false) => write!(f, "waiting for rooms to be inactive"),
+            Self::WaitRestart(true) => write!(f, "waiting for rooms to be empty"),
             Self::Restart => write!(f, "restarting ootrmwd"),
         }
     }
@@ -749,9 +764,9 @@ impl fmt::Display for BuildServer {
 impl Progress for BuildServer {
     fn progress(&self) -> Percent {
         Percent::new(match self {
-            Self::UpdateRepo => 0,
-            Self::Build => 10,
-            Self::WaitRestart => 90,
+            Self::UpdateRepo(..) => 0,
+            Self::Build(..) => 10,
+            Self::WaitRestart(..) => 90,
             Self::Restart => 95,
         })
     }
@@ -761,19 +776,24 @@ impl Progress for BuildServer {
 impl Task<Result<(), Error>> for BuildServer {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
-            Self::UpdateRepo => gres::transpose(async move {
+            Self::UpdateRepo(is_major) => gres::transpose(async move {
                 Command::new("ssh").arg("midos.house").arg("cd /opt/git/github.com/midoshouse/ootr-multiworld/master && git pull --ff-only").check("ssh midos.house git pull").await?;
-                Ok(Err(Self::Build))
+                Ok(Err(Self::Build(is_major)))
             }).await,
-            Self::Build => gres::transpose(async move {
+            Self::Build(is_major) => gres::transpose(async move {
                 //TODO build locally
                 Command::new("ssh").arg("midos.house").arg("cd /opt/git/github.com/midoshouse/ootr-multiworld/master && cargo build --release --package=ootrmwd").check("ssh midos.house cargo build").await?;
-                Ok(Err(Self::WaitRestart))
+                Ok(Err(Self::WaitRestart(is_major)))
             }).await,
-            Self::WaitRestart => gres::transpose(async move {
-                //TODO only wait until inactive (not empty) for minor/patch releases
-                //TODO continue normally if this fails because the server is stopped
-                Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd wait-until-empty; fi").check("ssh midos.house ootrmwd wait-until-empty").await?;
+            Self::WaitRestart(is_major) => gres::transpose(async move {
+                if is_major {
+                    Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd wait-until-empty; fi").check("ssh midos.house ootrmwd wait-until-empty").await?;
+                    //TODO continue normally if this fails because the server is stopped
+                } else {
+                    Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd wait-until-inactive; fi").check("ssh midos.house ootrmwd wait-until-empty").await?;
+                    //TODO show output
+                    //TODO continue normally if this fails because the server is stopped
+                }
                 Ok(Err(Self::Restart))
             }).await,
             Self::Restart => gres::transpose(async move {
@@ -837,11 +857,11 @@ enum Error {
 async fn main(args: Args) -> Result<(), Error> {
     let cli = Arc::new(Cli::new()?);
     if args.server_only {
-        cli.run(BuildServer::default(), "server build done").await??;
+        cli.run(BuildServer::new(false), "server build done").await??;
     } else {
         let create_release_cli = Arc::clone(&cli);
         let release_notes_cli = Arc::clone(&cli);
-        let (client, repo, bizhawk_version) = cli.run(Setup::default(), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
+        let (client, repo, bizhawk_version, is_major) = cli.run(Setup::default(), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
         let bizhawk_version_linux = bizhawk_version.clone();
         let (release_tx, release_rx_installer) = broadcast::channel(1);
         let release_rx_installer_linux = release_tx.subscribe();
@@ -879,7 +899,7 @@ async fn main(args: Args) -> Result<(), Error> {
             { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildPj64::new(client, repo, release_rx_pj64), "Project64 build done").await? }).await? } },
             { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstaller::new(client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "Windows installer build done").await? }).await? } },
             { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstallerLinux::new(client, repo, linux_bizhawk_rx, release_rx_installer_linux), "Linux installer build done").await? }).await? } },
-            if args.no_server { future::ok(()).boxed() } else { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildServer::default(), "server build done").await? }).await? }.boxed() },
+            if args.no_server { future::ok(()).boxed() } else { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildServer::new(is_major), "server build done").await? }).await? }.boxed() },
         ];
         let release = create_release.await??;
         if !args.no_publish {
