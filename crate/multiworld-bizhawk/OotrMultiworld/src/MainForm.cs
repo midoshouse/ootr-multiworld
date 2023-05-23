@@ -460,32 +460,42 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                     if (randoContextAddr >= 0x8000_0000 && randoContextAddr != 0xffff_ffff) {
                         var newCoopContextAddr = APIs.Memory.ReadU32(randoContextAddr, "System Bus");
                         if (newCoopContextAddr >= 0x8000_0000 && newCoopContextAddr != 0xffff_ffff) {
-                            switch (APIs.Memory.ReadU32(newCoopContextAddr, "System Bus")) {
-                                case 0 | 1:
-                                    using (var error = Error.from_string("randomizer version too old (version 5.1.4 or higher required)")) {
-                                        SetError(error);
-                                    }
-                                    this.coopContextAddr = null;
-                                    return;
-                                case 2:
-                                    break; // supported, but no MW_SEND_OWN_ITEMS support
-                                case 3:
-                                    APIs.Memory.WriteU8(newCoopContextAddr + 0x0a, 1, "System Bus"); // enable MW_SEND_OWN_ITEMS for server-side tracking
-                                    break;
-                                case 4:
-                                    APIs.Memory.WriteU8(newCoopContextAddr + 0x0a, 1, "System Bus"); // enable MW_SEND_OWN_ITEMS for server-side tracking
-                                    var newFileHash = APIs.Memory.ReadByteRange(newCoopContextAddr + 0x0814, 5, "System Bus");
-                                    if (this.client != null && !Enumerable.SequenceEqual(this.fileHash, newFileHash)) {
-                                        this.client.SendFileHash(newFileHash);
-                                        this.fileHash = new List<byte>(newFileHash);
-                                    }
-                                    break;
-                                default:
+                            var coopContextVersion = APIs.Memory.ReadU32(newCoopContextAddr, "System Bus");
+                            if (coopContextVersion < 2) {
+                                using (var error = Error.from_string("randomizer version too old (version 5.1.4 or higher required)")) {
+                                    SetError(error);
+                                }
+                                this.coopContextAddr = null;
+                                return;
+                            }
+                            if (coopContextVersion > 5) {
+                                using (var error = Error.from_string("randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)")) {
+                                    SetError(error);
+                                }
+                                this.coopContextAddr = null;
+                                return;
+                            }
+                            if (coopContextVersion == 5) {
+                                if (APIs.Memory.ReadU8(0x1c, "ROM") == 0xfe) {
+                                    // on dev-fenhl, version 5 is https://github.com/OoTRandomizer/OoT-Randomizer/pull/1871
+                                    //TODO support for MW_PROGRESSIVE_ITEMS_ENABLE
+                                } else {
                                     using (var error = Error.from_string("randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)")) {
                                         SetError(error);
                                     }
                                     this.coopContextAddr = null;
                                     return;
+                                }
+                            }
+                            if (coopContextVersion >= 3) {
+                                APIs.Memory.WriteU8(newCoopContextAddr + 0x000a, 1, "System Bus"); // enable MW_SEND_OWN_ITEMS for server-side tracking
+                            }
+                            if (coopContextVersion >= 4) {
+                                var newFileHash = APIs.Memory.ReadByteRange(newCoopContextAddr + 0x0814, 5, "System Bus");
+                                if (this.client != null && !Enumerable.SequenceEqual(this.fileHash, newFileHash)) {
+                                    this.client.SendFileHash(newFileHash);
+                                    this.fileHash = new List<byte>(newFileHash);
+                                }
                             }
                             this.coopContextAddr = newCoopContextAddr;
                             this.playerID = (byte?) APIs.Memory.ReadU8(newCoopContextAddr + 0x4, "System Bus");

@@ -100,31 +100,36 @@ function handle_frame(write, error) {
         if (randoContextAddr >= 0x80000000 && randoContextAddr != 0xffffffff) {
             var newCoopContextAddr = mem.u32[randoContextAddr];
             if (newCoopContextAddr >= 0x80000000 && newCoopContextAddr != 0xffffffff) {
-                switch (mem.u32[newCoopContextAddr]) {
-                    case 0:
-                    case 1:
-                        return error('randomizer version too old (version 5.1.4 or higher required)');
-                    case 2:
-                        break; // supported, but no MW_SEND_OWN_ITEMS support
-                    case 3:
-                        mem.u8[newCoopContextAddr + 0x0a] = 1; // enable MW_SEND_OWN_ITEMS for server-side tracking
-                        break;
-                    case 4:
-                        mem.u8[newCoopContextAddr + 0x0a] = 1; // enable MW_SEND_OWN_ITEMS for server-side tracking
-                        var newFileHash = mem.getblock(newCoopContextAddr + 0x0814, 5);
-                        if (fileHash === null || newFileHash != fileHash) {
-                            const fileHashPacket = new ArrayBuffer(6);
-                            var fileHashPacketView = new DataView(fileHashPacket);
-                            fileHashPacketView.setUint8(0, 4); // message: file hash changed
-                            for (var c = 0; c < 5; c++) {
-                                fileHashPacketView.setUint8(c + 1, newFileHash[c]);
-                            }
-                            write(new Buffer(new Uint8Array(fileHashPacket)));
-                            fileHash = newFileHash;
-                        }
-                        break;
-                    default:
+                var coopContextVersion = mem.u32[newCoopContextAddr];
+                if (coopContextVersion < 2) {
+                    return error('randomizer version too old (version 5.1.4 or higher required)');
+                }
+                if (coopContextVersion > 5) {
+                    return error("randomizer version too new (version " + mem.u32[newCoopContextAddr] + "; please tell Fenhl that Mido's House Multiworld needs to be updated)");
+                }
+                if (coopContextVersion == 5) {
+                    if (mem.u8[0x1c] == 0xfe) {
+                        // on dev-fenhl, version 5 is https://github.com/OoTRandomizer/OoT-Randomizer/pull/1871
+                        //TODO support for MW_PROGRESSIVE_ITEMS_ENABLE
+                    } else {
                         return error("randomizer version too new (version " + mem.u32[newCoopContextAddr] + "; please tell Fenhl that Mido's House Multiworld needs to be updated)");
+                    }
+                }
+                if (coopContextVersion >= 3) {
+                    mem.u8[newCoopContextAddr + 0x000a] = 1; // enable MW_SEND_OWN_ITEMS for server-side tracking
+                }
+                if (coopContextVersion >= 4) {
+                    var newFileHash = mem.getblock(newCoopContextAddr + 0x0814, 5);
+                    if (fileHash === null || newFileHash != fileHash) {
+                        const fileHashPacket = new ArrayBuffer(6);
+                        var fileHashPacketView = new DataView(fileHashPacket);
+                        fileHashPacketView.setUint8(0, 4); // message: file hash changed
+                        for (var c = 0; c < 5; c++) {
+                            fileHashPacketView.setUint8(c + 1, newFileHash[c]);
+                        }
+                        write(new Buffer(new Uint8Array(fileHashPacket)));
+                        fileHash = newFileHash;
+                    }
                 }
                 if (mem.u32[ADDR_ANY_RDRAM.start + 0x11a5d0 + 0x135c] == 0) { // game mode == gameplay
                     if (!normalGameplay) {
