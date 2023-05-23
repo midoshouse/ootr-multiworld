@@ -652,6 +652,80 @@ impl Task<Result<(), Error>> for BuildInstaller {
     }
 }
 
+enum BuildInstallerLinux {
+    Deps(reqwest::Client, Repo, broadcast::Receiver<LinuxBizHawkNotification>, broadcast::Receiver<Release>),
+    Glow(reqwest::Client, Repo, broadcast::Receiver<Release>),
+    Copy(reqwest::Client, Repo, broadcast::Receiver<Release>),
+    Read(reqwest::Client, Repo, broadcast::Receiver<Release>),
+    WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
+    Upload(reqwest::Client, Repo, Release, Vec<u8>),
+}
+
+impl BuildInstallerLinux {
+    fn new(client: reqwest::Client, repo: Repo, bizhawk_rx: broadcast::Receiver<LinuxBizHawkNotification>, release_rx: broadcast::Receiver<Release>) -> Self {
+        Self::Deps(client, repo, bizhawk_rx, release_rx)
+    }
+}
+
+impl fmt::Display for BuildInstallerLinux {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Deps(..) => write!(f, "waiting for dependency builds to finish"),
+            Self::Glow(..) => write!(f, "building multiworld-installer-linux"),
+            Self::Copy(..) => write!(f, "copying multiworld-installer-linux to Windows"),
+            Self::Read(..) => write!(f, "reading multiworld-installer-linux"),
+            Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
+            Self::Upload(..) => write!(f, "uploading multiworld-installer-linux"),
+        }
+    }
+}
+
+impl Progress for BuildInstallerLinux {
+    fn progress(&self) -> Percent {
+        Percent::fraction(match self {
+            Self::Deps(..) => 0,
+            Self::Glow(..) => 1,
+            Self::Copy(..) => 2,
+            Self::Read(..) => 3,
+            Self::WaitRelease(..) => 4,
+            Self::Upload(..) => 5,
+        }, 6)
+    }
+}
+
+#[async_trait]
+impl Task<Result<(), Error>> for BuildInstallerLinux {
+    async fn run(self) -> Result<Result<(), Error>, Self> {
+        match self {
+            Self::Deps(client, repo, mut bizhawk_rx, release_rx) => gres::transpose(async move {
+                let LinuxBizHawkNotification = bizhawk_rx.recv().await?;
+                Ok(Err(Self::Glow(client, repo, release_rx)))
+            }).await,
+            Self::Glow(client, repo, release_rx) => gres::transpose(async move {
+                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-installer").check("wsl cargo build --package=multiworld-installer").await?;
+                Ok(Err(Self::Copy(client, repo, release_rx)))
+            }).await,
+            Self::Copy(client, repo, release_rx) => gres::transpose(async move {
+                fs::create_dir_all("target/wsl/release").await?;
+                Command::new("wsl").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/multiworld-installer").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/multiworld-installer").check("wsl cp").await?;
+                Ok(Err(Self::Read(client, repo, release_rx)))
+            }).await,
+            Self::Read(client, repo, release_rx) => gres::transpose(async move {
+                let data = fs::read("target/wsl/release/multiworld-installer").await?;
+                Ok(Err(Self::WaitRelease(client, repo, release_rx, data)))
+            }).await,
+            Self::WaitRelease(client, repo, mut release_rx, data) => gres::transpose(async move {
+                let release = release_rx.recv().await?;
+                Ok(Err(Self::Upload(client, repo, release, data)))
+            }).await,
+            Self::Upload(client, repo, release, data) => gres::transpose(async move {
+                repo.release_attach(&client, &release, "multiworld-installer-linux", "application/x-executable", data).await?;
+                Ok(Ok(()))
+            }).await,
+        }
+    }
+}
+
 #[derive(Default)]
 enum BuildServer {
     #[default]
@@ -770,6 +844,7 @@ async fn main(args: Args) -> Result<(), Error> {
         let (client, repo, bizhawk_version) = cli.run(Setup::default(), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
         let bizhawk_version_linux = bizhawk_version.clone();
         let (release_tx, release_rx_installer) = broadcast::channel(1);
+        let release_rx_installer_linux = release_tx.subscribe();
         let release_rx_gui = release_tx.subscribe();
         let release_rx_bizhawk = release_tx.subscribe();
         let release_rx_bizhawk_linux = release_tx.subscribe();
@@ -784,7 +859,7 @@ async fn main(args: Args) -> Result<(), Error> {
         let (gui_tx, gui_rx) = broadcast::channel(1);
         let gui_rx_installer = gui_tx.subscribe();
         let (bizhawk_tx, bizhawk_rx) = broadcast::channel(1);
-        let (linux_bizhawk_tx, _ /*TODO pass to Linux installer build task */) = broadcast::channel(1);
+        let (linux_bizhawk_tx, linux_bizhawk_rx) = broadcast::channel(1);
 
         macro_rules! with_metavariable {
             ($metavariable:tt, $($token:tt)*) => { $($token)* };
@@ -802,7 +877,8 @@ async fn main(args: Args) -> Result<(), Error> {
             { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawk::new(client, repo, gui_rx, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "Windows BizHawk build done").await? }).await? } },
             { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawkLinux::new(client, repo, release_rx_bizhawk_linux, bizhawk_version_linux, linux_bizhawk_tx), "Linux BizHawk build done").await? }).await? } },
             { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildPj64::new(client, repo, release_rx_pj64), "Project64 build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstaller::new(client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "installer build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstaller::new(client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "Windows installer build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstallerLinux::new(client, repo, linux_bizhawk_rx, release_rx_installer_linux), "Linux installer build done").await? }).await? } },
             if args.no_server { future::ok(()).boxed() } else { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildServer::default(), "server build done").await? }).await? }.boxed() },
         ];
         let release = create_release.await??;
