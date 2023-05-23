@@ -434,7 +434,7 @@ impl Application for State {
                                     let _ = zip_file.file().entries().iter().exactly_one()?;
                                     {
                                         let mut buf = Vec::default();
-                                        zip_file.entry(0).await?.read_to_end_checked(&mut buf, zip_file.file().entries()[0].entry()).await?;
+                                        zip_file.reader_with_entry(0).await?.read_to_end_checked(&mut buf).await?;
                                         let prereqs = tempfile::Builder::new().prefix("bizhawk_prereqs_").suffix(".exe").tempfile()?;
                                         tokio::fs::File::from_std(prereqs.reopen()?).write_all(&buf).await?;
                                         let prereqs_path = prereqs.into_temp_path();
@@ -455,7 +455,7 @@ impl Application for State {
                                 }
                                 #[cfg(target_os = "windows")] {
                                     let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
-                                    let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), bizhawk_dir.join(entry.entry().filename()))).collect_vec();
+                                    let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| Ok((idx, entry.entry().filename().as_str()?.ends_with('/'), bizhawk_dir.join(entry.entry().filename().as_str()?)))).try_collect::<_, Vec<_>, Error>()?;
                                     for (idx, is_dir, path) in entries {
                                         if is_dir {
                                             fs::create_dir_all(path).await?;
@@ -464,7 +464,7 @@ impl Application for State {
                                                 fs::create_dir_all(parent).await?;
                                             }
                                             let mut buf = Vec::default();
-                                            zip_file.entry(idx).await?.read_to_end_checked(&mut buf, zip_file.file().entries()[idx].entry()).await?;
+                                            zip_file.reader_with_entry(idx).await?.read_to_end_checked(&mut buf).await?;
                                             fs::write(path, &buf).await?;
                                         }
                                     }
@@ -566,7 +566,7 @@ impl Application for State {
                         }
                         #[cfg(target_os = "windows")] {
                             let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
-                            let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), emulator_path_buf.join(entry.entry().filename()))).collect_vec();
+                            let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| Ok((idx, entry.entry().filename().as_str()?.ends_with('/'), emulator_path_buf.join(entry.entry().filename().as_str()?)))).try_collect::<_, Vec<_>, Error>()?;
                             for (idx, is_dir, path) in entries {
                                 if is_dir {
                                     fs::create_dir_all(path).await?;
@@ -575,7 +575,7 @@ impl Application for State {
                                         fs::create_dir_all(parent).await?;
                                     }
                                     let mut buf = Vec::default();
-                                    zip_file.entry(idx).await?.read_to_end_checked(&mut buf, zip_file.file().entries()[idx].entry()).await?;
+                                    zip_file.reader_with_entry(idx).await?.read_to_end_checked(&mut buf).await?;
                                     fs::write(path, &buf).await?;
                                 }
                             }

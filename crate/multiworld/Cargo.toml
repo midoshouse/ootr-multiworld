@@ -65,7 +65,7 @@ version = "1"
 features = ["net", "process", "sync", "time"]
 
 [dependencies.tokio-tungstenite]
-version = "0.18"
+version = "0.19"
 features = ["rustls-tls-webpki-roots"]
 optional = true
 

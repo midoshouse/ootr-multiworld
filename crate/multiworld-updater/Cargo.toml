@@ -16,13 +16,13 @@ itertools = "0.10"
 open = "4"
 runas = "1"
 semver = "1"
-sysinfo = "0.28"
+sysinfo = "0.29"
 tempfile = "3"
 thiserror = "1"
 url = "2"
 
 [dependencies.async_zip]
-version = "0.0.13"
+version = "0.0.15"
 features = ["full"]
 
 [dependencies.chrono]

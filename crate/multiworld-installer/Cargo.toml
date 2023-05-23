@@ -41,7 +41,7 @@ serde_ini = "0.2"
 thiserror = "1"
 
 [dependencies.async_zip]
-version = "0.0.13"
+version = "0.0.15"
 features = ["full"]
 
 [dependencies.clap]

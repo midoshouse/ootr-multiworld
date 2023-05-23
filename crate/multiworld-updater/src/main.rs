@@ -305,17 +305,16 @@ impl Application for App {
                     let local_bizhawk_version = local_bizhawk_version.clone();
                     return cmd(async move {
                         let mut zip_file = StreamReader::new(response.bytes_stream().map_err(|e| io::Error::new(io::ErrorKind::Other, e)));
-                        let mut zip_file = async_zip::tokio::read::stream::ZipFileReader::new(&mut zip_file);
+                        let mut zip_file = async_zip::base::read::stream::ZipFileReader::with_tokio(&mut zip_file);
                         let mut required_bizhawk_version = None;
-                        while let Some(mut entry) = zip_file.next_entry().await? {
-                            match entry.entry().filename() {
+                        while let Some(mut entry) = zip_file.next_with_entry().await? {
+                            match entry.reader().entry().filename().as_str()? {
                                 "README.txt" => {
                                     #[cfg(target_os = "linux")] let readme_template = include_str!("../../../assets/bizhawk-readme-linux.txt");
                                     #[cfg(target_os = "windows")] let readme_template = include_str!("../../../assets/bizhawk-readme-windows.txt");
                                     let (readme_prefix, _) = readme_template.split_once("{}").expect("failed to parse readme template");
                                     let mut buf = String::default();
-                                    let entry_info = entry.entry().clone();
-                                    entry.reader().read_to_string_checked(&mut buf, &entry_info).await?;
+                                    entry.reader_mut().read_to_string_checked(&mut buf).await?;
                                     required_bizhawk_version = Some(
                                         buf
                                             .strip_prefix(readme_prefix).ok_or(Error::ReadmeFormat)?
@@ -327,24 +326,21 @@ impl Application for App {
                                     let external_tools = path.join("ExternalTools");
                                     fs::create_dir_all(&external_tools).await?;
                                     let mut buf = Vec::default();
-                                    let entry_info = entry.entry().clone();
-                                    entry.reader().read_to_end_checked(&mut buf, &entry_info).await?;
+                                    entry.reader_mut().read_to_end_checked(&mut buf).await?;
                                     fs::write(external_tools.join("OotrMultiworld.dll"), &buf).await?;
                                 }
                                 #[cfg(target_os = "linux")] "libmultiworld.so" => {
                                     let dlls = path.join("dll");
                                     fs::create_dir_all(&dlls).await?;
                                     let mut buf = Vec::default();
-                                    let entry_info = entry.entry().clone();
-                                    entry.reader().read_to_end_checked(&mut buf, &entry_info).await?;
+                                    entry.reader_mut().read_to_end_checked(&mut buf).await?;
                                     fs::write(dlls.join("libmultiworld.so"), &buf).await?;
                                 }
                                 #[cfg(target_os = "windows")] "multiworld.dll" => {
                                     let external_tools = path.join("ExternalTools"); //TODO test if placing in `dll` works, use that and clean up `ExternalTools` if it does
                                     fs::create_dir_all(&external_tools).await?;
                                     let mut buf = Vec::default();
-                                    let entry_info = entry.entry().clone();
-                                    entry.reader().read_to_end_checked(&mut buf, &entry_info).await?;
+                                    entry.reader_mut().read_to_end_checked(&mut buf).await?;
                                     fs::write(external_tools.join("multiworld.dll"), &buf).await?;
                                 }
                                 _ => return Err(Error::UnexpectedZipEntry),
@@ -414,7 +410,7 @@ impl Application for App {
                 });
                 #[cfg(target_os = "windows")] return cmd(async move {
                     let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
-                    let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| (idx, entry.entry().filename().ends_with('/'), path.join(entry.entry().filename()))).collect_vec();
+                    let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| Ok((idx, entry.entry().filename().as_str()?.ends_with('/'), path.join(entry.entry().filename().as_str()?)))).try_collect::<_, Vec<_>, Error>()?;
                     for (idx, is_dir, path) in entries {
                         if is_dir {
                             fs::create_dir_all(path).await?;
@@ -423,7 +419,7 @@ impl Application for App {
                                 fs::create_dir_all(parent).await?;
                             }
                             let mut buf = Vec::default();
-                            zip_file.entry(idx).await?.read_to_end_checked(&mut buf, zip_file.file().entries()[idx].entry()).await?;
+                            zip_file.reader_with_entry(idx).await?.read_to_end_checked(&mut buf).await?;
                             fs::write(path, &buf).await?;
                         }
                     }
