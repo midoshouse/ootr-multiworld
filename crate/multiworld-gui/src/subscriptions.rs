@@ -40,7 +40,10 @@ use {
     },
     tokio_tungstenite::tungstenite,
     url::Url,
-    multiworld::frontend,
+    multiworld::{
+        frontend,
+        ws::latest as ws,
+    },
     crate::{
         Error,
         FrontendFlags,
@@ -182,7 +185,7 @@ impl<H: Hasher, I> Recipe<H, I> for Client {
                                     let (stream, msg) = res??;
                                     break Some((Message::Server(msg), (stream, sink, interval)))
                                 },
-                                _ = interval.tick() => multiworld::ClientMessage::Ping.write_ws(&mut *sink.lock().await).await?,
+                                _ = interval.tick() => ws::ClientMessage::Ping.write_ws(&mut *sink.lock().await).await?,
                             }
                         })
                     }))

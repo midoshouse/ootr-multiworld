@@ -41,10 +41,12 @@ use {
         },
     },
     multiworld::{
-        ClientMessage,
-        ServerMessage,
         SessionState,
         config::CONFIG,
+        ws::latest::{
+            ClientMessage,
+            ServerMessage,
+        },
     },
     crate::parse::FromExpr as _,
 };

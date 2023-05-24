@@ -24,6 +24,11 @@ use {
     rocket_ws::WebSocket,
     sqlx::PgPool,
     tokio::sync::Mutex,
+    multiworld::ws::{
+        Version,
+        VersionedReader,
+        VersionedWriter,
+    },
     crate::{
         Rooms,
         client_session,
@@ -35,25 +40,32 @@ fn index() -> Redirect {
     Redirect::permanent(uri!("https://midos.house/mw"))
 }
 
-#[rocket::get("/v10")]
-fn v10(rng: &State<Arc<SystemRandom>>, db_pool: &State<PgPool>, rooms: &State<Rooms<WebSocket>>, next_session_id: &State<AtomicUsize>, ws: WebSocket, shutdown: rocket::Shutdown) -> rocket_ws::Channel<'static> {
-    let rng = (*rng).clone();
-    let db_pool = (*db_pool).clone();
-    let rooms = (*rooms).clone();
-    let session_id = next_session_id.fetch_add(1, SeqCst);
-    ws.channel(move |stream| Box::pin(async move {
-        let (sink, stream) = stream.split();
-        match client_session(&rng, db_pool, rooms, session_id, stream, Arc::new(Mutex::new(sink)), shutdown).await {
-            Ok(()) => {}
-            Err(e) => {
-                eprintln!("error in WebSocket handler: {e}");
-                eprintln!("debug info: {e:?}");
-                //TODO send error to client? (currently handled individually for each error)
-            }
+macro_rules! supported_version {
+    ($endpoint:literal, $version:ident, $variant:ident) => {
+        #[rocket::get($endpoint)]
+        fn $version(rng: &State<Arc<SystemRandom>>, db_pool: &State<PgPool>, rooms: &State<Rooms<WebSocket>>, next_session_id: &State<AtomicUsize>, ws: WebSocket, shutdown: rocket::Shutdown) -> rocket_ws::Channel<'static> {
+            let rng = (*rng).clone();
+            let db_pool = (*db_pool).clone();
+            let rooms = (*rooms).clone();
+            let session_id = next_session_id.fetch_add(1, SeqCst);
+            ws.channel(move |stream| Box::pin(async move {
+                let (sink, stream) = stream.split();
+                match client_session(&rng, db_pool, rooms, session_id, VersionedReader { inner: stream, version: Version::$variant }, Arc::new(Mutex::new(VersionedWriter { inner: sink, version: Version::$variant })), shutdown).await {
+                    Ok(()) => {}
+                    Err(e) => {
+                        eprintln!("error in WebSocket handler ({}): {e}", stringify!($version));
+                        eprintln!("debug info: {e:?}");
+                        //TODO send error to client? (currently handled individually for each error)
+                    }
+                }
+                Ok(())
+            }))
         }
-        Ok(())
-    }))
+    };
 }
+
+supported_version!("/v10", v10, V10);
+supported_version!("/v11", v11, V11);
 
 #[rocket::catch(404)]
 async fn not_found() -> RawHtml<String> {

@@ -70,18 +70,22 @@ use {
         traits::IsNetworkError,
     },
     multiworld::{
-        ClientMessage,
         DurationFormatter,
         Filename,
         RoomView,
-        ServerError,
-        ServerMessage,
         SessionState,
         SessionStateError,
         config::CONFIG,
         format_room_state,
         frontend,
         github::Repo,
+        ws::{
+            ServerError,
+            latest::{
+                ClientMessage,
+                ServerMessage,
+            },
+        },
     },
     crate::subscriptions::WsSink,
 };
@@ -770,6 +774,14 @@ impl Application for State {
                         if let Some(writer) = self.frontend_writer.clone() {
                             return cmd(async move {
                                 writer.write(frontend::ServerMessage::GetItem(item)).await?;
+                                Ok(Message::Nop)
+                            })
+                        }
+                    },
+                    ServerMessage::ProgressiveItems { world, state } => if let SessionState::Room { wrong_file_hash: None, .. } = self.server_connection {
+                        if let Some(writer) = self.frontend_writer.clone() {
+                            return cmd(async move {
+                                writer.write(frontend::ServerMessage::ProgressiveItems(world, state)).await?;
                                 Ok(Message::Nop)
                             })
                         }

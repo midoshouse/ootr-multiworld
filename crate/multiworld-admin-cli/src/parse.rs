@@ -19,8 +19,8 @@ use {
         UnOp,
     },
     multiworld::{
-        ClientMessage,
         Filename,
+        ws::latest::ClientMessage,
     },
     crate::Error,
 };

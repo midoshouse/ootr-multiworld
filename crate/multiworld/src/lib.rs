@@ -4,7 +4,6 @@
 use {
     std::{
         collections::{
-            BTreeMap,
             BTreeSet,
             HashMap,
             HashSet,
@@ -20,17 +19,9 @@ use {
     async_recursion::async_recursion,
     async_trait::async_trait,
     chrono::prelude::*,
-    futures::stream::{
-        SplitSink,
-        SplitStream,
-    },
     itertools::Itertools as _,
-    ootr_utils::spoiler::{
-        HashIcon,
-        SpoilerLog,
-    },
+    ootr_utils::spoiler::HashIcon,
     oottracker::websocket::MwItem as Item,
-    rocket_ws::WebSocket,
     semver::Version,
     tokio::{
         net::{
@@ -47,15 +38,26 @@ use {
         },
     },
     wheel::traits::IsNetworkError,
+    crate::ws::{
+        ServerError,
+        latest::{
+            ClientMessage,
+            ServerMessage,
+        },
+    },
 };
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
 #[cfg(windows)] use std::os::windows::io::AsRawSocket;
-#[cfg(feature = "pyo3")] use pyo3::prelude::*;
+#[cfg(feature = "pyo3")] use {
+    ootr_utils::spoiler::SpoilerLog,
+    pyo3::prelude::*,
+};
 #[cfg(feature = "sqlx")] use sqlx::PgPool;
 
 pub mod config;
 pub mod frontend;
 pub mod github;
+pub mod ws;
 
 pub const DEFAULT_TCP_PORT: u16 = 24809; //TODO use for LAN support
 
@@ -210,39 +212,19 @@ pub enum EndRoomSession {
 }
 
 #[async_trait]
-pub trait ClientReader: Unpin + Send + Sized + 'static {
+pub trait ClientReader: Unpin + Send + Sized {
     async fn read_owned(self) -> Result<(Self, ClientMessage), async_proto::ReadError>;
 }
 
 #[async_trait]
-pub trait ClientWriter: Unpin + Send + 'static {
-    async fn write(&mut self, msg: &ServerMessage) -> Result<(), async_proto::WriteError>;
+pub trait ClientWriter: Unpin + Send {
+    async fn write(&mut self, msg: ServerMessage) -> Result<(), async_proto::WriteError>;
 }
 
 pub trait ClientKind {
     type SessionId: fmt::Debug + Copy + Eq + Hash + Send + Sync;
-    type Reader: ClientReader;
-    type Writer: ClientWriter;
-}
-
-impl ClientKind for WebSocket {
-    type SessionId = usize;
-    type Reader = SplitStream<rocket_ws::stream::DuplexStream>;
-    type Writer = SplitSink<rocket_ws::stream::DuplexStream, rocket_ws::Message>;
-}
-
-#[async_trait]
-impl ClientReader for SplitStream<rocket_ws::stream::DuplexStream> {
-    async fn read_owned(self) -> Result<(Self, ClientMessage), async_proto::ReadError> {
-        ClientMessage::read_ws_owned(self).await
-    }
-}
-
-#[async_trait]
-impl ClientWriter for SplitSink<rocket_ws::stream::DuplexStream, rocket_ws::Message> {
-    async fn write(&mut self, msg: &ServerMessage) -> Result<(), async_proto::WriteError> {
-        msg.write_ws(self).await
-    }
+    type Reader: ClientReader + 'static;
+    type Writer: ClientWriter + 'static;
 }
 
 #[cfg(unix)] pub type SocketId = std::os::unix::io::RawFd;
@@ -266,7 +248,7 @@ impl ClientReader for OwnedReadHalf {
 
 #[async_trait]
 impl ClientWriter for OwnedWriteHalf {
-    async fn write(&mut self, msg: &ServerMessage) -> Result<(), async_proto::WriteError> {
+    async fn write(&mut self, msg: ServerMessage) -> Result<(), async_proto::WriteError> {
         msg.write(self).await
     }
 }
@@ -390,7 +372,7 @@ pub enum SendAllError {
 }
 
 impl<C: ClientKind> Room<C> {
-    async fn write(&mut self, client_id: C::SessionId, msg: &ServerMessage) {
+    async fn write(&mut self, client_id: C::SessionId, msg: ServerMessage) {
         if let Some(client) = self.clients.get(&client_id) {
             let mut writer = client.writer.lock().await;
             if let Err(e) = writer.write(msg).await {
@@ -405,7 +387,7 @@ impl<C: ClientKind> Room<C> {
         let mut notified = HashSet::new();
         while let Some((&client_id, client)) = self.clients.iter().find(|&(client_id, _)| !notified.contains(client_id)) {
             let mut writer = client.writer.lock().await;
-            if let Err(e) = writer.write(msg).await {
+            if let Err(e) = writer.write(msg.clone()).await {
                 eprintln!("error sending message: {e} ({e:?})");
                 drop(writer);
                 self.remove_client(client_id, EndRoomSession::Disconnect).await;
@@ -474,7 +456,7 @@ impl<C: ClientKind> Room<C> {
         self.write_all(&ServerMessage::PlayerId(world)).await;
         let queue = self.player_queues.get(&world).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>();
         if !queue.is_empty() {
-            self.write(client_id, &ServerMessage::ItemQueue(queue)).await;
+            self.write(client_id, ServerMessage::ItemQueue(queue)).await;
         }
         #[cfg(feature = "tokio-tungstenite")]
         if let Some(save) = save {
@@ -543,7 +525,7 @@ impl<C: ClientKind> Room<C> {
                     .filter_map(|(&target_client, c)| if c.player.map_or(false, |p| p.world != source_world) { Some(target_client) } else { None })
                     .collect::<Vec<_>>();
                 for target_client in player_clients {
-                    self.write(target_client, &msg).await;
+                    self.write(target_client, msg.clone()).await;
                 }
             }
         } else if source_world == target_world {
@@ -552,7 +534,7 @@ impl<C: ClientKind> Room<C> {
             if !self.player_queues.get(&target_world).map_or(false, |queue| queue.iter().any(|item| item.source == source_world && item.key == key)) {
                 self.player_queues.entry(target_world).or_insert_with(|| self.base_queue.clone()).push(Item { source: source_world, key, kind });
                 if let Some((&target_client, _)) = self.clients.iter().find(|(_, c)| c.player.map_or(false, |p| p.world == target_world)) {
-                    self.write(target_client, &ServerMessage::GetItem(kind)).await;
+                    self.write(target_client, ServerMessage::GetItem(kind)).await;
                 }
             }
         }
@@ -697,174 +679,6 @@ impl<C: ClientKind> Room<C> {
     }
 }
 
-#[derive(Debug, Protocol)]
-pub enum ClientMessage {
-    /// Tells the server we're still here. Should be sent every 30 seconds; the server will consider the connection lost if no message is received for 60 seconds.
-    Ping,
-    /// Only works after [`ServerMessage::EnterLobby`].
-    JoinRoom {
-        name: String,
-        password: Option<String>,
-    },
-    /// Only works after [`ServerMessage::EnterLobby`].
-    CreateRoom {
-        name: String,
-        password: String,
-    },
-    /// Sign in with a Mido's House API key. Currently only available for Mido's House admins. Only works after [`ServerMessage::EnterLobby`].
-    Login {
-        id: u64,
-        api_key: [u8; 32],
-    },
-    /// Stops the server. Only works after [`ServerMessage::AdminLoginSuccess`].
-    Stop,
-    /// Claims a world. Only works after [`ServerMessage::EnterRoom`].
-    PlayerId(NonZeroU8),
-    /// Unloads the previously claimed world. Only works after [`ServerMessage::EnterRoom`].
-    ResetPlayerId,
-    /// Player names are encoded in the NTSC charset, with trailing spaces (`0xdf`). Only works after [`ServerMessage::PlayerId`].
-    PlayerName(Filename),
-    /// Only works after [`ServerMessage::EnterRoom`].
-    SendItem {
-        key: u32,
-        kind: u16,
-        target_world: NonZeroU8,
-    },
-    /// Only works after [`ServerMessage::EnterRoom`].
-    KickPlayer(NonZeroU8),
-    /// Only works after [`ServerMessage::EnterRoom`].
-    DeleteRoom,
-    /// Configures the given room to be visible on oottracker.fenhl.net. Only works after [`ServerMessage::AdminLoginSuccess`].
-    Track {
-        mw_room_name: String,
-        tracker_room_name: String, //TODO remove this parameter, generate a random name instead and reply with it
-        world_count: NonZeroU8, //TODO this parameter can also be removed if oottracker is changed to use the base queue system
-    },
-    /// Only works after [`ServerMessage::EnterRoom`].
-    SaveData(oottracker::Save),
-    /// Sends all remaining items from the given world to the given room. Only works after [`ServerMessage::EnterRoom`].
-    SendAll {
-        source_world: NonZeroU8,
-        spoiler_log: SpoilerLog,
-    },
-    /// Reports an error with decoding save data.
-    SaveDataError {
-        debug: String,
-        version: Version,
-    },
-    /// Reports the loaded seed's file hash icons, allowing the server to ensure that all players are on the same seed. Only works after [`ServerMessage::PlayerId`].
-    FileHash([HashIcon; 5]),
-    /// Sets the time after which the room should be automatically deleted. Only works after [`ServerMessage::EnterRoom`].
-    AutoDeleteDelta(Duration),
-    /// Requests a [`ServerMessage::RoomsEmpty`] when no players with claimed worlds are in any rooms. Only works after [`ServerMessage::AdminLoginSuccess`].
-    WaitUntilEmpty,
-}
-
-macro_rules! server_errors {
-    ($($(#[$attr:meta])* $variant:ident),* $(,)?) => {
-        /// New unit variants on this enum don't cause a major version bump, since the client interprets them as instances of the `Future` variant.
-        #[derive(Debug, Clone, Copy, Protocol, thiserror::Error)]
-        #[async_proto(via = u8, clone)]
-        pub enum ServerError {
-            /// The server sent a `ServerError` that the client doesn't know about yet.
-            #[error("server error #{0}")]
-            Future(u8),
-            $($(#[$attr])* $variant,)*
-        }
-
-        impl From<u8> for ServerError {
-            fn from(discrim: u8) -> Self {
-                let iter_discrim = 1;
-                $(
-                    if discrim == iter_discrim { return Self::$variant }
-                    #[allow(unused)] let iter_discrim = iter_discrim + 1;
-                )*
-                Self::Future(discrim)
-            }
-        }
-
-        impl From<ServerError> for u8 {
-            fn from(e: ServerError) -> Self {
-                if let ServerError::Future(discrim) = e { return discrim }
-                let iter_discrim = 1u8;
-                $(
-                    if let ServerError::$variant = e { return iter_discrim }
-                    #[allow(unused)] let iter_discrim = iter_discrim + 1;
-                )*
-                unreachable!()
-            }
-        }
-    };
-}
-
-server_errors! {
-    /// The client sent the wrong password for the given room.
-    #[error("wrong password")]
-    WrongPassword,
-    /// The client attempted to create a room with a duplicate name.
-    #[error("a room with this name already exists")]
-    RoomExists,
-}
-
-#[derive(Debug, Clone, Protocol)]
-pub enum ServerMessage {
-    /// Tells the client we're still here. Sent every 30 seconds; clients should consider the connection lost if no message is received for 60 seconds.
-    Ping,
-    /// An error that the client might be able to recover from has occurred.
-    StructuredError(ServerError),
-    /// A fatal error has occurred. Contains a human-readable error message.
-    OtherError(String),
-    /// You have just connected or left a room.
-    EnterLobby {
-        rooms: BTreeSet<String>,
-    },
-    /// A new room has been created.
-    NewRoom(String),
-    /// A room has been deleted.
-    DeleteRoom(String),
-    /// You have created or joined a room.
-    EnterRoom {
-        players: Vec<Player>,
-        num_unassigned_clients: u8,
-        autodelete_delta: Duration,
-    },
-    /// A previously unassigned world has been taken by a client.
-    PlayerId(NonZeroU8),
-    /// A previously assigned world has been unassigned.
-    ResetPlayerId(NonZeroU8),
-    /// A new (unassigned) client has connected to the room.
-    ClientConnected,
-    /// A client with a world has disconnected from the room.
-    PlayerDisconnected(NonZeroU8),
-    /// A client without a world has disconnected from the room.
-    UnregisteredClientDisconnected,
-    /// A player has changed their name.
-    ///
-    /// Player names are encoded in the NTSC charset, with trailing spaces (`0xdf`).
-    PlayerName(NonZeroU8, Filename),
-    /// Your list of received items has changed.
-    ItemQueue(Vec<u16>),
-    /// You have received a new item, add it to the end of your item queue.
-    GetItem(u16),
-    /// You have logged in as an admin.
-    AdminLoginSuccess {
-        active_connections: BTreeMap<String, (Vec<Player>, u8)>,
-    },
-    /// The client will now be disconnected.
-    Goodbye,
-    /// A player has sent their file select hash icons.
-    PlayerFileHash(NonZeroU8, [HashIcon; 5]),
-    /// Sets the time after which the room will be automatically deleted has been changed.
-    AutoDeleteDelta(Duration),
-    /// There are no active players in any rooms. Sent after [`ClientMessage::WaitUntilEmpty`].
-    RoomsEmpty,
-    /// The client has the wrong seed loaded.
-    WrongFileHash {
-        server: [HashIcon; 5],
-        client: [HashIcon; 5],
-    },
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     #[error(transparent)] Read(#[from] async_proto::ReadError),
@@ -932,6 +746,7 @@ pub enum SessionState<E> {
         room_name: String,
         room_password: String,
         players: Vec<Player>,
+        progressive_items: HashMap<NonZeroU8, u32>,
         num_unassigned_clients: u8,
         item_queue: Vec<u16>,
         autodelete_delta: Duration,
@@ -1030,6 +845,7 @@ impl<E> SessionState<E> {
                     _ => <_>::default(),
                 };
                 *self = SessionState::Room {
+                    progressive_items: HashMap::default(),
                     item_queue: Vec::default(),
                     view: RoomView::Normal,
                     wrong_file_hash: None,
@@ -1140,6 +956,14 @@ impl<E> SessionState<E> {
                 };
             },
             ServerMessage::RoomsEmpty => {}
+            ServerMessage::ProgressiveItems { world, state } => if let SessionState::Room { progressive_items, .. } = self {
+                progressive_items.insert(world, state);
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                };
+            },
         }
     }
 }

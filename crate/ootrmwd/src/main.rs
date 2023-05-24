@@ -63,15 +63,19 @@ use {
     multiworld::{
         CREDENTIAL_LEN,
         ClientKind,
-        ClientMessage,
         ClientReader as _,
         ClientWriter as _,
         EndRoomSession,
         Player,
         Room,
         SendAllError,
-        ServerError,
-        ServerMessage,
+        ws::{
+            ServerError,
+            latest::{
+                ClientMessage,
+                ServerMessage,
+            },
+        },
     },
 };
 #[cfg(unix)] use {
@@ -127,7 +131,7 @@ async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, room
         let mut interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
         loop {
             interval.tick().await;
-            if let Err(_) = ping_writer.lock().await.write(&ServerMessage::Ping).await { break }
+            if let Err(_) = ping_writer.lock().await.write(ServerMessage::Ping).await { break }
         }
     });
     let mut read = next_message::<C>(reader);
@@ -139,7 +143,7 @@ async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, room
         match end {
             EndRoomSession::ToLobby => read = lobby_reader,
             EndRoomSession::Disconnect => {
-                writer.lock().await.write(&ServerMessage::Goodbye).await?;
+                writer.lock().await.write(ServerMessage::Goodbye).await?;
                 break
             }
         }
@@ -158,7 +162,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
     macro_rules! error {
         ($($msg:tt)*) => {{
             let msg = format!($($msg)*);
-            writer.lock().await.write(&ServerMessage::OtherError(msg.clone())).await?;
+            writer.lock().await.write(ServerMessage::OtherError(msg.clone())).await?;
             return Err(SessionError::Server(msg))
         }};
     }
@@ -168,7 +172,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
     let mut room_stream = {
         let lock = rooms.0.lock().await;
         let stream = lock.change_tx.subscribe();
-        writer.lock().await.write(&ServerMessage::EnterLobby { rooms: lock.list.keys().cloned().collect() }).await?;
+        writer.lock().await.write(ServerMessage::EnterLobby { rooms: lock.list.keys().cloned().collect() }).await?;
         stream
     };
     Ok(loop {
@@ -176,8 +180,8 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
             () = &mut shutdown => return Err(SessionError::Shutdown),
             room_list_change = room_stream.recv() => {
                 match room_list_change {
-                    Ok(RoomListChange::New(room)) => writer.lock().await.write(&ServerMessage::NewRoom(room.read().await.name.clone())).await?,
-                    Ok(RoomListChange::Delete(room_name)) => writer.lock().await.write(&ServerMessage::DeleteRoom(room_name)).await?,
+                    Ok(RoomListChange::New(room)) => writer.lock().await.write(ServerMessage::NewRoom(room.read().await.name.clone())).await?,
+                    Ok(RoomListChange::Delete(room_name)) => writer.lock().await.write(ServerMessage::DeleteRoom(room_name)).await?,
                     Ok(RoomListChange::Join | RoomListChange::Leave) => {}
                     Err(broadcast::error::RecvError::Closed) => unreachable!("room list should be maintained indefinitely"),
                     Err(broadcast::error::RecvError::Lagged(_)) => room_stream = rooms.0.lock().await.change_tx.subscribe(),
@@ -191,7 +195,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
                         }
                     }
                     if !any_players {
-                        writer.lock().await.write(&ServerMessage::RoomsEmpty).await?;
+                        writer.lock().await.write(ServerMessage::RoomsEmpty).await?;
                     }
                 }
             }
@@ -225,13 +229,13 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
                                     num_unassigned_clients += 1;
                                 }
                             }
-                            writer.lock().await.write(&ServerMessage::EnterRoom {
+                            writer.lock().await.write(ServerMessage::EnterRoom {
                                 autodelete_delta: room.autodelete_delta,
                                 players, num_unassigned_clients,
                             }).await?;
                             break (reader, Arc::clone(room_arc), end_rx)
                         } else {
-                            writer.lock().await.write(&ServerMessage::StructuredError(ServerError::WrongPassword)).await?;
+                            writer.lock().await.write(ServerMessage::StructuredError(ServerError::WrongPassword)).await?;
                         }
                     } else {
                         error!("there is no room named {name:?}")
@@ -277,9 +281,9 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
                             password_hash, password_salt, clients, autodelete_delta,
                         }));
                         if !rooms.add(room.clone()).await {
-                            writer.lock().await.write(&ServerMessage::StructuredError(ServerError::RoomExists)).await?;
+                            writer.lock().await.write(ServerMessage::StructuredError(ServerError::RoomExists)).await?;
                         }
-                        writer.lock().await.write(&ServerMessage::EnterRoom {
+                        writer.lock().await.write(ServerMessage::EnterRoom {
                             players: Vec::default(),
                             num_unassigned_clients: 1,
                             autodelete_delta,
@@ -301,7 +305,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
                             }
                             active_connections.insert(room_name.clone(), (players, num_unassigned_clients));
                         }
-                        writer.lock().await.write(&ServerMessage::AdminLoginSuccess { active_connections }).await?;
+                        writer.lock().await.write(ServerMessage::AdminLoginSuccess { active_connections }).await?;
                         logged_in_as_admin = true;
                     } else {
                         error!("wrong user ID or API key")
@@ -335,7 +339,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
                             }
                         }
                         if !any_players {
-                            writer.lock().await.write(&ServerMessage::RoomsEmpty).await?;
+                            writer.lock().await.write(ServerMessage::RoomsEmpty).await?;
                         }
                     } else {
                         error!("WaitUntilEmpty command requires admin login")
@@ -362,7 +366,7 @@ async fn room_session<C: ClientKind>(db_pool: PgPool, rooms: Rooms<C>, room: Arc
     macro_rules! error {
         ($($msg:tt)*) => {{
             let msg = format!($($msg)*);
-            writer.lock().await.write(&ServerMessage::OtherError(msg.clone())).await?;
+            writer.lock().await.write(ServerMessage::OtherError(msg.clone())).await?;
             return Err(SessionError::Server(msg))
         }};
     }
@@ -395,9 +399,9 @@ async fn room_session<C: ClientKind>(db_pool: PgPool, rooms: Rooms<C>, room: Arc
                     },
                     ClientMessage::SendItem { key, kind, target_world } => match room.write().await.queue_item(socket_id, key, kind, target_world).await {
                         Ok(()) => {}
-                        Err(multiworld::QueueItemError::FileHash { server, client }) => writer.lock().await.write(&ServerMessage::WrongFileHash { server, client }).await?,
+                        Err(multiworld::QueueItemError::FileHash { server, client }) => writer.lock().await.write(ServerMessage::WrongFileHash { server, client }).await?,
                         Err(e) => {
-                            writer.lock().await.write(&ServerMessage::OtherError(e.to_string())).await?;
+                            writer.lock().await.write(ServerMessage::OtherError(e.to_string())).await?;
                             return Err(e.into())
                         }
                     },
@@ -420,9 +424,9 @@ async fn room_session<C: ClientKind>(db_pool: PgPool, rooms: Rooms<C>, room: Arc
                     ClientMessage::SaveData(save) => room.write().await.set_save_data(socket_id, save).await?,
                     ClientMessage::SendAll { source_world, spoiler_log } => match room.write().await.send_all(source_world, &spoiler_log).await {
                         Ok(()) => {}
-                        Err(multiworld::SendAllError::FileHash { server, client }) => writer.lock().await.write(&ServerMessage::WrongFileHash { server, client }).await?,
+                        Err(multiworld::SendAllError::FileHash { server, client }) => writer.lock().await.write(ServerMessage::WrongFileHash { server, client }).await?,
                         Err(e) => {
-                            writer.lock().await.write(&ServerMessage::OtherError(e.to_string())).await?;
+                            writer.lock().await.write(ServerMessage::OtherError(e.to_string())).await?;
                             return Err(e.into())
                         }
                     },
@@ -431,9 +435,9 @@ async fn room_session<C: ClientKind>(db_pool: PgPool, rooms: Rooms<C>, room: Arc
                     },
                     ClientMessage::FileHash(hash) => match room.write().await.set_file_hash(socket_id, hash).await {
                         Ok(()) => {}
-                        Err(multiworld::SetHashError::FileHash { server, client }) => writer.lock().await.write(&ServerMessage::WrongFileHash { server, client }).await?,
+                        Err(multiworld::SetHashError::FileHash { server, client }) => writer.lock().await.write(ServerMessage::WrongFileHash { server, client }).await?,
                         Err(e) => {
-                            writer.lock().await.write(&ServerMessage::OtherError(e.to_string())).await?;
+                            writer.lock().await.write(ServerMessage::OtherError(e.to_string())).await?;
                             return Err(e.into())
                         }
                     },
