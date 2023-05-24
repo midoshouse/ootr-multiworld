@@ -108,7 +108,7 @@ function handle_frame(write, error) {
                     return error("randomizer version too new (version " + mem.u32[newCoopContextAddr] + "; please tell Fenhl that Mido's House Multiworld needs to be updated)");
                 }
                 if (coopContextVersion == 5) {
-                    if (mem.u8[0x1c] == 0xfe) {
+                    if (mem.u8[0xb000001c] == 0xfe) {
                         // on dev-fenhl, version 5 is https://github.com/OoTRandomizer/OoT-Randomizer/pull/1871
                         //TODO support for MW_PROGRESSIVE_ITEMS_ENABLE
                     } else {
