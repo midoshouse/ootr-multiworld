@@ -424,6 +424,7 @@ impl Client {
         Ok(Some(ServerMessage::ItemQueue(_))) => 0,
         Ok(Some(ServerMessage::GetItem(_))) => 1,
         Ok(Some(ServerMessage::PlayerName(_, _))) => 2,
+        Ok(Some(ServerMessage::ProgressiveItems(_, _))) => 3,
     }
 }
 
@@ -434,7 +435,7 @@ impl Client {
     let opt_msg_res = &*opt_msg_res;
     match opt_msg_res {
         Ok(Some(ServerMessage::ItemQueue(queue))) => queue.len().try_into().expect("too many items in queue"),
-        _ => panic!("called opt_message_item_queue_len on {opt_msg_res:?}"),
+        _ => panic!("called opt_message_result_item_queue_len on {opt_msg_res:?}"),
     }
 }
 
@@ -446,7 +447,7 @@ impl Client {
     match opt_msg_res {
         Ok(Some(ServerMessage::ItemQueue(queue))) => queue[usize::from(index)],
         Ok(Some(ServerMessage::GetItem(item))) => *item,
-        _ => panic!("called opt_message_item_kind_at_index on {opt_msg_res:?}"),
+        _ => panic!("called opt_message_result_item_kind_at_index on {opt_msg_res:?}"),
     }
 }
 
@@ -457,7 +458,7 @@ impl Client {
     let opt_msg_res = &*opt_msg_res;
     match opt_msg_res {
         Ok(Some(ServerMessage::PlayerName(world_id, _))) => world_id.get(),
-        _ => panic!("called opt_message_world_id on {opt_msg_res:?}"),
+        _ => panic!("called opt_message_result_world_id on {opt_msg_res:?}"),
     }
 }
 
@@ -468,7 +469,18 @@ impl Client {
     let opt_msg_res = &*opt_msg_res;
     match opt_msg_res {
         Ok(Some(ServerMessage::PlayerName(_, filename))) => filename.0.as_ptr(),
-        _ => panic!("called opt_message_world_id on {opt_msg_res:?}"),
+        _ => panic!("called opt_message_result_filename on {opt_msg_res:?}"),
+    }
+}
+
+/// # Panics
+///
+/// If `opt_msg` is not `Some(ProgressiveItems(_, _))`.
+#[csharp_ffi] pub unsafe extern "C" fn opt_message_result_progressive_items(opt_msg_res: *const Result<Option<ServerMessage>, Error>) -> u32 {
+    let opt_msg_res = &*opt_msg_res;
+    match opt_msg_res {
+        Ok(Some(ServerMessage::ProgressiveItems(_, progressive_items))) => *progressive_items,
+        _ => panic!("called opt_message_result_progressive_items on {opt_msg_res:?}"),
     }
 }
 

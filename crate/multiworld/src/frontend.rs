@@ -15,6 +15,7 @@ pub enum ServerMessage {
     ItemQueue(Vec<u16>),
     GetItem(u16),
     PlayerName(NonZeroU8, Filename),
+    ProgressiveItems(NonZeroU8, u32),
 }
 
 #[derive(Debug, Clone, Protocol)]
