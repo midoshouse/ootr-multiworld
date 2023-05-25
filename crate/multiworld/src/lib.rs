@@ -18,6 +18,7 @@ use {
     async_proto::Protocol,
     async_recursion::async_recursion,
     async_trait::async_trait,
+    bitflags::bitflags,
     chrono::prelude::*,
     itertools::Itertools as _,
     ootr_utils::spoiler::HashIcon,
@@ -258,16 +259,18 @@ pub struct Client<C: ClientKind> {
     pub end_tx: oneshot::Sender<EndRoomSession>,
     pub player: Option<Player>,
     pub save_data: Option<oottracker::Save>,
+    pub adjusted_save: oottracker::Save,
 }
 
 impl<C: ClientKind> fmt::Debug for Client<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { writer: _, end_tx, player, save_data } = self;
+        let Self { writer: _, end_tx, player, save_data, adjusted_save } = self;
         f.debug_struct("Client")
             .field("writer", &format_args!("_"))
             .field("end_tx", end_tx)
             .field("player", player)
             .field("save_data", save_data)
+            .field("adjusted_save", adjusted_save)
             .finish()
     }
 }
@@ -371,6 +374,98 @@ pub enum SendAllError {
     Items(Vec<SendItemError>),
 }
 
+bitflags! {
+    #[derive(Default, PartialEq, Eq)]
+    struct ProgressiveItems: u32 {
+        const OCARINA_OFTIME = 0x0020_0000;
+        const OCARINA_FAIRY = 0x0010_0000;
+        const MAGIC_DOUBLE = 0x0008_0000;
+        const MAGIC_SINGLE = 0x0004_0000;
+        const STICKS_30 = 0x0003_0000;
+        const STICKS_20 = 0x0002_0000;
+        const STICKS_10 = 0x0001_0000;
+        const NUTS_40 = 0x0000_c000;
+        const NUTS_30 = 0x0000_8000;
+        const NUTS_20 = 0x0000_4000;
+        const SCALE_GOLD = 0x0000_2000;
+        const SCALE_SILVER = 0x0000_1000;
+        const WALLET_999 = 0x0000_0c00;
+        const WALLET_500 = 0x0000_0800;
+        const WALLET_200 = 0x0000_0400;
+        const SLINGSHOT_50 = 0x0000_0300;
+        const SLINGSHOT_40 = 0x0000_0200;
+        const SLINGSHOT_30 = 0x0000_0100;
+        const BOW_50 = 0x0000_00c0;
+        const BOW_40 = 0x0000_0080;
+        const BOW_30 = 0x0000_0040;
+        const BOMBS_40 = 0x0000_0030;
+        const BOMBS_30 = 0x0000_0020;
+        const BOMBS_20 = 0x0000_0010;
+        const STRENGTH_3 = 0x0000_000c;
+        const STRENGTH_2 = 0x0000_0008;
+        const STRENGTH_1 = 0x0000_0004;
+        const LONGSHOT = 0x0000_0002;
+        const HOOKSHOT = 0x0000_0001;
+    }
+}
+
+impl ProgressiveItems {
+    fn new(save: &oottracker::Save) -> Self {
+        (match save.inv.ocarina {
+            oottracker::save::Ocarina::None => Self::default(),
+            oottracker::save::Ocarina::FairyOcarina => Self::OCARINA_FAIRY,
+            oottracker::save::Ocarina::OcarinaOfTime => Self::OCARINA_OFTIME,
+        }) | match save.magic {
+            oottracker::save::MagicCapacity::None => Self::default(),
+            oottracker::save::MagicCapacity::Small => Self::MAGIC_SINGLE,
+            oottracker::save::MagicCapacity::Large => Self::MAGIC_DOUBLE,
+        } | match save.upgrades.stick_capacity() {
+            oottracker::save::Upgrades::DEKU_STICK_CAPACITY_30 => Self::STICKS_30,
+            oottracker::save::Upgrades::DEKU_STICK_CAPACITY_20 => Self::STICKS_20,
+            oottracker::save::Upgrades::DEKU_STICK_CAPACITY_10 => Self::STICKS_10,
+            _ => Self::default(),
+        } | match save.upgrades.nut_capacity() {
+            oottracker::save::Upgrades::DEKU_NUT_CAPACITY_40 => Self::NUTS_40,
+            oottracker::save::Upgrades::DEKU_NUT_CAPACITY_30 => Self::NUTS_30,
+            oottracker::save::Upgrades::DEKU_NUT_CAPACITY_20 => Self::NUTS_20,
+            _ => Self::default(),
+        } | match save.upgrades.scale() {
+            oottracker::save::Upgrades::GOLD_SCALE => Self::SCALE_GOLD,
+            oottracker::save::Upgrades::SILVER_SCALE => Self::SCALE_SILVER,
+            _ => Self::default(),
+        } | match save.upgrades.wallet() {
+            oottracker::save::Upgrades::TYCOONS_WALLET => Self::WALLET_999,
+            oottracker::save::Upgrades::GIANTS_WALLET => Self::WALLET_500,
+            oottracker::save::Upgrades::ADULTS_WALLET => Self::WALLET_200,
+            _ => Self::default(),
+        } | match save.upgrades.bullet_bag() {
+            oottracker::save::Upgrades::BULLET_BAG_50 => Self::SLINGSHOT_50,
+            oottracker::save::Upgrades::BULLET_BAG_40 => Self::SLINGSHOT_40,
+            oottracker::save::Upgrades::BULLET_BAG_30 => Self::SLINGSHOT_30,
+            _ => Self::default(),
+        } | match save.upgrades.quiver() {
+            oottracker::save::Upgrades::QUIVER_50 => Self::BOW_50,
+            oottracker::save::Upgrades::QUIVER_40 => Self::BOW_40,
+            oottracker::save::Upgrades::QUIVER_30 => Self::BOW_30,
+            _ => Self::default(),
+        } | match save.upgrades.bomb_bag() {
+            oottracker::save::Upgrades::BOMB_BAG_40 => Self::BOMBS_40,
+            oottracker::save::Upgrades::BOMB_BAG_30 => Self::BOMBS_30,
+            oottracker::save::Upgrades::BOMB_BAG_20 => Self::BOMBS_20,
+            _ => Self::default(),
+        } | match save.upgrades.strength() {
+            oottracker::save::Upgrades::GOLD_GAUNTLETS => Self::STRENGTH_3,
+            oottracker::save::Upgrades::SILVER_GAUNTLETS => Self::STRENGTH_2,
+            oottracker::save::Upgrades::GORON_BRACELET => Self::STRENGTH_1,
+            _ => Self::default(),
+        } | match save.inv.hookshot {
+            oottracker::save::Hookshot::None => Self::default(),
+            oottracker::save::Hookshot::Hookshot => Self::HOOKSHOT,
+            oottracker::save::Hookshot::Longshot => Self::LONGSHOT,
+        }
+    }
+}
+
 impl<C: ClientKind> Room<C> {
     async fn write(&mut self, client_id: C::SessionId, msg: ServerMessage) {
         if let Some(client) = self.clients.get(&client_id) {
@@ -402,6 +497,7 @@ impl<C: ClientKind> Room<C> {
         self.clients.insert(client_id, Client {
             player: None,
             save_data: None,
+            adjusted_save: oottracker::Save::default(),
             writer, end_tx,
         });
     }
@@ -444,7 +540,7 @@ impl<C: ClientKind> Room<C> {
             return Ok(false)
         }
         let client = self.clients.get_mut(&client_id).expect("no such client");
-        #[cfg(feature = "tokio-tungstenite")] let save = client.save_data.clone();
+        let save = client.save_data.clone();
         let prev_player = &mut client.player;
         if let Some(player) = prev_player {
             let prev_world = mem::replace(&mut player.world, world);
@@ -455,6 +551,19 @@ impl<C: ClientKind> Room<C> {
         }
         self.write_all(&ServerMessage::PlayerId(world)).await;
         let queue = self.player_queues.get(&world).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>();
+        if let Some(save) = save {
+            let mut adjusted_save = save.clone();
+            for &item in &queue[adjusted_save.inv_amounts.num_received_mw_items.into()..] {
+                adjusted_save.recv_mw_item(item).map_err(|()| async_proto::WriteError::Custom(format!("failed to receive item")))?; //TODO different error type
+            }
+            let client = self.clients.get_mut(&client_id).expect("no such client");
+            let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
+            let new_progressive_items = ProgressiveItems::new(&adjusted_save);
+            client.adjusted_save = adjusted_save;
+            if old_progressive_items != new_progressive_items {
+                self.write_all(&ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await;
+            }
+        }
         if !queue.is_empty() {
             self.write(client_id, ServerMessage::ItemQueue(queue)).await;
         }
@@ -529,12 +638,32 @@ impl<C: ClientKind> Room<C> {
                 }
             }
         } else if source_world == target_world {
+            let mut changed_progressive_items = Vec::default();
+            for client in self.clients.values_mut() {
+                if client.player.map_or(false, |p| p.world == target_world) {
+                    let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
+                    client.adjusted_save.recv_mw_item(kind).map_err(|()| async_proto::WriteError::Custom(format!("failed to receive item")))?; //TODO different error type
+                    let new_progressive_items = ProgressiveItems::new(&client.adjusted_save);
+                    if old_progressive_items != new_progressive_items {
+                        changed_progressive_items.push((target_world, new_progressive_items.bits()));
+                    }
+                }
+            }
+            for (world, state) in changed_progressive_items {
+                self.write_all(&ServerMessage::ProgressiveItems { world, state }).await;
+            }
             // don't send own item back to sender
         } else {
             if !self.player_queues.get(&target_world).map_or(false, |queue| queue.iter().any(|item| item.source == source_world && item.key == key)) {
                 self.player_queues.entry(target_world).or_insert_with(|| self.base_queue.clone()).push(Item { source: source_world, key, kind });
-                if let Some((&target_client, _)) = self.clients.iter().find(|(_, c)| c.player.map_or(false, |p| p.world == target_world)) {
+                if let Some((&target_client, client)) = self.clients.iter_mut().find(|(_, c)| c.player.map_or(false, |p| p.world == target_world)) {
+                    let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
+                    client.adjusted_save.recv_mw_item(kind).map_err(|()| async_proto::WriteError::Custom(format!("failed to receive item")))?; //TODO different error type
+                    let new_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     self.write(target_client, ServerMessage::GetItem(kind)).await;
+                    if old_progressive_items != new_progressive_items {
+                        self.write_all(&ServerMessage::ProgressiveItems { world: target_world, state: new_progressive_items.bits() }).await;
+                    }
                 }
             }
         }
@@ -608,6 +737,17 @@ impl<C: ClientKind> Room<C> {
         client.save_data = Some(save.clone());
         #[cfg(feature = "tokio-tungstenite")]
         if let Some(Player { world, .. }) = client.player {
+            let queue = self.player_queues.get(&world).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>();
+            let mut adjusted_save = save.clone();
+            for &item in &queue[adjusted_save.inv_amounts.num_received_mw_items.into()..] {
+                adjusted_save.recv_mw_item(item).map_err(|()| async_proto::WriteError::Custom(format!("failed to receive item")))?; //TODO different error type
+            }
+            let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
+            let new_progressive_items = ProgressiveItems::new(&adjusted_save);
+            client.adjusted_save = adjusted_save;
+            if old_progressive_items != new_progressive_items {
+                self.write_all(&ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await;
+            }
             if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
                 oottracker::websocket::ClientMessage::MwResetPlayer { room: tracker_room_name.clone(), world, save }.write_ws(sock).await?;
             }

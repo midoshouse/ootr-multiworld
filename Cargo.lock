@@ -410,9 +410,9 @@ checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
 name = "base64"
-version = "0.21.1"
+version = "0.21.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f1e31e207a6b8fb791a38ea3105e6cb541f55e4d029902d3039a4ad07cc4105"
+checksum = "604178f6c5c21f02dc555784810edfb88d34ac2c73b2eae109655649ee73ce3d"
 
 [[package]]
 name = "base64ct"
@@ -1540,14 +1540,14 @@ dependencies = [
 
 [[package]]
 name = "figment"
-version = "0.10.8"
+version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e56602b469b2201400dec66a66aec5a9b8761ee97cd1b8c96ab2483fcc16cc9"
+checksum = "05d79dace1d256182aa00f1ead2e5042558f420af2e1ed24dd79e00214e9ed99"
 dependencies = [
  "atomic",
  "pear",
  "serde",
- "toml 0.5.11",
+ "toml 0.7.4",
  "uncased",
  "version_check",
 ]
@@ -2278,7 +2278,7 @@ dependencies = [
 [[package]]
 name = "gres"
 version = "0.2.4"
-source = "git+https://github.com/fenhl/gres?branch=main#701bccf005e86b5e3653496315e27633925d152e"
+source = "git+https://github.com/fenhl/gres?branch=main#17353a77645adbd74524dacc72d51c77ff75004b"
 dependencies = [
  "async-trait",
  "crossterm 0.25.0",
@@ -2795,9 +2795,9 @@ dependencies = [
 
 [[package]]
 name = "io-lifetimes"
-version = "1.0.10"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c66c74d2ae7e79a5a8f7ac924adbe38ee42a859c6539ad869eb51f0b52dc220"
+checksum = "eae7b9aee968036d54dce06cebaefd919e4472e753296daccd6d344e3e2df0c2"
 dependencies = [
  "hermit-abi 0.3.1",
  "libc",
@@ -3270,6 +3270,7 @@ dependencies = [
  "async-proto",
  "async-recursion",
  "async-trait",
+ "bitflags 2.3.1",
  "chrono",
  "directories 5.0.1",
  "futures",
@@ -3782,7 +3783,7 @@ checksum = "b7e5500299e16ebb147ae15a00a942af264cf3688f47923b8fc2cd5858f23ad3"
 [[package]]
 name = "ootr"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=main#72b8ee92eb056146b59becf4932d626f5aa327b4"
+source = "git+https://github.com/fenhl/oottracker?branch=main#e67ca7a4870d23a8e2f2c31d2522e07234203cb6"
 dependencies = [
  "async-proto",
  "derivative",
@@ -3796,7 +3797,7 @@ dependencies = [
 [[package]]
 name = "ootr-dynamic"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=main#72b8ee92eb056146b59becf4932d626f5aa327b4"
+source = "git+https://github.com/fenhl/oottracker?branch=main#e67ca7a4870d23a8e2f2c31d2522e07234203cb6"
 dependencies = [
  "itertools",
  "ootr",
@@ -3810,7 +3811,7 @@ dependencies = [
 [[package]]
 name = "ootr-static"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=main#72b8ee92eb056146b59becf4932d626f5aa327b4"
+source = "git+https://github.com/fenhl/oottracker?branch=main#e67ca7a4870d23a8e2f2c31d2522e07234203cb6"
 dependencies = [
  "once_cell",
  "ootr",
@@ -3821,7 +3822,7 @@ dependencies = [
 [[package]]
 name = "ootr-static-derive"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=main#72b8ee92eb056146b59becf4932d626f5aa327b4"
+source = "git+https://github.com/fenhl/oottracker?branch=main#e67ca7a4870d23a8e2f2c31d2522e07234203cb6"
 dependencies = [
  "convert_case 0.6.0",
  "derive_more",
@@ -3886,7 +3887,7 @@ dependencies = [
 [[package]]
 name = "oottracker"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=main#72b8ee92eb056146b59becf4932d626f5aa327b4"
+source = "git+https://github.com/fenhl/oottracker?branch=main#e67ca7a4870d23a8e2f2c31d2522e07234203cb6"
 dependencies = [
  "async-proto",
  "async-stream",
@@ -3917,7 +3918,7 @@ dependencies = [
 [[package]]
 name = "oottracker-derive"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=main#72b8ee92eb056146b59becf4932d626f5aa327b4"
+source = "git+https://github.com/fenhl/oottracker?branch=main#e67ca7a4870d23a8e2f2c31d2522e07234203cb6"
 dependencies = [
  "convert_case 0.6.0",
  "itertools",
@@ -4769,7 +4770,7 @@ version = "0.11.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cde824a14b7c14f85caff81225f411faacc04a2013f41670f41443742b1c1c55"
 dependencies = [
- "base64 0.21.1",
+ "base64 0.21.2",
  "bytes",
  "encoding_rs",
  "futures-core",
@@ -4853,7 +4854,7 @@ dependencies = [
 [[package]]
 name = "rocket"
 version = "0.5.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#f1a95ce1d9fc470542d6a0f08e59923630c3cf48"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#afb537415780d97bede0aa1361987599dd895eda"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -4911,7 +4912,7 @@ dependencies = [
 [[package]]
 name = "rocket_codegen"
 version = "0.5.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#f1a95ce1d9fc470542d6a0f08e59923630c3cf48"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#afb537415780d97bede0aa1361987599dd895eda"
 dependencies = [
  "devise",
  "glob",
@@ -4926,7 +4927,7 @@ dependencies = [
 [[package]]
 name = "rocket_http"
 version = "0.5.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#f1a95ce1d9fc470542d6a0f08e59923630c3cf48"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#afb537415780d97bede0aa1361987599dd895eda"
 dependencies = [
  "cookie",
  "either",
@@ -4952,7 +4953,7 @@ dependencies = [
 [[package]]
 name = "rocket_ws"
 version = "0.1.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#f1a95ce1d9fc470542d6a0f08e59923630c3cf48"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#afb537415780d97bede0aa1361987599dd895eda"
 dependencies = [
  "rocket",
  "tokio-tungstenite",
@@ -5054,7 +5055,7 @@ version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d194b56d58803a43635bdc398cd17e383d6f71f9182b9a192c127ca42494a59b"
 dependencies = [
- "base64 0.21.1",
+ "base64 0.21.2",
 ]
 
 [[package]]
@@ -6036,9 +6037,9 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.19.9"
+version = "0.19.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92d964908cec0d030b812013af25a0e57fddfadb1e066ecc6681d86253129d4f"
+checksum = "2380d56e8670370eee6566b0bfd4265f65b3f432e8c6d85623f728d4fa31f739"
 dependencies = [
  "indexmap",
  "serde",
@@ -6218,9 +6219,9 @@ checksum = "92888ba5573ff080736b3648696b70cafad7d250551175acbaa4e0385b3e1460"
 
 [[package]]
 name = "unicode-ident"
-version = "1.0.8"
+version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5464a87b239f13a63a501f2701565754bae92d243d4bb7eb12f6d57d2269bf4"
+checksum = "b15811caf2415fb889178633e7724bad2509101cde276048e013b9def5e51fa0"
 
 [[package]]
 name = "unicode-normalization"

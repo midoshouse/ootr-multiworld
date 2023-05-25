@@ -263,6 +263,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
                             player: None,
                             writer: Arc::clone(&writer),
                             save_data: None,
+                            adjusted_save: Default::default(),
                             end_tx,
                         });
                         let autodelete_delta = Duration::from_secs(60 * 60 * 24 * 7);
