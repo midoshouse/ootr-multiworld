@@ -457,7 +457,7 @@ impl Client {
 #[csharp_ffi] pub unsafe extern "C" fn opt_message_result_world_id(opt_msg_res: *const Result<Option<ServerMessage>, Error>) -> u8 {
     let opt_msg_res = &*opt_msg_res;
     match opt_msg_res {
-        Ok(Some(ServerMessage::PlayerName(world_id, _))) => world_id.get(),
+        Ok(Some(ServerMessage::PlayerName(world_id, _))) | Ok(Some(ServerMessage::ProgressiveItems(world_id, _))) => world_id.get(),
         _ => panic!("called opt_message_result_world_id on {opt_msg_res:?}"),
     }
 }
