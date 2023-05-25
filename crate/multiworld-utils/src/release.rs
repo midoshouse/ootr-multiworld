@@ -987,6 +987,7 @@ async fn main(args: Args) -> Result<(), Error> {
             let line = cli.new_line("[....] publishing release").await?;
             repo.publish_release(&client, release).await?;
             line.replace("[done] release published").await?;
+            line.drop_async().await;
         }
     }
     Ok(())
