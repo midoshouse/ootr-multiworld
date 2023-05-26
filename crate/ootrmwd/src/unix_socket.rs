@@ -94,6 +94,18 @@ pub(crate) async fn listen<C: ClientKind + 'static>(mut shutdown: rocket::Shutdo
                             let mut active_rooms = HashMap::default();
                             let mut room_stream = rooms.0.lock().await.change_tx.subscribe();
                             loop {
+                                let now = Utc::now();
+                                let previous_active_rooms = mem::take(&mut active_rooms);
+                                for (room_name, room) in &rooms.0.lock().await.list {
+                                    let room = room.read().await;
+                                    if room.last_saved > now - chrono::Duration::hours(1) && room.clients.values().any(|client| client.player.is_some()) {
+                                        active_rooms.insert(room_name.clone(), (room.last_saved + chrono::Duration::hours(1), room.clients.values().filter(|client| client.player.is_some()).count().try_into().expect("too many players")));
+                                    }
+                                }
+                                if active_rooms.is_empty() { break }
+                                if active_rooms != previous_active_rooms {
+                                    WaitUntilInactiveMessage::ActiveRooms(active_rooms.clone()).write(&mut sock).await.expect("error writing to UNIX socket");
+                                }
                                 select! {
                                     res = rooms.wait_inactive(shutdown.clone()) => match res {
                                         Ok(()) => {}
@@ -109,18 +121,6 @@ pub(crate) async fn listen<C: ClientKind + 'static>(mut shutdown: rocket::Shutdo
                                             return
                                         }
                                     },
-                                }
-                                let now = Utc::now();
-                                let previous_active_rooms = mem::take(&mut active_rooms);
-                                for (room_name, room) in &rooms.0.lock().await.list {
-                                    let room = room.read().await;
-                                    if room.last_saved > now - chrono::Duration::hours(1) && room.clients.values().any(|client| client.player.is_some()) {
-                                        active_rooms.insert(room_name.clone(), (room.last_saved + chrono::Duration::hours(1), room.clients.values().filter(|client| client.player.is_some()).count().try_into().expect("too many players")));
-                                    }
-                                }
-                                if active_rooms.is_empty() { break }
-                                if active_rooms != previous_active_rooms {
-                                    WaitUntilInactiveMessage::ActiveRooms(active_rooms.clone()).write(&mut sock).await.expect("error writing to UNIX socket");
                                 }
                             }
                             WaitUntilInactiveMessage::Inactive.write(&mut sock).await.expect("error writing to UNIX socket");

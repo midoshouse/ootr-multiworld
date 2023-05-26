@@ -48,7 +48,6 @@ use {
     multiworld_utils::version,
 };
 
-#[derive(Clone)] struct RsyncNotification;
 #[derive(Clone)] struct WindowsUpdaterNotification;
 #[derive(Clone)] struct WindowsGuiNotification;
 #[derive(Clone)] struct LinuxBizHawkNotification;
@@ -238,45 +237,6 @@ impl Task<Result<Release, Error>> for CreateRelease {
                 let release = repo.create_release(&client, format!("Mido's House Multiworld {}", version::version().await), format!("v{}", version::version().await), notes).await?;
                 let _ = tx.send(release.clone());
                 Ok(Ok(release))
-            }).await,
-        }
-    }
-}
-
-enum RsyncToLinux {
-    Sync(broadcast::Sender<RsyncNotification>),
-}
-
-impl RsyncToLinux {
-    fn new(notifier: broadcast::Sender<RsyncNotification>) -> Self {
-        Self::Sync(notifier)
-    }
-}
-
-impl fmt::Display for RsyncToLinux {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Sync(..) => write!(f, "syncing repo to Linux"),
-        }
-    }
-}
-
-impl Progress for RsyncToLinux {
-    fn progress(&self) -> Percent {
-        Percent::fraction(match self {
-            Self::Sync(..) => 0,
-        }, 1)
-    }
-}
-
-#[async_trait]
-impl Task<Result<(), Error>> for RsyncToLinux {
-    async fn run(self) -> Result<Result<(), Error>, Self> {
-        match self {
-            Self::Sync(notifier) => gres::transpose(async move {
-                Command::new("wsl").arg("rsync").arg("--delete").arg("-av").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/").arg("--exclude").arg(".cargo/config.toml").arg("--exclude").arg("target").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/BizHawk").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/bin").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/obj").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll").check("wsl rsync").await?;
-                let _ = notifier.send(RsyncNotification);
-                Ok(Ok(()))
             }).await,
         }
     }
@@ -475,7 +435,7 @@ impl Task<Result<(), Error>> for BuildBizHawk {
 }
 
 enum BuildBizHawkLinux {
-    Sync(reqwest::Client, Repo, broadcast::Receiver<RsyncNotification>, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
+    Sync(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
     Updater(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
     Gui(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
     CSharp(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
@@ -487,15 +447,15 @@ enum BuildBizHawkLinux {
 }
 
 impl BuildBizHawkLinux {
-    fn new(client: reqwest::Client, repo: Repo, rsync_rx: broadcast::Receiver<RsyncNotification>, release_rx: broadcast::Receiver<Release>, version: Version, bizhawk_tx: broadcast::Sender<LinuxBizHawkNotification>) -> Self {
-        Self::Sync(client, repo, rsync_rx, release_rx, version, bizhawk_tx)
+    fn new(client: reqwest::Client, repo: Repo, release_rx: broadcast::Receiver<Release>, version: Version, bizhawk_tx: broadcast::Sender<LinuxBizHawkNotification>) -> Self {
+        Self::Sync(client, repo, release_rx, version, bizhawk_tx)
     }
 }
 
 impl fmt::Display for BuildBizHawkLinux {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Sync(..) => write!(f, "waiting for repo to be synced to Linux"),
+            Self::Sync(..) => write!(f, "syncing repo to Ubuntu"),
             Self::Updater(..) => write!(f, "building multiworld-updater for Linux"),
             Self::Gui(..) => write!(f, "building multiworld-gui for Linux"),
             Self::CSharp(..) => write!(f, "building multiworld-csharp for Linux"),
@@ -528,8 +488,8 @@ impl Progress for BuildBizHawkLinux {
 impl Task<Result<(), Error>> for BuildBizHawkLinux {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
-            Self::Sync(client, repo, mut rsync_rx, release_rx, version, bizhawk_tx) => gres::transpose(async move {
-                let RsyncNotification = rsync_rx.recv().await?;
+            Self::Sync(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
+                Command::new("wsl").arg("rsync").arg("--delete").arg("-av").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/").arg("--exclude").arg(".cargo/config.toml").arg("--exclude").arg("target").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/BizHawk").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/bin").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/obj").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll").check("wsl rsync").await?;
                 Ok(Err(Self::Updater(client, repo, release_rx, version, bizhawk_tx)))
             }).await,
             Self::Updater(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
@@ -777,7 +737,7 @@ impl Task<Result<(), Error>> for BuildInstallerLinux {
 }
 
 enum BuildServer {
-    Sync(broadcast::Receiver<RsyncNotification>, bool),
+    Sync(bool),
     Build(bool),
     Copy(bool),
     Upload(bool),
@@ -789,15 +749,15 @@ enum BuildServer {
 }
 
 impl BuildServer {
-    fn new(rsync_rx: broadcast::Receiver<RsyncNotification>, is_major: bool) -> Self {
-        Self::Sync(rsync_rx, is_major)
+    fn new(is_major: bool) -> Self {
+        Self::Sync(is_major)
     }
 }
 
 impl fmt::Display for BuildServer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Sync(..) => write!(f, "waiting for repo to be synced to Linux"),
+            Self::Sync(..) => write!(f, "syncing repo to Debian"),
             Self::Build(..) => write!(f, "building ootrmwd"),
             Self::Copy(..) => write!(f, "copying ootrmwd to Windows"),
             Self::Upload(..) => write!(f, "uploading ootrmwd to Mido's House"),
@@ -831,17 +791,17 @@ impl Progress for BuildServer {
 impl Task<Result<(), Error>> for BuildServer {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
-            Self::Sync(mut rsync_rx, is_major) => gres::transpose(async move {
-                let RsyncNotification = rsync_rx.recv().await?;
+            Self::Sync(is_major) => gres::transpose(async move {
+                Command::new("debian").arg("run").arg("rsync").arg("--delete").arg("-av").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/").arg("--exclude").arg(".cargo/config.toml").arg("--exclude").arg("target").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/BizHawk").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/bin").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/obj").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll").check("debian run rsync").await?;
                 Ok(Err(Self::Build(is_major)))
             }).await,
             Self::Build(is_major) => gres::transpose(async move {
-                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=ootrmwd").check("wsl cargo build --package=ootrmwd").await?;
+                Command::new("debian").arg("run").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("/home/fenhl/.cargo/bin/cargo").arg("build").arg("--release").arg("--package=ootrmwd").check("debian run cargo build --package=ootrmwd").await?;
                 Ok(Err(Self::Copy(is_major)))
             }).await,
             Self::Copy(is_major) => gres::transpose(async move {
                 fs::create_dir_all("target/wsl/release").await?;
-                Command::new("wsl").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/ootrmwd").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/ootrmwd").check("wsl cp").await?;
+                Command::new("debian").arg("run").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/ootrmwd").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/ootrmwd").check("debian run cp").await?;
                 Ok(Err(Self::Upload(is_major)))
             }).await,
             Self::Upload(is_major) => gres::transpose(async move {
@@ -934,9 +894,7 @@ async fn main(args: Args) -> Result<(), Error> {
     let cli = Arc::new(Cli::new()?);
     let (client, repo, bizhawk_version, is_major) = cli.run(Setup::default(), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
     if args.server_only {
-        let (rsync_tx, rsync_rx) = broadcast::channel(1);
-        cli.run(RsyncToLinux::new(rsync_tx), "rsync to Linux done").await??;
-        cli.run(BuildServer::new(rsync_rx, is_major), "server build done").await??;
+        cli.run(BuildServer::new(is_major), "server build done").await??;
     } else {
         let create_release_cli = Arc::clone(&cli);
         let release_notes_cli = Arc::clone(&cli);
@@ -953,8 +911,6 @@ async fn main(args: Args) -> Result<(), Error> {
         let create_release = tokio::spawn(async move {
             create_release_cli.run(CreateRelease::new(create_release_repo, create_release_client, release_tx, release_notes_cli, create_release_args), "release created").await?
         });
-        let (rsync_tx, rsync_rx_bizhawk) = broadcast::channel(1);
-        let rsync_rx_server = rsync_tx.subscribe();
         let (updater_tx, updater_rx) = broadcast::channel(1);
         let (gui_tx, gui_rx) = broadcast::channel(1);
         let gui_rx_installer = gui_tx.subscribe();
@@ -972,15 +928,14 @@ async fn main(args: Args) -> Result<(), Error> {
         }
 
         build_tasks![
-            { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(RsyncToLinux::new(rsync_tx), "rsync to Linux done").await? }).await? } },
             { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildUpdater::new(updater_tx), "updater build done").await? }).await? } },
             { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildGui::new(client, repo, updater_rx, release_rx_gui, gui_tx), "Windows GUI build done").await? }).await? } },
             { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawk::new(client, repo, gui_rx, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "Windows BizHawk build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawkLinux::new(client, repo, rsync_rx_bizhawk, release_rx_bizhawk_linux, bizhawk_version_linux, linux_bizhawk_tx), "Linux BizHawk build done").await? }).await? } },
+            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawkLinux::new(client, repo, release_rx_bizhawk_linux, bizhawk_version_linux, linux_bizhawk_tx), "Linux BizHawk build done").await? }).await? } },
             { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildPj64::new(client, repo, release_rx_pj64), "Project64 build done").await? }).await? } },
             { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstaller::new(client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "Windows installer build done").await? }).await? } },
             { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstallerLinux::new(client, repo, linux_bizhawk_rx, release_rx_installer_linux), "Linux installer build done").await? }).await? } },
-            if args.no_server { future::ok(()).boxed() } else { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildServer::new(rsync_rx_server, is_major), "server build done").await? }).await? }.boxed() },
+            if args.no_server { future::ok(()).boxed() } else { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildServer::new(is_major), "server build done").await? }).await? }.boxed() },
         ];
         let release = create_release.await??;
         if !args.no_publish {
