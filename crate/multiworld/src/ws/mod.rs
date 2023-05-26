@@ -80,7 +80,7 @@ impl crate::ClientReader for VersionedReader {
     async fn read_owned(self) -> Result<(Self, latest::ClientMessage), async_proto::ReadError> {
         match self.version {
             Version::V10 => v10::ClientReader(self.inner).read_owned().await.map(|(v10::ClientReader(inner), msg)| (Self { version: Version::V10, inner }, msg)),
-            Version::V11 => v11::ClientReader(self.inner).read_owned().await.map(|(v11::ClientReader(inner), msg)| (Self { version: Version::V10, inner }, msg)),
+            Version::V11 => v11::ClientReader(self.inner).read_owned().await.map(|(v11::ClientReader(inner), msg)| (Self { version: Version::V11, inner }, msg)),
         }
     }
 }
