@@ -554,7 +554,9 @@ impl<C: ClientKind> Room<C> {
         if let Some(save) = save {
             let mut adjusted_save = save.clone();
             for &item in &queue[adjusted_save.inv_amounts.num_received_mw_items.into()..] {
-                let _ = adjusted_save.recv_mw_item(item);
+                if let Err(()) = adjusted_save.recv_mw_item(item) {
+                    eprintln!("item {item:#04x} not supported by recv_mw_item");
+                }
             }
             let client = self.clients.get_mut(&client_id).expect("no such client");
             let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
@@ -642,7 +644,9 @@ impl<C: ClientKind> Room<C> {
             for client in self.clients.values_mut() {
                 if client.player.map_or(false, |p| p.world == target_world) {
                     let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
-                    let _ = client.adjusted_save.recv_mw_item(kind);
+                    if let Err(()) = client.adjusted_save.recv_mw_item(kind) {
+                        eprintln!("item {kind:#04x} not supported by recv_mw_item");
+                    }
                     let new_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     if old_progressive_items != new_progressive_items {
                         changed_progressive_items.push((target_world, new_progressive_items.bits()));
@@ -658,7 +662,9 @@ impl<C: ClientKind> Room<C> {
                 self.player_queues.entry(target_world).or_insert_with(|| self.base_queue.clone()).push(Item { source: source_world, key, kind });
                 if let Some((&target_client, client)) = self.clients.iter_mut().find(|(_, c)| c.player.map_or(false, |p| p.world == target_world)) {
                     let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
-                    let _ = client.adjusted_save.recv_mw_item(kind);
+                    if let Err(()) = client.adjusted_save.recv_mw_item(kind) {
+                        eprintln!("item {kind:#04x} not supported by recv_mw_item");
+                    }
                     let new_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     self.write(target_client, ServerMessage::GetItem(kind)).await;
                     if old_progressive_items != new_progressive_items {
@@ -740,7 +746,9 @@ impl<C: ClientKind> Room<C> {
             let queue = self.player_queues.get(&world).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>();
             let mut adjusted_save = save.clone();
             for &item in &queue[adjusted_save.inv_amounts.num_received_mw_items.into()..] {
-                let _ = adjusted_save.recv_mw_item(item);
+                if let Err(()) = adjusted_save.recv_mw_item(item) {
+                    eprintln!("item {item:#04x} not supported by recv_mw_item");
+                }
             }
             let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
             let new_progressive_items = ProgressiveItems::new(&adjusted_save);
