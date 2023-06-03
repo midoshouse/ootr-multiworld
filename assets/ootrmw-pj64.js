@@ -101,7 +101,7 @@ function handle_data(sock, state, buf) {
                         break;
                     case 3: // ServerMessage::ProgressiveItems
                         if (state.readBuf.length >= 6) {
-                            progressiveItems[state.readBuf.readUInt8(1)] = state.readBuf.readUInt32BE(3);
+                            progressiveItems[state.readBuf.readUInt8(1)] = state.readBuf.readUInt32BE(2);
                             state.readBuf = state.readBuf.slice(6);
                         } else {
                             eof = true;
