@@ -12,7 +12,7 @@ use {
             prelude::*,
         },
         path::Path,
-        sync::Arc,
+        process,
         time::Duration,
     },
     async_trait::async_trait,
@@ -20,6 +20,7 @@ use {
     futures::future::{
         self,
         FutureExt as _,
+        TryFutureExt as _,
     },
     gres::{
         Percent,
@@ -149,20 +150,20 @@ impl Task<Result<(reqwest::Client, Repo, Version, bool), Error>> for Setup {
     }
 }
 
-enum CreateRelease {
-    CreateNotesFile(Repo, reqwest::Client, broadcast::Sender<Release>, Arc<Cli>, Args),
-    EditNotes(Repo, reqwest::Client, broadcast::Sender<Release>, Arc<Cli>, Args, NamedTempFile),
+enum CreateRelease<'c> {
+    CreateNotesFile(Repo, reqwest::Client, broadcast::Sender<Release>, &'c Cli, Args),
+    EditNotes(Repo, reqwest::Client, broadcast::Sender<Release>, &'c Cli, Args, NamedTempFile),
     ReadNotes(Repo, reqwest::Client, broadcast::Sender<Release>, NamedTempFile),
     Create(Repo, reqwest::Client, broadcast::Sender<Release>, String),
 }
 
-impl CreateRelease {
-    fn new(repo: Repo, client: reqwest::Client, tx: broadcast::Sender<Release>, cli: Arc<Cli>, args: Args) -> Self {
+impl<'c> CreateRelease<'c> {
+    fn new(repo: Repo, client: reqwest::Client, tx: broadcast::Sender<Release>, cli: &'c Cli, args: Args) -> Self {
         Self::CreateNotesFile(repo, client, tx, cli, args)
     }
 }
 
-impl fmt::Display for CreateRelease {
+impl fmt::Display for CreateRelease<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::CreateNotesFile(..) => write!(f, "creating release notes file"),
@@ -173,7 +174,7 @@ impl fmt::Display for CreateRelease {
     }
 }
 
-impl Progress for CreateRelease {
+impl Progress for CreateRelease<'_> {
     fn progress(&self) -> Percent {
         Percent::fraction(match self {
             Self::CreateNotesFile(..) => 0,
@@ -185,7 +186,7 @@ impl Progress for CreateRelease {
 }
 
 #[async_trait]
-impl Task<Result<Release, Error>> for CreateRelease {
+impl Task<Result<Release, Error>> for CreateRelease<'_> {
     async fn run(self) -> Result<Result<Release, Error>, Self> {
         match self {
             Self::CreateNotesFile(repo, client, tx, cli, args) => gres::transpose(async move {
@@ -889,15 +890,41 @@ enum Error {
     VersionRegression,
 }
 
-#[wheel::main(debug)]
-async fn main(args: Args) -> Result<(), Error> {
-    let cli = Arc::new(Cli::new()?);
+impl wheel::CustomExit for Error {
+    fn exit(self, cmd_name: &'static str) -> ! {
+        match self {
+            Self::Wheel(wheel::Error::CommandExit { name, output }) => {
+                eprintln!("command `{name}` exited with {}", output.status);
+                eprintln!();
+                if let Ok(stdout) = std::str::from_utf8(&output.stdout) {
+                    eprintln!("stdout:");
+                    eprintln!("{stdout}");
+                } else {
+                    eprintln!("stdout: {:?}", output.stdout);
+                }
+                if let Ok(stderr) = std::str::from_utf8(&output.stderr) {
+                    eprintln!("stderr:");
+                    eprintln!("{stderr}");
+                } else {
+                    eprintln!("stderr: {:?}", output.stderr);
+                }
+                process::exit(output.status.code().unwrap_or(1))
+            }
+            e => {
+                eprintln!("{cmd_name}: {e}");
+                eprintln!("debug info: {e:?}");
+                process::exit(1)
+            }
+        }
+    }
+}
+
+/// Separate function to ensure CLI is dropped before exit
+async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
     let (client, repo, bizhawk_version, is_major) = cli.run(Setup::default(), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
     if args.server_only {
         cli.run(BuildServer::new(is_major), "server build done").await??;
     } else {
-        let create_release_cli = Arc::clone(&cli);
-        let release_notes_cli = Arc::clone(&cli);
         let bizhawk_version_linux = bizhawk_version.clone();
         let (release_tx, release_rx_installer) = broadcast::channel(1);
         let release_rx_installer_linux = release_tx.subscribe();
@@ -908,9 +935,6 @@ async fn main(args: Args) -> Result<(), Error> {
         let create_release_args = args.clone();
         let create_release_client = client.clone();
         let create_release_repo = repo.clone();
-        let create_release = tokio::spawn(async move {
-            create_release_cli.run(CreateRelease::new(create_release_repo, create_release_client, release_tx, release_notes_cli, create_release_args), "release created").await?
-        });
         let (updater_tx, updater_rx) = broadcast::channel(1);
         let (gui_tx, gui_rx) = broadcast::channel(1);
         let gui_rx_installer = gui_tx.subscribe();
@@ -922,22 +946,23 @@ async fn main(args: Args) -> Result<(), Error> {
         }
 
         macro_rules! build_tasks {
-            ($($task:expr,)*) => {
-                let ($(with_metavariable!($task, ())),*) = tokio::try_join!($($task),*)?;
-            };
+            (release = $create_release:expr, $($task:expr,)*) => {{
+                let (release, $(with_metavariable!($task, ())),*) = tokio::try_join!($create_release, $($task),*)?;
+                release
+            }};
         }
 
-        build_tasks![
-            { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildUpdater::new(updater_tx), "updater build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildGui::new(client, repo, updater_rx, release_rx_gui, gui_tx), "Windows GUI build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawk::new(client, repo, gui_rx, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "Windows BizHawk build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildBizHawkLinux::new(client, repo, release_rx_bizhawk_linux, bizhawk_version_linux, linux_bizhawk_tx), "Linux BizHawk build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildPj64::new(client, repo, release_rx_pj64), "Project64 build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstaller::new(client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "Windows installer build done").await? }).await? } },
-            { let cli = Arc::clone(&cli); let client = client.clone(); let repo = repo.clone(); async move { tokio::spawn(async move { cli.run(BuildInstallerLinux::new(client, repo, linux_bizhawk_rx, release_rx_installer_linux), "Linux installer build done").await? }).await? } },
-            if args.no_server { future::ok(()).boxed() } else { let cli = Arc::clone(&cli); async move { tokio::spawn(async move { cli.run(BuildServer::new(is_major), "server build done").await? }).await? }.boxed() },
-        ];
-        let release = create_release.await??;
+        let release = build_tasks![
+            release = cli.run(CreateRelease::new(create_release_repo, create_release_client, release_tx, cli, create_release_args), "release created").map_err(Error::Io),
+            async move { cli.run(BuildUpdater::new(updater_tx), "updater build done").await? },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildGui::new(client, repo, updater_rx, release_rx_gui, gui_tx), "Windows GUI build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildBizHawk::new(client, repo, gui_rx, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "Windows BizHawk build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildBizHawkLinux::new(client, repo, release_rx_bizhawk_linux, bizhawk_version_linux, linux_bizhawk_tx), "Linux BizHawk build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildPj64::new(client, repo, release_rx_pj64), "Project64 build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstaller::new(client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "Windows installer build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstallerLinux::new(client, repo, linux_bizhawk_rx, release_rx_installer_linux), "Linux installer build done").await? } },
+            if args.no_server { future::ok(()).boxed() } else { async move { cli.run(BuildServer::new(is_major), "server build done").await? }.boxed() },
+        ]?;
         if !args.no_publish {
             let line = cli.new_line("[....] publishing release").await?;
             repo.publish_release(&client, release).await?;
@@ -946,4 +971,12 @@ async fn main(args: Args) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+#[wheel::main(custom_exit)]
+async fn main(args: Args) -> Result<(), Error> {
+    let cli = Cli::new()?;
+    let res = cli_main(&cli, args).await;
+    drop(cli);
+    res
 }
