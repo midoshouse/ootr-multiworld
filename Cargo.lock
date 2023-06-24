@@ -3265,7 +3265,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld"
-version = "11.1.0"
+version = "11.1.1"
 dependencies = [
  "async-proto",
  "async-recursion",
@@ -3297,7 +3297,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-admin-cli"
-version = "11.1.0"
+version = "11.1.1"
 dependencies = [
  "async-proto",
  "clap",
@@ -3317,7 +3317,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-bizhawk"
-version = "11.1.0"
+version = "11.1.1"
 dependencies = [
  "lazy-regex",
  "semver 1.0.17",
@@ -3329,7 +3329,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-csharp"
-version = "11.1.0"
+version = "11.1.1"
 dependencies = [
  "async-proto",
  "chrono",
@@ -3350,7 +3350,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-derive"
-version = "11.1.0"
+version = "11.1.1"
 dependencies = [
  "itertools",
  "lazy-regex",
@@ -3362,7 +3362,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-gui"
-version = "11.1.0"
+version = "11.1.1"
 dependencies = [
  "async-proto",
  "chrono",
@@ -3397,7 +3397,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-installer"
-version = "11.1.0"
+version = "11.1.1"
 dependencies = [
  "async-compression 0.4.0",
  "async_zip",
@@ -3436,7 +3436,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-updater"
-version = "11.1.0"
+version = "11.1.1"
 dependencies = [
  "async-compression 0.4.0",
  "async_zip",
@@ -3471,7 +3471,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-utils"
-version = "11.1.0"
+version = "11.1.1"
 dependencies = [
  "async-trait",
  "clap",
@@ -3865,7 +3865,7 @@ dependencies = [
 
 [[package]]
 name = "ootrmwd"
-version = "11.1.0"
+version = "11.1.1"
 dependencies = [
  "async-proto",
  "chrono",
@@ -4961,14 +4961,12 @@ dependencies = [
 
 [[package]]
 name = "runas"
-version = "1.1.0"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49535b7c73aec5596ae2c44a6d8a7a8f8592e5744564c327fd4846750413d921"
+checksum = "ed87390fefd18965ff20baae5aeb9913bcf82d2b59dc04c0f6d8f17f7be56ff2"
 dependencies = [
- "libc",
- "security-framework-sys",
+ "cc",
  "which",
- "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -5130,16 +5128,6 @@ dependencies = [
  "log",
  "smithay-client-toolkit",
  "tiny-skia",
-]
-
-[[package]]
-name = "security-framework-sys"
-version = "2.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f51d0c0d83bec45f16480d0ce0058397a69e48fcdc52d1dc8855fb68acbd31a7"
-dependencies = [
- "core-foundation-sys",
- "libc",
 ]
 
 [[package]]

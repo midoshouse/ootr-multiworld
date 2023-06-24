@@ -14,7 +14,7 @@ futures = "0.3"
 iced_native = "0.10"
 itertools = "0.10"
 open = "4"
-runas = "1"
+runas = "=1.0.0" # https://github.com/mitsuhiko/rust-runas/issues/13
 semver = "1"
 sysinfo = "0.29"
 tempfile = "3"
