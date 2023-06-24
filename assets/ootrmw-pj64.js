@@ -134,17 +134,6 @@ function handle_frame(write, error) {
                 if (coopContextVersion > 5) {
                     return error("randomizer version too new (version " + mem.u32[newCoopContextAddr] + "; please tell Fenhl that Mido's House Multiworld needs to be updated)");
                 }
-                if (coopContextVersion == 5) {
-                    if (mem.u8[0xb000001c] == 0xfe) {
-                        // on dev-fenhl, version 5 is https://github.com/OoTRandomizer/OoT-Randomizer/pull/1871
-                        progressiveItemsEnable = true;
-                        mem.u8[newCoopContextAddr + 0x000b] = 1; // MW_PROGRESSIVE_ITEMS_ENABLE
-                    } else {
-                        return error("randomizer version too new (version " + mem.u32[newCoopContextAddr] + "; please tell Fenhl that Mido's House Multiworld needs to be updated)");
-                    }
-                } else {
-                    progressiveItemsEnable = false;
-                }
                 if (coopContextVersion >= 3) {
                     mem.u8[newCoopContextAddr + 0x000a] = 1; // enable MW_SEND_OWN_ITEMS for server-side tracking
                 }
@@ -160,6 +149,12 @@ function handle_frame(write, error) {
                         write(new Buffer(new Uint8Array(fileHashPacket)));
                         fileHash = newFileHash;
                     }
+                }
+                if (coopContextVersion >= 5) {
+                    progressiveItemsEnable = true;
+                    mem.u8[newCoopContextAddr + 0x000b] = 1; // MW_PROGRESSIVE_ITEMS_ENABLE
+                } else {
+                    progressiveItemsEnable = false;
                 }
                 if (mem.u32[ADDR_ANY_RDRAM.start + 0x11a5d0 + 0x135c] == 0) { // game mode == gameplay
                     if (!normalGameplay) {

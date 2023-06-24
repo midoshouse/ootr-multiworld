@@ -482,21 +482,6 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                                 this.coopContextAddr = null;
                                 return;
                             }
-                            if (coopContextVersion == 5) {
-                                if (APIs.Memory.ReadU8(0x1c, "ROM") == 0xfe) {
-                                    // on dev-fenhl, version 5 is https://github.com/OoTRandomizer/OoT-Randomizer/pull/1871
-                                    this.progressiveItemsEnable = true;
-                                    APIs.Memory.WriteU8(newCoopContextAddr + 0x000b, 1); // MW_PROGRESSIVE_ITEMS_ENABLE
-                                } else {
-                                    using (var error = Error.from_string("randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)")) {
-                                        SetError(error);
-                                    }
-                                    this.coopContextAddr = null;
-                                    return;
-                                }
-                            } else {
-                                this.progressiveItemsEnable = false;
-                            }
                             if (coopContextVersion >= 3) {
                                 APIs.Memory.WriteU8(newCoopContextAddr + 0x000a, 1, "System Bus"); // enable MW_SEND_OWN_ITEMS for server-side tracking
                             }
@@ -506,6 +491,12 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                                     this.client.SendFileHash(newFileHash);
                                     this.fileHash = new List<byte>(newFileHash);
                                 }
+                            }
+                            if (coopContextVersion >= 5) {
+                                this.progressiveItemsEnable = true;
+                                APIs.Memory.WriteU8(newCoopContextAddr + 0x000b, 1); // MW_PROGRESSIVE_ITEMS_ENABLE
+                            } else {
+                                this.progressiveItemsEnable = false;
                             }
                             this.coopContextAddr = newCoopContextAddr;
                             this.playerID = (byte?) APIs.Memory.ReadU8(newCoopContextAddr + 0x4, "System Bus");
