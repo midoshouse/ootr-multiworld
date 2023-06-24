@@ -829,7 +829,7 @@ impl Task<Result<(), Error>> for BuildServer {
                 Ok(Err(Self::Replace))
             }).await,
             Self::Replace => gres::transpose(async move {
-                Command::new("ssh").arg("midos.house").arg("mv bin/ootrmwd-next bin/ootrmwd").check("ssh midos.house mw").await?;
+                Command::new("ssh").arg("midos.house").arg("mv bin/ootrmwd-next bin/ootrmwd").check("ssh midos.house mv").await?;
                 Command::new("ssh").arg("midos.house").arg("chmod +x bin/ootrmwd").check("ssh midos.house chmod").await?;
                 Ok(Err(Self::Start))
             }).await,
