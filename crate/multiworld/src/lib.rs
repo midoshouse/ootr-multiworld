@@ -553,10 +553,14 @@ impl<C: ClientKind> Room<C> {
         let queue = self.player_queues.get(&world).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>();
         if let Some(save) = save {
             let mut adjusted_save = save.clone();
-            for &item in &queue[adjusted_save.inv_amounts.num_received_mw_items.into()..] {
-                if let Err(()) = adjusted_save.recv_mw_item(item) {
-                    eprintln!("item {item:#04x} not supported by recv_mw_item");
+            if let Some(queued_items) = queue.get(adjusted_save.inv_amounts.num_received_mw_items.into()..) {
+                for &item in queued_items {
+                    if let Err(()) = adjusted_save.recv_mw_item(item) {
+                        eprintln!("item {item:#04x} not supported by recv_mw_item");
+                    }
                 }
+            } else {
+                eprintln!("save data from client has more received items than are in their queue")
             }
             let client = self.clients.get_mut(&client_id).expect("no such client");
             let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
@@ -745,10 +749,14 @@ impl<C: ClientKind> Room<C> {
         if let Some(Player { world, .. }) = client.player {
             let queue = self.player_queues.get(&world).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>();
             let mut adjusted_save = save.clone();
-            for &item in &queue[adjusted_save.inv_amounts.num_received_mw_items.into()..] {
-                if let Err(()) = adjusted_save.recv_mw_item(item) {
-                    eprintln!("item {item:#04x} not supported by recv_mw_item");
+            if let Some(queued_items) = queue.get(adjusted_save.inv_amounts.num_received_mw_items.into()..) {
+                for &item in queued_items {
+                    if let Err(()) = adjusted_save.recv_mw_item(item) {
+                        eprintln!("item {item:#04x} not supported by recv_mw_item");
+                    }
                 }
+            } else {
+                eprintln!("save data from client has more received items than are in their queue")
             }
             let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
             let new_progressive_items = ProgressiveItems::new(&adjusted_save);

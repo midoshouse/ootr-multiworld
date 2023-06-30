@@ -738,10 +738,10 @@ impl Task<Result<(), Error>> for BuildInstallerLinux {
 }
 
 enum BuildServer {
-    Sync(bool),
-    Build(bool),
-    Copy(bool),
-    Upload(bool),
+    Sync(bool, bool),
+    Build(bool, bool),
+    Copy(bool, bool),
+    Upload(bool, bool),
     WaitRestart(bool),
     Stop,
     UpdateRepo,
@@ -750,8 +750,8 @@ enum BuildServer {
 }
 
 impl BuildServer {
-    fn new(is_major: bool) -> Self {
-        Self::Sync(is_major)
+    fn new(wait_restart: bool, is_major: bool) -> Self {
+        Self::Sync(wait_restart, is_major)
     }
 }
 
@@ -792,22 +792,22 @@ impl Progress for BuildServer {
 impl Task<Result<(), Error>> for BuildServer {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
-            Self::Sync(is_major) => gres::transpose(async move {
+            Self::Sync(wait_restart, is_major) => gres::transpose(async move {
                 Command::new("debian").arg("run").arg("rsync").arg("--delete").arg("-av").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/").arg("--exclude").arg(".cargo/config.toml").arg("--exclude").arg("target").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/BizHawk").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/bin").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/obj").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll").check("debian run rsync").await?;
-                Ok(Err(Self::Build(is_major)))
+                Ok(Err(Self::Build(wait_restart, is_major)))
             }).await,
-            Self::Build(is_major) => gres::transpose(async move {
+            Self::Build(wait_restart, is_major) => gres::transpose(async move {
                 Command::new("debian").arg("run").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("/home/fenhl/.cargo/bin/cargo").arg("build").arg("--release").arg("--package=ootrmwd").check("debian run cargo build --package=ootrmwd").await?;
-                Ok(Err(Self::Copy(is_major)))
+                Ok(Err(Self::Copy(wait_restart, is_major)))
             }).await,
-            Self::Copy(is_major) => gres::transpose(async move {
+            Self::Copy(wait_restart, is_major) => gres::transpose(async move {
                 fs::create_dir_all("target/wsl/release").await?;
                 Command::new("debian").arg("run").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/ootrmwd").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/ootrmwd").check("debian run cp").await?;
-                Ok(Err(Self::Upload(is_major)))
+                Ok(Err(Self::Upload(wait_restart, is_major)))
             }).await,
-            Self::Upload(is_major) => gres::transpose(async move {
+            Self::Upload(wait_restart, is_major) => gres::transpose(async move {
                 Command::new("scp").arg("target/wsl/release/ootrmwd").arg("midos.house:bin/ootrmwd-next").check("scp").await?;
-                Ok(Err(Self::WaitRestart(is_major)))
+                Ok(Err(if wait_restart { Self::WaitRestart(is_major) } else { Self::Stop }))
             }).await,
             Self::WaitRestart(is_major) => gres::transpose(async move {
                 if is_major {
@@ -844,6 +844,9 @@ impl Task<Result<(), Error>> for BuildServer {
 #[derive(Clone, clap::Parser)]
 #[clap(version)]
 struct Args {
+    /// Don't wait for the server to be inactive before restarting it
+    #[clap(long)]
+    force: bool,
     /// Create the GitHub release as a draft
     #[clap(short = 'P', long)]
     no_publish: bool,
@@ -923,7 +926,7 @@ impl wheel::CustomExit for Error {
 async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
     let (client, repo, bizhawk_version, is_major) = cli.run(Setup::default(), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
     if args.server_only {
-        cli.run(BuildServer::new(is_major), "server build done").await??;
+        cli.run(BuildServer::new(!args.force, is_major), "server build done").await??;
     } else {
         let bizhawk_version_linux = bizhawk_version.clone();
         let (release_tx, release_rx_installer) = broadcast::channel(1);
@@ -961,7 +964,7 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildPj64::new(client, repo, release_rx_pj64), "Project64 build done").await? } },
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstaller::new(client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "Windows installer build done").await? } },
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstallerLinux::new(client, repo, linux_bizhawk_rx, release_rx_installer_linux), "Linux installer build done").await? } },
-            if args.no_server { future::ok(()).boxed() } else { async move { cli.run(BuildServer::new(is_major), "server build done").await? }.boxed() },
+            if args.no_server { future::ok(()).boxed() } else { async move { cli.run(BuildServer::new(!args.force, is_major), "server build done").await? }.boxed() },
         ]?;
         if !args.no_publish {
             let line = cli.new_line("[....] publishing release").await?;
