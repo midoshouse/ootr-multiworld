@@ -845,7 +845,7 @@ impl Task<Result<(), Error>> for BuildServer {
 #[clap(version)]
 struct Args {
     /// Don't wait for the server to be inactive before restarting it
-    #[clap(long)]
+    #[clap(long, conflicts_with("no_server"))]
     force: bool,
     /// Create the GitHub release as a draft
     #[clap(short = 'P', long)]
@@ -860,7 +860,7 @@ struct Args {
     #[clap(short = 'e', long)]
     release_notes_editor: Option<OsString>,
     /// Only update the server
-    #[clap(short, long, exclusive = true)]
+    #[clap(short, long, conflicts_with("no_publish"), conflicts_with("no_server"), conflicts_with("no_wait"), conflicts_with("release_notes_editor"))]
     server_only: bool,
 }
 
