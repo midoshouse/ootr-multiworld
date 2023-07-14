@@ -31,7 +31,6 @@ use {
         },
     },
     futures::stream::StreamExt as _,
-    itertools::Itertools as _,
     tokio::{
         select,
         time::{
@@ -53,34 +52,10 @@ use {
 
 mod parse;
 
-#[derive(Debug, thiserror::Error)]
-enum ParseApiKeyError {
-    #[error(transparent)] Int(#[from] std::num::ParseIntError),
-    #[error("API key had an odd number of characters")]
-    ExtraNybble,
-    #[error("API key had wrong length")]
-    VecLen(Vec<u8>),
-}
-
-impl From<Vec<u8>> for ParseApiKeyError {
-    fn from(v: Vec<u8>) -> Self {
-        Self::VecLen(v)
-    }
-}
-
-fn parse_api_key(s: &str) -> Result<[u8; 32], ParseApiKeyError> {
-    let mut tuples = s.chars().tuples();
-    let key = (&mut tuples).map(|(hi, lo)| u8::from_str_radix(&format!("{hi}{lo}"), 16)).try_collect::<_, Vec<_>, _>()?.try_into()?;
-    if tuples.into_buffer().next().is_some() { return Err(ParseApiKeyError::ExtraNybble) }
-    Ok(key)
-}
-
 #[derive(clap::Parser)]
 #[clap(version)]
 struct Args {
-    id: Option<u64>,
-    #[clap(value_parser = parse_api_key)]
-    api_key: Option<[u8; 32]>,
+    api_key: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -112,10 +87,10 @@ fn prompt(session_state: &SessionState<Never>) -> Cow<'static, str> {
         SessionState::Error { .. } => Cow::Borrowed("error"),
         SessionState::Init => Cow::Borrowed("connecting"),
         SessionState::InitAutoRejoin { .. } => Cow::Borrowed("connecting (will auto-rejoin)"),
-        SessionState::Lobby { logged_in_as_admin, rooms, wrong_password, .. } => Cow::Owned(format!("lobby ({} room{}{}{})",
+        SessionState::Lobby { login_state, rooms, wrong_password, .. } => Cow::Owned(format!("lobby ({} room{}{}{})",
             rooms.len(),
             if rooms.len() == 1 { "" } else { "s" },
-            if *logged_in_as_admin { ", admin" } else { "" },
+            if let Some(login_state) = login_state { if login_state.admin { ", admin" } else { ", signed in" } } else { "" },
             if *wrong_password { ", wrong room password" } else { "" },
         )),
         SessionState::Room { room_name, players, num_unassigned_clients, item_queue, .. } => Cow::Owned(format!("room {room_name:?} ({}{}{}{})",
@@ -132,11 +107,11 @@ fn prompt(session_state: &SessionState<Never>) -> Cow<'static, str> {
     }
 }
 
-async fn cli(Args { id, api_key }: Args) -> Result<(), Error> {
+async fn cli(Args { api_key }: Args) -> Result<(), Error> {
     let mut cli_events = EventStream::default().fuse();
     let (mut websocket, _) = tokio_tungstenite::connect_async(CONFIG.websocket_url()?).await?;
-    if let (Some(id), Some(api_key)) = (id, api_key) {
-        ClientMessage::Login { id, api_key }.write_ws(&mut websocket).await?;
+    if let Some(api_key) = api_key {
+        ClientMessage::LoginApiKey { api_key }.write_ws(&mut websocket).await?;
     }
     let (mut writer, reader) = websocket.split();
     let mut session_state = SessionState::<Never>::Init;

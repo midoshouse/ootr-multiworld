@@ -66,6 +66,7 @@ macro_rules! supported_version {
 
 supported_version!("/v10", v10, V10);
 supported_version!("/v11", v11, V11);
+supported_version!("/v12", v12, V12);
 
 #[rocket::catch(404)]
 async fn not_found() -> RawHtml<String> {

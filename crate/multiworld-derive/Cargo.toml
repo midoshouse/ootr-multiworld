@@ -16,4 +16,4 @@ semver = "1"
 
 [dependencies.syn]
 version = "2"
-features = ["extra-traits"]
+features = ["extra-traits", "full"]

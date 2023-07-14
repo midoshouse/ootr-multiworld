@@ -1,9 +1,6 @@
 use {
     std::{
-        collections::{
-            BTreeMap,
-            BTreeSet,
-        },
+        collections::BTreeMap,
         num::NonZeroU8,
         time::Duration,
     },
@@ -33,16 +30,15 @@ use {
 pub enum ClientMessage {
     Ping,
     JoinRoom {
-        name: String,
+        id: u64,
         password: Option<String>,
     },
     CreateRoom {
         name: String,
         password: String,
     },
-    Login {
-        id: u64,
-        api_key: [u8; 32],
+    LoginApiKey {
+        api_key: String,
     },
     Stop,
     PlayerId(NonZeroU8),
@@ -56,7 +52,7 @@ pub enum ClientMessage {
     KickPlayer(NonZeroU8),
     DeleteRoom,
     Track {
-        mw_room_name: String,
+        mw_room: u64,
         tracker_room_name: String,
         world_count: NonZeroU8,
     },
@@ -72,6 +68,12 @@ pub enum ClientMessage {
     FileHash([HashIcon; 5]),
     AutoDeleteDelta(Duration),
     WaitUntilEmpty,
+    LoginDiscord {
+        bearer_token: String,
+    },
+    LoginRaceTime {
+        bearer_token: String,
+    },
 }
 
 impl TryFrom<ClientMessage> for unversioned::ClientMessage {
@@ -80,9 +82,9 @@ impl TryFrom<ClientMessage> for unversioned::ClientMessage {
     fn try_from(msg: ClientMessage) -> Result<Self, async_proto::ReadError> {
         Ok(match msg {
             ClientMessage::Ping => unversioned::ClientMessage::Ping,
-            ClientMessage::JoinRoom { name, password } => unversioned::ClientMessage::JoinRoom { room: Either::Right(name), password },
+            ClientMessage::JoinRoom { id, password } => unversioned::ClientMessage::JoinRoom { room: Either::Left(id), password },
             ClientMessage::CreateRoom { name, password } => unversioned::ClientMessage::CreateRoom { name, password },
-            ClientMessage::Login { .. } => return Err(async_proto::ReadError::Custom(format!("ClientMessage::Login is retired. Sign in with a Mido's House API key instead."))),
+            ClientMessage::LoginApiKey { api_key } => unversioned::ClientMessage::LoginApiKey { api_key },
             ClientMessage::Stop => unversioned::ClientMessage::Stop,
             ClientMessage::PlayerId(world) => unversioned::ClientMessage::PlayerId(world),
             ClientMessage::ResetPlayerId => unversioned::ClientMessage::ResetPlayerId,
@@ -90,13 +92,15 @@ impl TryFrom<ClientMessage> for unversioned::ClientMessage {
             ClientMessage::SendItem { key, kind, target_world } => unversioned::ClientMessage::SendItem { key, kind, target_world },
             ClientMessage::KickPlayer(world) => unversioned::ClientMessage::KickPlayer(world),
             ClientMessage::DeleteRoom => unversioned::ClientMessage::DeleteRoom,
-            ClientMessage::Track { mw_room_name, tracker_room_name, world_count } => unversioned::ClientMessage::Track { mw_room: Either::Right(mw_room_name), tracker_room_name, world_count },
+            ClientMessage::Track { mw_room, tracker_room_name, world_count } => unversioned::ClientMessage::Track { mw_room: Either::Left(mw_room), tracker_room_name, world_count },
             ClientMessage::SaveData(save) => unversioned::ClientMessage::SaveData(save),
             ClientMessage::SendAll { source_world, spoiler_log } => unversioned::ClientMessage::SendAll { source_world, spoiler_log },
             ClientMessage::SaveDataError { debug, version } => unversioned::ClientMessage::SaveDataError { debug, version },
             ClientMessage::FileHash(hash) => unversioned::ClientMessage::FileHash(hash),
             ClientMessage::AutoDeleteDelta(delta) => unversioned::ClientMessage::AutoDeleteDelta(delta),
             ClientMessage::WaitUntilEmpty => unversioned::ClientMessage::WaitUntilEmpty,
+            ClientMessage::LoginDiscord { bearer_token } => unversioned::ClientMessage::LoginDiscord { bearer_token },
+            ClientMessage::LoginRaceTime { bearer_token } => unversioned::ClientMessage::LoginRaceTime { bearer_token },
         })
     }
 }
@@ -107,11 +111,16 @@ pub enum ServerMessage {
     StructuredError(ServerError),
     OtherError(String),
     EnterLobby {
-        rooms: BTreeSet<String>,
+        rooms: BTreeMap<u64, (String, bool)>,
     },
-    NewRoom(String),
-    DeleteRoom(String),
+    NewRoom {
+        id: u64,
+        name: String,
+        password_required: bool,
+    },
+    DeleteRoom(u64),
     EnterRoom {
+        room_id: u64,
         players: Vec<Player>,
         num_unassigned_clients: u8,
         autodelete_delta: Duration,
@@ -125,7 +134,7 @@ pub enum ServerMessage {
     ItemQueue(Vec<u16>),
     GetItem(u16),
     AdminLoginSuccess {
-        active_connections: BTreeMap<String, (Vec<Player>, u8)>,
+        active_connections: BTreeMap<u64, (Vec<Player>, u8)>,
     },
     Goodbye,
     PlayerFileHash(NonZeroU8, [HashIcon; 5]),
@@ -139,6 +148,7 @@ pub enum ServerMessage {
         world: NonZeroU8,
         state: u32,
     },
+    LoginSuccess,
 }
 
 impl From<unversioned::ServerMessage> for Option<ServerMessage> {
@@ -147,10 +157,10 @@ impl From<unversioned::ServerMessage> for Option<ServerMessage> {
             unversioned::ServerMessage::Ping => Some(ServerMessage::Ping),
             unversioned::ServerMessage::StructuredError(e) => Some(ServerMessage::StructuredError(e)),
             unversioned::ServerMessage::OtherError(e) => Some(ServerMessage::OtherError(e)),
-            unversioned::ServerMessage::EnterLobby { rooms } => Some(ServerMessage::EnterLobby { rooms: rooms.into_values().map(|(name, _)| name).collect() }),
-            unversioned::ServerMessage::NewRoom { name, id: _, password_required: _ } => Some(ServerMessage::NewRoom(name)),
-            unversioned::ServerMessage::DeleteRoom { name, id: _ } => Some(ServerMessage::DeleteRoom(name)),
-            unversioned::ServerMessage::EnterRoom { players, num_unassigned_clients, autodelete_delta, room_id: _ } => Some(ServerMessage::EnterRoom { players, num_unassigned_clients, autodelete_delta }),
+            unversioned::ServerMessage::EnterLobby { rooms } => Some(ServerMessage::EnterLobby { rooms }),
+            unversioned::ServerMessage::NewRoom { id, name, password_required } => Some(ServerMessage::NewRoom { id, name, password_required }),
+            unversioned::ServerMessage::DeleteRoom { id, name: _ } => Some(ServerMessage::DeleteRoom(id)),
+            unversioned::ServerMessage::EnterRoom { room_id, players, num_unassigned_clients, autodelete_delta } => Some(ServerMessage::EnterRoom { room_id, players, num_unassigned_clients, autodelete_delta }),
             unversioned::ServerMessage::PlayerId(world) => Some(ServerMessage::PlayerId(world)),
             unversioned::ServerMessage::ResetPlayerId(world) => Some(ServerMessage::ResetPlayerId(world)),
             unversioned::ServerMessage::ClientConnected => Some(ServerMessage::ClientConnected),
@@ -159,14 +169,14 @@ impl From<unversioned::ServerMessage> for Option<ServerMessage> {
             unversioned::ServerMessage::PlayerName(world, filename) => Some(ServerMessage::PlayerName(world, filename)),
             unversioned::ServerMessage::ItemQueue(items) => Some(ServerMessage::ItemQueue(items)),
             unversioned::ServerMessage::GetItem(item) => Some(ServerMessage::GetItem(item)),
-            unversioned::ServerMessage::AdminLoginSuccess { active_connections } => Some(ServerMessage::AdminLoginSuccess { active_connections: active_connections.into_values().map(|(name, players, num_unassigned_clients)| (name, (players, num_unassigned_clients))).collect() }),
+            unversioned::ServerMessage::AdminLoginSuccess { active_connections } => Some(ServerMessage::AdminLoginSuccess { active_connections: active_connections.into_iter().map(|(id, (_, players, num_unassigned_clients))| (id, (players, num_unassigned_clients))).collect() }),
             unversioned::ServerMessage::Goodbye => Some(ServerMessage::Goodbye),
             unversioned::ServerMessage::PlayerFileHash(world, hash) => Some(ServerMessage::PlayerFileHash(world, hash)),
             unversioned::ServerMessage::AutoDeleteDelta(delta) => Some(ServerMessage::AutoDeleteDelta(delta)),
             unversioned::ServerMessage::RoomsEmpty => Some(ServerMessage::RoomsEmpty),
             unversioned::ServerMessage::WrongFileHash { server, client } => Some(ServerMessage::WrongFileHash { server, client }),
             unversioned::ServerMessage::ProgressiveItems { world, state } => Some(ServerMessage::ProgressiveItems { world, state }),
-            unversioned::ServerMessage::LoginSuccess => unreachable!(), // old admin login system no longer works
+            unversioned::ServerMessage::LoginSuccess => Some(ServerMessage::LoginSuccess),
         }
     }
 }

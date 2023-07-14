@@ -4,7 +4,7 @@
 use {
     std::{
         collections::{
-            BTreeSet,
+            BTreeMap,
             HashMap,
             HashSet,
         },
@@ -20,6 +20,7 @@ use {
     async_trait::async_trait,
     bitflags::bitflags,
     chrono::prelude::*,
+    derivative::Derivative,
     itertools::Itertools as _,
     ootr_utils::spoiler::HashIcon,
     oottracker::websocket::MwItem as Item,
@@ -32,6 +33,7 @@ use {
                 OwnedWriteHalf,
             },
         },
+        process::Command,
         sync::{
             Mutex,
             broadcast,
@@ -41,10 +43,8 @@ use {
     wheel::traits::IsNetworkError,
     crate::ws::{
         ServerError,
-        latest::{
-            ClientMessage,
-            ServerMessage,
-        },
+        latest,
+        unversioned,
     },
 };
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
@@ -108,6 +108,19 @@ impl fmt::Display for DurationFormatter {
         } else {
             write!(f, "0 seconds")
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RoomFormatter {
+    pub password_required: bool,
+    pub name: String,
+    pub id: u64,
+}
+
+impl fmt::Display for RoomFormatter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.name.fmt(f)
     }
 }
 
@@ -214,12 +227,12 @@ pub enum EndRoomSession {
 
 #[async_trait]
 pub trait ClientReader: Unpin + Send + Sized {
-    async fn read_owned(self) -> Result<(Self, ClientMessage), async_proto::ReadError>;
+    async fn read_owned(self) -> Result<(Self, unversioned::ClientMessage), async_proto::ReadError>;
 }
 
 #[async_trait]
 pub trait ClientWriter: Unpin + Send {
-    async fn write(&mut self, msg: ServerMessage) -> Result<(), async_proto::WriteError>;
+    async fn write(&mut self, msg: unversioned::ServerMessage) -> Result<(), async_proto::WriteError>;
 }
 
 pub trait ClientKind {
@@ -242,15 +255,19 @@ impl ClientKind for SocketId {
 
 #[async_trait]
 impl ClientReader for OwnedReadHalf {
-    async fn read_owned(self) -> Result<(Self, ClientMessage), async_proto::ReadError> {
-        ClientMessage::read_owned(self).await
+    async fn read_owned(self) -> Result<(Self, unversioned::ClientMessage), async_proto::ReadError> {
+        let (reader, msg) = latest::ClientMessage::read_owned(self).await?;
+        Ok((reader, msg.try_into()?))
     }
 }
 
 #[async_trait]
 impl ClientWriter for OwnedWriteHalf {
-    async fn write(&mut self, msg: ServerMessage) -> Result<(), async_proto::WriteError> {
-        msg.write(self).await
+    async fn write(&mut self, msg: unversioned::ServerMessage) -> Result<(), async_proto::WriteError> {
+        if let Some(msg) = Option::<latest::ServerMessage>::from(msg) {
+            msg.write(self).await?;
+        }
+        Ok(())
     }
 }
 
@@ -275,47 +292,40 @@ impl<C: ClientKind> fmt::Debug for Client<C> {
     }
 }
 
+pub enum RoomAuth {
+    Password {
+        hash: [u8; CREDENTIAL_LEN],
+        salt: [u8; CREDENTIAL_LEN],
+    },
+}
+
+impl fmt::Debug for RoomAuth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Password { hash: _, salt: _ } => f.debug_struct("Password")
+                .field("hash", &format_args!("_"))
+                .field("salt", &format_args!("_"))
+                .finish(),
+        }
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Debug(bound = ""))]
 pub struct Room<C: ClientKind> {
+    pub id: u64,
     pub name: String,
-    pub password_hash: [u8; CREDENTIAL_LEN],
-    pub password_salt: [u8; CREDENTIAL_LEN],
+    pub auth: RoomAuth,
     pub clients: HashMap<C::SessionId, Client<C>>,
     pub file_hash: Option<[HashIcon; 5]>,
     pub base_queue: Vec<Item>,
     pub player_queues: HashMap<NonZeroU8, Vec<Item>>,
     pub last_saved: DateTime<Utc>,
     pub autodelete_delta: Duration,
-    pub autodelete_tx: broadcast::Sender<(String, DateTime<Utc>)>,
+    pub autodelete_tx: broadcast::Sender<(u64, DateTime<Utc>)>,
     #[cfg(feature = "sqlx")]
     pub db_pool: PgPool,
-    #[cfg(feature = "tokio-tungstenite")]
     pub tracker_state: Option<(String, tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>)>,
-}
-
-impl<C: ClientKind> fmt::Debug for Room<C> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self {
-            password_hash: _,
-            password_salt: _,
-            name, clients, file_hash, base_queue, player_queues, last_saved, autodelete_delta, autodelete_tx,
-            #[cfg(feature = "sqlx")] db_pool,
-            #[cfg(feature = "tokio-tungstenite")] tracker_state,
-        } = self;
-        let mut struct_f = f.debug_struct("Room");
-        struct_f.field("name", name);
-        struct_f.field("password_hash", &format_args!("_"));
-        struct_f.field("password_salt", &format_args!("_"));
-        struct_f.field("clients", clients);
-        struct_f.field("file_hash", file_hash);
-        struct_f.field("base_queue", base_queue);
-        struct_f.field("player_queues", player_queues);
-        struct_f.field("last_saved", last_saved);
-        struct_f.field("autodelete_delta", autodelete_delta);
-        struct_f.field("autodelete_tx", autodelete_tx);
-        #[cfg(feature = "sqlx")] struct_f.field("db_pool", db_pool);
-        #[cfg(feature = "tokio-tungstenite")] struct_f.field("tracker_state", tracker_state);
-        struct_f.finish()
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -467,7 +477,13 @@ impl ProgressiveItems {
 }
 
 impl<C: ClientKind> Room<C> {
-    async fn write(&mut self, client_id: C::SessionId, msg: ServerMessage) {
+    pub fn password_required(&self) -> bool {
+        match self.auth {
+            RoomAuth::Password { .. } => true,
+        }
+    }
+
+    async fn write(&mut self, client_id: C::SessionId, msg: unversioned::ServerMessage) {
         if let Some(client) = self.clients.get(&client_id) {
             let mut writer = client.writer.lock().await;
             if let Err(e) = writer.write(msg).await {
@@ -478,7 +494,7 @@ impl<C: ClientKind> Room<C> {
         }
     }
 
-    async fn write_all(&mut self, msg: &ServerMessage) {
+    async fn write_all(&mut self, msg: &unversioned::ServerMessage) {
         let mut notified = HashSet::new();
         while let Some((&client_id, client)) = self.clients.iter().find(|&(client_id, _)| !notified.contains(client_id)) {
             let mut writer = client.writer.lock().await;
@@ -493,7 +509,7 @@ impl<C: ClientKind> Room<C> {
 
     pub async fn add_client(&mut self, client_id: C::SessionId, writer: Arc<Mutex<C::Writer>>, end_tx: oneshot::Sender<EndRoomSession>) {
         // the client doesn't need to be told that it has connected, so notify everyone *before* adding it
-        self.write_all(&ServerMessage::ClientConnected).await;
+        self.write_all(&unversioned::ServerMessage::ClientConnected).await;
         self.clients.insert(client_id, Client {
             player: None,
             save_data: None,
@@ -511,9 +527,9 @@ impl<C: ClientKind> Room<C> {
         if let Some(client) = self.clients.remove(&client_id) {
             let _ = client.end_tx.send(to);
             let msg = if let Some(Player { world, .. }) = client.player {
-                ServerMessage::PlayerDisconnected(world)
+                unversioned::ServerMessage::PlayerDisconnected(world)
             } else {
-                ServerMessage::UnregisteredClientDisconnected
+                unversioned::ServerMessage::UnregisteredClientDisconnected
             };
             self.write_all(&msg).await;
         }
@@ -524,11 +540,11 @@ impl<C: ClientKind> Room<C> {
             self.remove_client(client_id, EndRoomSession::ToLobby).await;
         }
         #[cfg(feature = "sqlx")] {
-            if let Err(e) = sqlx::query!("DELETE FROM rooms WHERE name = $1", &self.name).execute(&self.db_pool).await {
+            if let Err(e) = sqlx::query!("DELETE FROM mw_rooms WHERE id = $1", self.id as i64).execute(&self.db_pool).await {
                 eprintln!("failed to delete room from database: {e} ({e:?})");
+                let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
             }
         }
-        #[cfg(feature = "tokio-tungstenite")]
         if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
             let _ = oottracker::websocket::ClientMessage::MwDeleteRoom { room: tracker_room_name.clone() }.write_ws(sock).await;
         }
@@ -545,11 +561,11 @@ impl<C: ClientKind> Room<C> {
         if let Some(player) = prev_player {
             let prev_world = mem::replace(&mut player.world, world);
             if prev_world == world { return Ok(true) }
-            self.write_all(&ServerMessage::ResetPlayerId(prev_world)).await;
+            self.write_all(&unversioned::ServerMessage::ResetPlayerId(prev_world)).await;
         } else {
             *prev_player = Some(Player::new(world));
         }
-        self.write_all(&ServerMessage::PlayerId(world)).await;
+        self.write_all(&unversioned::ServerMessage::PlayerId(world)).await;
         let queue = self.player_queues.get(&world).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>();
         if let Some(save) = save {
             let mut adjusted_save = save.clone();
@@ -557,23 +573,23 @@ impl<C: ClientKind> Room<C> {
                 for &item in queued_items {
                     if let Err(()) = adjusted_save.recv_mw_item(item) {
                         eprintln!("item {item:#04x} not supported by recv_mw_item");
+                        let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
                     }
                 }
             } else {
-                eprintln!("save data from client has more received items than are in their queue")
+                eprintln!("save data from client has more received items than are in their queue");
             }
             let client = self.clients.get_mut(&client_id).expect("no such client");
             let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
             let new_progressive_items = ProgressiveItems::new(&adjusted_save);
             client.adjusted_save = adjusted_save;
             if old_progressive_items != new_progressive_items {
-                self.write_all(&ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await;
+                self.write_all(&unversioned::ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await;
             }
         }
         if !queue.is_empty() {
-            self.write(client_id, ServerMessage::ItemQueue(queue)).await;
+            self.write(client_id, unversioned::ServerMessage::ItemQueue(queue)).await;
         }
-        #[cfg(feature = "tokio-tungstenite")]
         if let Some(save) = save {
             if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
                 oottracker::websocket::ClientMessage::MwResetPlayer { room: tracker_room_name.clone(), world, save }.write_ws(sock).await?;
@@ -584,7 +600,7 @@ impl<C: ClientKind> Room<C> {
 
     pub async fn unload_player(&mut self, client_id: C::SessionId) {
         if let Some(prev_player) = self.clients.get_mut(&client_id).expect("no such client").player.take() {
-            self.write_all(&ServerMessage::ResetPlayerId(prev_player.world)).await;
+            self.write_all(&unversioned::ServerMessage::ResetPlayerId(prev_player.world)).await;
         }
     }
 
@@ -592,7 +608,7 @@ impl<C: ClientKind> Room<C> {
         if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").player {
             let world = player.world;
             player.name = name;
-            self.write_all(&ServerMessage::PlayerName(world, name)).await;
+            self.write_all(&unversioned::ServerMessage::PlayerName(world, name)).await;
             true
         } else {
             false
@@ -608,7 +624,7 @@ impl<C: ClientKind> Room<C> {
             }
             let world = player.world;
             player.file_hash = Some(hash);
-            self.write_all(&ServerMessage::PlayerFileHash(world, hash)).await;
+            self.write_all(&unversioned::ServerMessage::PlayerFileHash(world, hash)).await;
             Ok(())
         } else {
             Err(SetHashError::NoSourceWorld)
@@ -616,7 +632,6 @@ impl<C: ClientKind> Room<C> {
     }
 
     async fn queue_item_inner(&mut self, source_world: NonZeroU8, key: u32, kind: u16, target_world: NonZeroU8) -> Result<(), async_proto::WriteError> {
-        #[cfg(feature = "tokio-tungstenite")]
         if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
             oottracker::websocket::ClientMessage::MwQueueItem {
                 room: tracker_room_name.clone(),
@@ -633,7 +648,7 @@ impl<C: ClientKind> Room<C> {
                         queue.push(item);
                     }
                 }
-                let msg = ServerMessage::GetItem(kind);
+                let msg = unversioned::ServerMessage::GetItem(kind);
                 let player_clients = self.clients.iter()
                     .filter_map(|(&target_client, c)| if c.player.map_or(false, |p| p.world != source_world) { Some(target_client) } else { None })
                     .collect::<Vec<_>>();
@@ -648,6 +663,7 @@ impl<C: ClientKind> Room<C> {
                     let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     if let Err(()) = client.adjusted_save.recv_mw_item(kind) {
                         eprintln!("item {kind:#04x} not supported by recv_mw_item");
+                        let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
                     }
                     let new_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     if old_progressive_items != new_progressive_items {
@@ -656,7 +672,7 @@ impl<C: ClientKind> Room<C> {
                 }
             }
             for (world, state) in changed_progressive_items {
-                self.write_all(&ServerMessage::ProgressiveItems { world, state }).await;
+                self.write_all(&unversioned::ServerMessage::ProgressiveItems { world, state }).await;
             }
             // don't send own item back to sender
         } else {
@@ -666,11 +682,12 @@ impl<C: ClientKind> Room<C> {
                     let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     if let Err(()) = client.adjusted_save.recv_mw_item(kind) {
                         eprintln!("item {kind:#04x} not supported by recv_mw_item");
+                        let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
                     }
                     let new_progressive_items = ProgressiveItems::new(&client.adjusted_save);
-                    self.write(target_client, ServerMessage::GetItem(kind)).await;
+                    self.write(target_client, unversioned::ServerMessage::GetItem(kind)).await;
                     if old_progressive_items != new_progressive_items {
-                        self.write_all(&ServerMessage::ProgressiveItems { world: target_world, state: new_progressive_items.bits() }).await;
+                        self.write_all(&unversioned::ServerMessage::ProgressiveItems { world: target_world, state: new_progressive_items.bits() }).await;
                     }
                 }
             }
@@ -678,6 +695,7 @@ impl<C: ClientKind> Room<C> {
         #[cfg(feature = "sqlx")] {
             if let Err(e) = self.save(true).await {
                 eprintln!("failed to save room state: {e} ({e:?})");
+                let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
             }
         }
         Ok(())
@@ -743,7 +761,6 @@ impl<C: ClientKind> Room<C> {
     pub async fn set_save_data(&mut self, client_id: C::SessionId, save: oottracker::Save) -> Result<(), async_proto::WriteError> {
         let client = self.clients.get_mut(&client_id).expect("no such client");
         client.save_data = Some(save.clone());
-        #[cfg(feature = "tokio-tungstenite")]
         if let Some(Player { world, .. }) = client.player {
             let queue = self.player_queues.get(&world).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>();
             let mut adjusted_save = save.clone();
@@ -751,16 +768,17 @@ impl<C: ClientKind> Room<C> {
                 for &item in queued_items {
                     if let Err(()) = adjusted_save.recv_mw_item(item) {
                         eprintln!("item {item:#04x} not supported by recv_mw_item");
+                        let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
                     }
                 }
             } else {
-                eprintln!("save data from client has more received items than are in their queue")
+                eprintln!("save data from client has more received items than are in their queue");
             }
             let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
             let new_progressive_items = ProgressiveItems::new(&adjusted_save);
             client.adjusted_save = adjusted_save;
             if old_progressive_items != new_progressive_items {
-                self.write_all(&ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await;
+                self.write_all(&unversioned::ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await;
             }
             if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
                 oottracker::websocket::ClientMessage::MwResetPlayer { room: tracker_room_name.clone(), world, save }.write_ws(sock).await?;
@@ -769,7 +787,6 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    #[cfg(feature = "tokio-tungstenite")]
     pub async fn init_tracker(&mut self, tracker_room_name: String, world_count: NonZeroU8) -> Result<(), async_proto::WriteError> {
         let mut worlds = (1..=world_count.get())
             .map(|player_id| (
@@ -800,9 +817,13 @@ impl<C: ClientKind> Room<C> {
         self.player_queues.write_sync(&mut player_queues).expect("failed to write player queues to buffer");
         if update_last_saved {
             self.last_saved = Utc::now();
-            let _ = self.autodelete_tx.send((self.name.clone(), self.autodelete_at()));
+            let _ = self.autodelete_tx.send((self.id, self.autodelete_at()));
         }
-        sqlx::query!("INSERT INTO rooms (
+        let (password_hash, password_salt) = match self.auth {
+            RoomAuth::Password { ref hash, ref salt } => (hash, salt),
+        };
+        sqlx::query!("INSERT INTO mw_rooms (
+            id,
             name,
             password_hash,
             password_salt,
@@ -810,14 +831,15 @@ impl<C: ClientKind> Room<C> {
             player_queues,
             last_saved,
             autodelete_delta
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (name) DO UPDATE SET
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
             password_hash = EXCLUDED.password_hash,
             password_salt = EXCLUDED.password_salt,
             base_queue = EXCLUDED.base_queue,
             player_queues = EXCLUDED.player_queues,
             last_saved = EXCLUDED.last_saved,
             autodelete_delta = EXCLUDED.autodelete_delta
-        ", &self.name, &self.password_hash, &self.password_salt, base_queue, player_queues, self.last_saved, self.autodelete_delta as _).execute(&self.db_pool).await?;
+        ", self.id as i64, &self.name, password_hash, password_salt, base_queue, player_queues, self.last_saved, self.autodelete_delta as _).execute(&self.db_pool).await?;
         Ok(())
     }
 
@@ -827,9 +849,10 @@ impl<C: ClientKind> Room<C> {
             // saving also notifies the room deletion waiter
             if let Err(e) = self.save(true).await {
                 eprintln!("failed to save room state: {e} ({e:?})");
+                let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
             }
         }
-        self.write_all(&ServerMessage::AutoDeleteDelta(new_delta)).await;
+        self.write_all(&unversioned::ServerMessage::AutoDeleteDelta(new_delta)).await;
     }
 }
 
@@ -869,6 +892,11 @@ pub enum SessionStateError<E> {
     Server(String),
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct LoginState {
+    pub admin: bool,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum RoomView {
     Normal,
@@ -884,19 +912,21 @@ pub enum SessionState<E> {
     },
     Init,
     InitAutoRejoin {
-        room_name: String,
+        room_id: u64,
         room_password: String,
     },
     Lobby {
-        logged_in_as_admin: bool,
-        rooms: BTreeSet<String>,
+        login_state: Option<LoginState>,
+        rooms: BTreeMap<u64, (String, bool)>,
         create_new_room: bool,
-        existing_room_selection: Option<String>,
+        existing_room_selection: Option<RoomFormatter>,
         new_room_name: String,
         password: String,
         wrong_password: bool,
     },
     Room {
+        login_state: Option<LoginState>,
+        room_id: u64,
         room_name: String,
         room_password: String,
         players: Vec<Player>,
@@ -911,10 +941,10 @@ pub enum SessionState<E> {
 }
 
 impl<E> SessionState<E> {
-    pub fn apply(&mut self, msg: ServerMessage) {
+    pub fn apply(&mut self, msg: latest::ServerMessage) {
         match msg {
-            ServerMessage::Ping => {}
-            ServerMessage::StructuredError(ServerError::WrongPassword) => if let SessionState::Lobby { password, wrong_password, .. } = self {
+            latest::ServerMessage::Ping => {}
+            latest::ServerMessage::StructuredError(ServerError::WrongPassword) => if let Self::Lobby { password, wrong_password, .. } = self {
                 *wrong_password = true;
                 password.clear();
             } else {
@@ -923,7 +953,7 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::WrongFileHash { server, client } => if let SessionState::Room { wrong_file_hash, .. } = self {
+            latest::ServerMessage::WrongFileHash { server, client } => if let Self::Room { wrong_file_hash, .. } = self {
                 *wrong_file_hash = Some([server, client]);
             } else {
                 *self = Self::Error {
@@ -931,7 +961,7 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::StructuredError(ServerError::RoomExists) => if let SessionState::Lobby { create_new_room: ref mut create_new_room @ true, .. } = self {
+            latest::ServerMessage::StructuredError(ServerError::RoomExists) => if let Self::Lobby { create_new_room: ref mut create_new_room @ true, .. } = self {
                 *create_new_room = false;
             } else {
                 *self = Self::Error {
@@ -939,51 +969,55 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::StructuredError(ServerError::Future(discrim)) => if !matches!(self, SessionState::Error { .. }) {
-                *self = SessionState::Error {
+            latest::ServerMessage::StructuredError(ServerError::Future(discrim)) => if !matches!(self, Self::Error { .. }) {
+                *self = Self::Error {
                     e: SessionStateError::Future(discrim),
                     auto_retry: false,
                 };
             },
-            ServerMessage::OtherError(e) => if !matches!(self, SessionState::Error { .. }) {
-                *self = SessionState::Error {
+            latest::ServerMessage::OtherError(e) => if !matches!(self, Self::Error { .. }) {
+                *self = Self::Error {
                     e: SessionStateError::Server(e),
                     auto_retry: false,
                 };
             },
-            ServerMessage::EnterLobby { rooms } => *self = if let SessionState::InitAutoRejoin { room_name, room_password } = self {
-                let room_still_exists = rooms.contains(room_name);
-                SessionState::Lobby {
-                    logged_in_as_admin: false,
-                    create_new_room: !room_still_exists,
-                    existing_room_selection: room_still_exists.then(|| room_name.clone()),
-                    new_room_name: room_name.clone(),
-                    password: room_password.clone(),
-                    wrong_password: false,
-                    rooms,
-                }
-            } else {
-                SessionState::Lobby {
-                    logged_in_as_admin: false,
-                    create_new_room: rooms.is_empty(),
-                    existing_room_selection: None,
-                    new_room_name: String::default(),
-                    password: String::default(),
-                    wrong_password: false,
-                    rooms,
-                }
-            },
-            ServerMessage::NewRoom(name) => if let SessionState::Lobby { rooms, .. } = self {
-                rooms.insert(name);
+            latest::ServerMessage::EnterLobby { rooms } => {
+                let login_state = match self {
+                    Self::Lobby { login_state, .. } |
+                    Self::Room { login_state, .. } => login_state.clone(),
+                    Self::Error { .. } | Self::Init | Self::InitAutoRejoin { .. } | Self::Closed => None,
+                };
+                *self = if let Self::InitAutoRejoin { room_id, room_password } = self {
+                    let existing_room_selection = rooms.iter().find(|(&id, _)| id == *room_id).map(|(&id, (name, password_required))| RoomFormatter { id, password_required: *password_required, name: name.clone() });
+                    Self::Lobby {
+                        create_new_room: existing_room_selection.is_none(),
+                        new_room_name: String::default(),
+                        password: room_password.clone(),
+                        wrong_password: false,
+                        login_state, rooms, existing_room_selection,
+                    }
+                } else {
+                    Self::Lobby {
+                        create_new_room: rooms.is_empty(),
+                        existing_room_selection: None,
+                        new_room_name: String::default(),
+                        password: String::default(),
+                        wrong_password: false,
+                        login_state, rooms,
+                    }
+                };
+            }
+            latest::ServerMessage::NewRoom { id, name, password_required } => if let Self::Lobby { rooms, .. } = self {
+                rooms.insert(id, (name, password_required));
             } else {
                 *self = Self::Error {
                     e: SessionStateError::Mismatch,
                     auto_retry: false,
                 };
             },
-            ServerMessage::DeleteRoom(name) => if let SessionState::Lobby { rooms, existing_room_selection, .. } = self {
-                rooms.remove(&name);
-                if existing_room_selection.as_ref().map_or(false, |existing_room_selection| *existing_room_selection == name) {
+            latest::ServerMessage::DeleteRoom(id) => if let Self::Lobby { rooms, existing_room_selection, .. } = self {
+                rooms.remove(&id);
+                if existing_room_selection.as_ref().map_or(false, |existing_room_selection| existing_room_selection.id == id) {
                     *existing_room_selection = None;
                 }
             } else {
@@ -992,21 +1026,31 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::EnterRoom { players, num_unassigned_clients, autodelete_delta } => {
-                let (room_name, room_password) = match self {
-                    SessionState::Lobby { create_new_room: false, existing_room_selection, password, .. } => (existing_room_selection.clone().unwrap_or_default(), password.clone()),
-                    SessionState::Lobby { create_new_room: true, new_room_name, password, .. } => (new_room_name.clone(), password.clone()),
-                    _ => <_>::default(),
+            latest::ServerMessage::EnterRoom { room_id, players, num_unassigned_clients, autodelete_delta } => if let Self::Lobby { login_state, rooms, password, .. } = self {
+                if let Some((_, (room_name, _))) = rooms.iter().find(|&(&id, _)| id == room_id) {
+                    *self = Self::Room {
+                        login_state: login_state.clone(),
+                        room_name: room_name.clone(),
+                        room_password: password.clone(),
+                        progressive_items: HashMap::default(),
+                        item_queue: Vec::default(),
+                        view: RoomView::Normal,
+                        wrong_file_hash: None,
+                        room_id, players, num_unassigned_clients, autodelete_delta,
+                    };
+                } else {
+                    *self = Self::Error {
+                        e: SessionStateError::Mismatch,
+                        auto_retry: false,
+                    };
+                }
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
                 };
-                *self = SessionState::Room {
-                    progressive_items: HashMap::default(),
-                    item_queue: Vec::default(),
-                    view: RoomView::Normal,
-                    wrong_file_hash: None,
-                    room_name, room_password, players, num_unassigned_clients, autodelete_delta,
-                };
-            }
-            ServerMessage::PlayerId(world) => if let SessionState::Room { players, num_unassigned_clients, .. } = self {
+            },
+            latest::ServerMessage::PlayerId(world) => if let Self::Room { players, num_unassigned_clients, .. } = self {
                 if let Err(idx) = players.binary_search_by_key(&world, |p| p.world) {
                     players.insert(idx, Player::new(world));
                     *num_unassigned_clients -= 1;
@@ -1017,7 +1061,7 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::ResetPlayerId(world) => if let SessionState::Room { players, num_unassigned_clients, .. } = self {
+            latest::ServerMessage::ResetPlayerId(world) => if let Self::Room { players, num_unassigned_clients, .. } = self {
                 if let Ok(idx) = players.binary_search_by_key(&world, |p| p.world) {
                     players.remove(idx);
                     *num_unassigned_clients += 1;
@@ -1028,7 +1072,7 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::ClientConnected => if let SessionState::Room { num_unassigned_clients, .. } = self {
+            latest::ServerMessage::ClientConnected => if let Self::Room { num_unassigned_clients, .. } = self {
                 *num_unassigned_clients += 1;
             } else {
                 *self = Self::Error {
@@ -1036,7 +1080,7 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::PlayerDisconnected(world) => if let SessionState::Room { players, .. } = self {
+            latest::ServerMessage::PlayerDisconnected(world) => if let Self::Room { players, .. } = self {
                 if let Ok(idx) = players.binary_search_by_key(&world, |p| p.world) {
                     players.remove(idx);
                 }
@@ -1046,7 +1090,7 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::UnregisteredClientDisconnected => if let SessionState::Room { num_unassigned_clients, .. } = self {
+            latest::ServerMessage::UnregisteredClientDisconnected => if let Self::Room { num_unassigned_clients, .. } = self {
                 *num_unassigned_clients -= 1;
             } else {
                 *self = Self::Error {
@@ -1054,7 +1098,7 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::PlayerName(world, name) => if let SessionState::Room { players, .. } = self {
+            latest::ServerMessage::PlayerName(world, name) => if let Self::Room { players, .. } = self {
                 if let Ok(idx) = players.binary_search_by_key(&world, |p| p.world) {
                     players[idx].name = name;
                 }
@@ -1064,7 +1108,7 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::ItemQueue(queue) => if let SessionState::Room { item_queue, .. } = self {
+            latest::ServerMessage::ItemQueue(queue) => if let Self::Room { item_queue, .. } = self {
                 *item_queue = queue.clone();
             } else {
                 *self = Self::Error {
@@ -1072,7 +1116,7 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::GetItem(item) => if let SessionState::Room { item_queue, .. } = self {
+            latest::ServerMessage::GetItem(item) => if let Self::Room { item_queue, .. } = self {
                 item_queue.push(item);
             } else {
                 *self = Self::Error {
@@ -1080,18 +1124,18 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::AdminLoginSuccess { .. } => if let SessionState::Lobby { logged_in_as_admin, .. } = self {
-                *logged_in_as_admin = true;
+            latest::ServerMessage::AdminLoginSuccess { .. } => if let Self::Lobby { login_state, .. } = self {
+                login_state.get_or_insert_with(LoginState::default).admin = true;
             } else {
                 *self = Self::Error {
                     e: SessionStateError::Mismatch,
                     auto_retry: false,
                 };
             },
-            ServerMessage::Goodbye => if !matches!(self, SessionState::Error { .. }) {
-                *self = SessionState::Closed;
+            latest::ServerMessage::Goodbye => if !matches!(self, Self::Error { .. }) {
+                *self = Self::Closed;
             },
-            ServerMessage::PlayerFileHash(world, hash) => if let SessionState::Room { players, .. } = self {
+            latest::ServerMessage::PlayerFileHash(world, hash) => if let Self::Room { players, .. } = self {
                 if let Ok(idx) = players.binary_search_by_key(&world, |p| p.world) {
                     players[idx].file_hash = Some(hash);
                 }
@@ -1101,7 +1145,7 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::AutoDeleteDelta(new_delta) => if let SessionState::Room { autodelete_delta, .. } = self {
+            latest::ServerMessage::AutoDeleteDelta(new_delta) => if let Self::Room { autodelete_delta, .. } = self {
                 *autodelete_delta = new_delta;
             } else {
                 *self = Self::Error {
@@ -1109,14 +1153,22 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            ServerMessage::RoomsEmpty => {}
-            ServerMessage::ProgressiveItems { world, state } => if let SessionState::Room { progressive_items, .. } = self {
+            latest::ServerMessage::RoomsEmpty => {}
+            latest::ServerMessage::ProgressiveItems { world, state } => if let Self::Room { progressive_items, .. } = self {
                 progressive_items.insert(world, state);
             } else {
                 *self = Self::Error {
                     e: SessionStateError::Mismatch,
                     auto_retry: false,
                 };
+            },
+            latest::ServerMessage::LoginSuccess => match self {
+                Self::Lobby { login_state, .. } => { login_state.get_or_insert_with(LoginState::default); }
+                Self::Room { login_state, .. } => { login_state.get_or_insert_with(LoginState::default); }
+                Self::Error { .. } | Self::Init | Self::InitAutoRejoin { .. } | Self::Closed => *self = Self::Error {
+                    e: SessionStateError::Mismatch,
+                    auto_retry: false,
+                },
             },
         }
     }

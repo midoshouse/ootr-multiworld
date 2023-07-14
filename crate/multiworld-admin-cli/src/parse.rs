@@ -215,6 +215,7 @@ impl FromExpr for SpoilerLog {
 
 impl FromExpr for ClientMessage {
     fn from_expr(expr: Expr) -> Result<Self, Error> {
+        //TODO ensure all variants are covered
         match expr {
             Expr::Call(call) => match *call.func {
                 Expr::Path(path) => if let Some(ident) = path.path.get_ident() {
@@ -261,19 +262,19 @@ impl FromExpr for ClientMessage {
             Expr::Struct(struct_lit) => if let Some(ident) = struct_lit.path.get_ident() {
                 match &*ident.to_string() {
                     "JoinRoom" => {
-                        let mut name = None;
+                        let mut id = None;
                         let mut password = None;
                         for FieldValue { member, expr, .. } in struct_lit.fields {
                             match member {
                                 Member::Named(member) => match &*member.to_string() {
-                                    "name" => if name.replace(String::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
+                                    "id" => if id.replace(u64::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
                                     "password" => if password.replace(Option::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
                                     _ => return Err(Error::FromExpr),
                                 },
                                 Member::Unnamed(_) => return Err(Error::FromExpr),
                             }
                         }
-                        Ok(Self::JoinRoom { name: name.ok_or(Error::FromExpr)?, password: password.ok_or(Error::FromExpr)? })
+                        Ok(Self::JoinRoom { id: id.ok_or(Error::FromExpr)?, password: password.ok_or(Error::FromExpr)? })
                     }
                     "CreateRoom" => {
                         let mut name = None;
@@ -290,20 +291,18 @@ impl FromExpr for ClientMessage {
                         }
                         Ok(Self::CreateRoom { name: name.ok_or(Error::FromExpr)?, password: password.ok_or(Error::FromExpr)? })
                     }
-                    "Login" => {
-                        let mut id = None;
+                    "LoginApiKey" => {
                         let mut api_key = None;
                         for FieldValue { member, expr, .. } in struct_lit.fields {
                             match member {
                                 Member::Named(member) => match &*member.to_string() {
-                                    "id" => if id.replace(u64::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
-                                    "api_key" => if api_key.replace(<_>::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
+                                    "api_key" => if api_key.replace(String::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
                                     _ => return Err(Error::FromExpr),
                                 },
                                 Member::Unnamed(_) => return Err(Error::FromExpr),
                             }
                         }
-                        Ok(Self::Login { id: id.ok_or(Error::FromExpr)?, api_key: api_key.ok_or(Error::FromExpr)? })
+                        Ok(Self::LoginApiKey { api_key: api_key.ok_or(Error::FromExpr)? })
                     }
                     "SendItem" => {
                         let mut key = None;
@@ -323,13 +322,13 @@ impl FromExpr for ClientMessage {
                         Ok(Self::SendItem { key: key.ok_or(Error::FromExpr)?, kind: kind.ok_or(Error::FromExpr)?, target_world: target_world.ok_or(Error::FromExpr)? })
                     }
                     "Track" => {
-                        let mut mw_room_name = None;
+                        let mut mw_room = None;
                         let mut tracker_room_name = None;
                         let mut world_count = None;
                         for FieldValue { member, expr, .. } in struct_lit.fields {
                             match member {
                                 Member::Named(member) => match &*member.to_string() {
-                                    "mw_room_name" => if mw_room_name.replace(String::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
+                                    "mw_room" => if mw_room.replace(u64::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
                                     "tracker_room_name" => if tracker_room_name.replace(String::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
                                     "world_count" => if world_count.replace(NonZeroU8::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
                                     _ => return Err(Error::FromExpr),
@@ -337,7 +336,7 @@ impl FromExpr for ClientMessage {
                                 Member::Unnamed(_) => return Err(Error::FromExpr),
                             }
                         }
-                        Ok(Self::Track { mw_room_name: mw_room_name.ok_or(Error::FromExpr)?, tracker_room_name: tracker_room_name.ok_or(Error::FromExpr)?, world_count: world_count.ok_or(Error::FromExpr)? })
+                        Ok(Self::Track { mw_room: mw_room.ok_or(Error::FromExpr)?, tracker_room_name: tracker_room_name.ok_or(Error::FromExpr)?, world_count: world_count.ok_or(Error::FromExpr)? })
                     }
                     "SendAll" => {
                         let mut source_world = None;

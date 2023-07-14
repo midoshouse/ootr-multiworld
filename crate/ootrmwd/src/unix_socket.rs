@@ -65,7 +65,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(mut shutdown: rocket::Shutdo
                                 loop {
                                     match room_stream.recv().await {
                                         Ok(RoomListChange::New(_)) => {}
-                                        Ok(RoomListChange::Delete(_)) => {}
+                                        Ok(RoomListChange::Delete { .. }) => {}
                                         Ok(RoomListChange::Join | RoomListChange::Leave) => {}
                                         Err(broadcast::error::RecvError::Closed) => unreachable!("room list should be maintained indefinitely"),
                                         Err(broadcast::error::RecvError::Lagged(_)) => room_stream = rooms.0.lock().await.change_tx.subscribe(),
@@ -96,10 +96,10 @@ pub(crate) async fn listen<C: ClientKind + 'static>(mut shutdown: rocket::Shutdo
                             loop {
                                 let now = Utc::now();
                                 let previous_active_rooms = mem::take(&mut active_rooms);
-                                for (room_name, room) in &rooms.0.lock().await.list {
+                                for room in rooms.0.lock().await.list.values() {
                                     let room = room.read().await;
                                     if room.last_saved > now - chrono::Duration::hours(1) && room.clients.values().any(|client| client.player.is_some()) {
-                                        active_rooms.insert(room_name.clone(), (room.last_saved + chrono::Duration::hours(1), room.clients.values().filter(|client| client.player.is_some()).count().try_into().expect("too many players")));
+                                        active_rooms.insert(room.name.clone(), (room.last_saved + chrono::Duration::hours(1), room.clients.values().filter(|client| client.player.is_some()).count().try_into().expect("too many players")));
                                     }
                                 }
                                 if active_rooms.is_empty() { break }

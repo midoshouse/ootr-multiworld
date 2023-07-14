@@ -7,10 +7,12 @@ use {
     },
     rocket_ws::WebSocket,
 };
-pub use self::v11 as latest;
+multiworld_derive::latest!();
 
+pub mod unversioned;
 pub mod v10;
 pub mod v11;
+pub mod v12;
 
 macro_rules! server_errors {
     ($($(#[$attr:meta])* $variant:ident),* $(,)?) => {
@@ -68,6 +70,7 @@ impl crate::ClientKind for WebSocket {
 pub enum Version {
     V10,
     V11,
+    V12,
 }
 
 pub struct VersionedReader {
@@ -77,10 +80,11 @@ pub struct VersionedReader {
 
 #[async_trait]
 impl crate::ClientReader for VersionedReader {
-    async fn read_owned(self) -> Result<(Self, latest::ClientMessage), async_proto::ReadError> {
+    async fn read_owned(self) -> Result<(Self, unversioned::ClientMessage), async_proto::ReadError> {
         match self.version {
-            Version::V10 => v10::ClientReader(self.inner).read_owned().await.map(|(v10::ClientReader(inner), msg)| (Self { version: Version::V10, inner }, msg)),
-            Version::V11 => v11::ClientReader(self.inner).read_owned().await.map(|(v11::ClientReader(inner), msg)| (Self { version: Version::V11, inner }, msg)),
+            Version::V10 => v10::read_owned(self.inner).await.map(|(inner, msg)| (Self { version: Version::V10, inner }, msg)),
+            Version::V11 => v11::read_owned(self.inner).await.map(|(inner, msg)| (Self { version: Version::V11, inner }, msg)),
+            Version::V12 => v12::read_owned(self.inner).await.map(|(inner, msg)| (Self { version: Version::V12, inner }, msg)),
         }
     }
 }
@@ -92,10 +96,11 @@ pub struct VersionedWriter {
 
 #[async_trait]
 impl crate::ClientWriter for VersionedWriter {
-    async fn write(&mut self, msg: latest::ServerMessage) -> Result<(), async_proto::WriteError> {
+    async fn write(&mut self, msg: unversioned::ServerMessage) -> Result<(), async_proto::WriteError> {
         match self.version {
-            Version::V10 => v10::ClientWriter(&mut self.inner).write(msg).await,
-            Version::V11 => v11::ClientWriter(&mut self.inner).write(msg).await,
+            Version::V10 => v10::write(&mut self.inner, msg).await,
+            Version::V11 => v11::write(&mut self.inner, msg).await,
+            Version::V12 => v12::write(&mut self.inner, msg).await,
         }
     }
 }

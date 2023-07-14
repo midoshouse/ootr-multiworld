@@ -11,6 +11,8 @@ pyo3 = ["dep:pyo3", "ootr-utils/pyo3"]
 async-recursion = "1"
 async-trait = "0.1"
 bitflags = "2"
+derivative = "2"
+either = "1"
 futures = "0.3"
 if_chain = "1"
 itertools = "0.10"
@@ -29,6 +31,9 @@ version = "0.4"
 default-features = false
 features = ["clock", "std"]
 
+[dependencies.multiworld-derive]
+path = "../multiworld-derive"
+
 [dependencies.ootr-utils]
 git = "https://github.com/midoshouse/rust-ootr-utils"
 branch = "main"
@@ -38,7 +43,7 @@ git = "https://github.com/fenhl/oottracker"
 branch = "main"
 
 [dependencies.pyo3]
-version = "0.18"
+version = "0.19"
 features = ["auto-initialize"]
 optional = true
 
@@ -68,7 +73,6 @@ features = ["net", "process", "sync", "time"]
 [dependencies.tokio-tungstenite]
 version = "0.19"
 features = ["rustls-tls-webpki-roots"]
-optional = true
 
 [dependencies.url]
 version = "2"

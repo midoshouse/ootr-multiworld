@@ -6,7 +6,9 @@ edition.workspace = true
 
 [dependencies]
 derivative = "2"
+either = "1"
 futures = "0.3"
+rand = "0.8"
 #rocket = "0.5.0-rc.3"
 thiserror = "1"
 
@@ -25,7 +27,7 @@ features = ["derive"]
 
 [dependencies.multiworld]
 path = "../multiworld"
-features = ["pyo3", "sqlx", "tokio-tungstenite"]
+features = ["pyo3", "sqlx"]
 
 [dependencies.multiworld-derive]
 path = "../multiworld-derive"
@@ -53,7 +55,7 @@ features = ["chrono", "postgres", "runtime-tokio-rustls"]
 
 [dependencies.tokio]
 version = "1"
-features = ["macros", "net", "rt-multi-thread", "sync", "time"]
+features = ["macros", "net", "process", "rt-multi-thread", "sync", "time"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"

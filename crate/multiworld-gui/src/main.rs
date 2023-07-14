@@ -72,6 +72,7 @@ use {
     multiworld::{
         DurationFormatter,
         Filename,
+        RoomFormatter,
         RoomView,
         SessionState,
         SessionStateError,
@@ -270,7 +271,7 @@ enum Message {
     Plugin(Box<frontend::ClientMessage>), // boxed due to the large size of save data; if Message is too large, iced will overflow the stack on window resize
     ReconnectFrontend,
     ReconnectToLobby,
-    ReconnectToRoom(String, String),
+    ReconnectToRoom(u64, String),
     SendAll,
     SendAllBrowse,
     Server(ServerMessage),
@@ -278,7 +279,7 @@ enum Message {
     ServerSubscriptionError(Arc<Error>),
     SetAutoDeleteDelta(DurationFormatter),
     SetCreateNewRoom(bool),
-    SetExistingRoomSelection(String),
+    SetExistingRoomSelection(RoomFormatter),
     SetNewRoomName(String),
     SetPassword(String),
     SetRoomView(RoomView),
@@ -508,8 +509,8 @@ impl Application for State {
                                 writer.write(ClientMessage::CreateRoom { name: new_room_name, password }).await?;
                             }
                         } else {
-                            if let Some(name) = existing_room_selection {
-                                writer.write(ClientMessage::JoinRoom { name, password: Some(password) }).await?;
+                            if let Some(room) = existing_room_selection {
+                                writer.write(ClientMessage::JoinRoom { id: room.id, password: room.password_required.then_some(password) }).await?;
                             }
                         }
                         Ok(Message::Nop)
@@ -673,7 +674,7 @@ impl Application for State {
                 self.frontend_connection_id = self.frontend_connection_id.wrapping_add(1);
             }
             Message::ReconnectToLobby => self.server_connection = SessionState::Init,
-            Message::ReconnectToRoom(room_name, room_password) => self.server_connection = SessionState::InitAutoRejoin { room_name, room_password },
+            Message::ReconnectToRoom(room_id, room_password) => self.server_connection = SessionState::InitAutoRejoin { room_id, room_password },
             Message::SendAll => {
                 let server_writer = self.server_writer.clone().expect("SendAll button only appears when connected to server");
                 let source_world = self.send_all_world.parse().expect("SendAll button only appears when source world is valid");
@@ -696,8 +697,8 @@ impl Application for State {
             }),
             Message::Server(msg) => {
                 let room_still_exists = if let ServerMessage::EnterLobby { ref rooms } = msg {
-                    if let SessionState::InitAutoRejoin { ref room_name, .. } = self.server_connection {
-                        rooms.contains(room_name)
+                    if let SessionState::InitAutoRejoin { ref room_id, .. } = self.server_connection {
+                        rooms.contains_key(room_id)
                     } else {
                         false
                     }
@@ -799,8 +800,8 @@ impl Application for State {
                     }
                     self.retry = Instant::now() + self.wait_time;
                     let retry = self.retry;
-                    let reconnect_msg = if let SessionState::Room { ref room_name, ref room_password, .. } = self.server_connection {
-                        Message::ReconnectToRoom(room_name.clone(), room_password.clone())
+                    let reconnect_msg = if let SessionState::Room { room_id, ref room_password, .. } = self.server_connection {
+                        Message::ReconnectToRoom(room_id, room_password.clone())
                     } else {
                         Message::ReconnectToLobby
                     };
@@ -918,7 +919,9 @@ impl Application for State {
                         if rooms.is_empty() {
                             Text::new("(no rooms currently open)").into()
                         } else {
-                            PickList::new(rooms.iter().cloned().collect_vec(), existing_room_selection.clone(), Message::SetExistingRoomSelection).into()
+                            let mut rooms = rooms.iter().map(|(&id, (name, password_required))| RoomFormatter { id, name: name.clone(), password_required: password_required.clone() }).collect_vec();
+                            rooms.sort();
+                            PickList::new(rooms, existing_room_selection.clone(), Message::SetExistingRoomSelection).into()
                         }
                     })
                     .push(TextInput::new("Password", password).password().on_input(Message::SetPassword).on_paste(Message::SetPassword).on_submit(Message::JoinRoom).padding(5))

@@ -101,6 +101,21 @@ pub fn csharp_ffi(_: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn latest(input: TokenStream) -> TokenStream {
+    let version = Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version");
+    let version = Ident::new(&format!("v{}", version.major), Span::call_site());
+    if input.is_empty() {
+        TokenStream::from(quote! {
+            pub use self::#version as latest;
+        })
+    } else {
+        TokenStream::from(quote! {
+            compile_error!("multiworld_derive::latest does not take parameters");
+        })
+    }
+}
+
+#[proc_macro]
 pub fn routes(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input with Punctuated::<Ident, Token![,]>::parse_terminated);
     let version = Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version");
