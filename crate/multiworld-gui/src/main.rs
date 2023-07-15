@@ -910,33 +910,39 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                SessionState::Lobby { wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } => Column::new()
-                    .push(Radio::new("Connect to existing room", false, Some(create_new_room), Message::SetCreateNewRoom))
-                    .push(Radio::new("Create new room", true, Some(create_new_room), Message::SetCreateNewRoom))
-                    .push(if create_new_room {
-                        Element::from(TextInput::new("Room name", new_room_name).on_input(Message::SetNewRoomName).on_paste(Message::SetNewRoomName).on_submit(Message::JoinRoom).padding(5))
-                    } else {
-                        if rooms.is_empty() {
-                            Text::new("(no rooms currently open)").into()
+                SessionState::Lobby { wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } => {
+                    let mut col = Column::new()
+                        .push(Radio::new("Connect to existing room", false, Some(create_new_room), Message::SetCreateNewRoom))
+                        .push(Radio::new("Create new room", true, Some(create_new_room), Message::SetCreateNewRoom))
+                        .push(if create_new_room {
+                            Element::from(TextInput::new("Room name", new_room_name).on_input(Message::SetNewRoomName).on_paste(Message::SetNewRoomName).on_submit(Message::JoinRoom).padding(5))
                         } else {
-                            let mut rooms = rooms.iter().map(|(&id, (name, password_required))| RoomFormatter { id, name: name.clone(), password_required: password_required.clone() }).collect_vec();
-                            rooms.sort();
-                            PickList::new(rooms, existing_room_selection.clone(), Message::SetExistingRoomSelection).into()
-                        }
-                    })
-                    .push(TextInput::new("Password", password).password().on_input(Message::SetPassword).on_paste(Message::SetPassword).on_submit(Message::JoinRoom).padding(5))
-                    .push(Row::new()
-                        .push({
-                            let mut btn = Button::new("Connect");
-                            if if create_new_room { !new_room_name.is_empty() } else { existing_room_selection.is_some() } && !password.is_empty() { btn = btn.on_press(Message::JoinRoom) }
-                            btn
-                        })
-                        .push(Space::with_width(Length::Fill))
-                        .push(concat!("v", env!("CARGO_PKG_VERSION")))
-                    )
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                            if rooms.is_empty() {
+                                Text::new("(no rooms currently open)").into()
+                            } else {
+                                let mut rooms = rooms.iter().map(|(&id, (name, password_required))| RoomFormatter { id, name: name.clone(), password_required: password_required.clone() }).collect_vec();
+                                rooms.sort();
+                                PickList::new(rooms, existing_room_selection.clone(), Message::SetExistingRoomSelection).into()
+                            }
+                        });
+                    if existing_room_selection.as_ref().map_or(true, |existing_room_selection| existing_room_selection.password_required) {
+                        col = col.push(TextInput::new("Password", password).password().on_input(Message::SetPassword).on_paste(Message::SetPassword).on_submit(Message::JoinRoom).padding(5));
+                    }
+                    col
+                        .push(Space::with_height(Length::Fill))
+                        .push(Row::new()
+                            .push({
+                                let mut btn = Button::new("Connect");
+                                if if create_new_room { !new_room_name.is_empty() } else { existing_room_selection.is_some() } && !password.is_empty() { btn = btn.on_press(Message::JoinRoom) }
+                                btn
+                            })
+                            .push(Space::with_width(Length::Fill))
+                            .push(concat!("v", env!("CARGO_PKG_VERSION")))
+                        )
+                        .spacing(8)
+                        .padding(8)
+                        .into()
+                }
                 SessionState::Room { view: RoomView::ConfirmDeletion, .. } => Column::new()
                     .push("Are you sure you want to delete this room? Items that have already been sent will be lost forever!")
                     .push(Row::new()
