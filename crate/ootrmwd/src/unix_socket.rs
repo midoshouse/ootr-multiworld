@@ -2,23 +2,35 @@ use {
     std::{
         collections::HashMap,
         mem,
+        sync::Arc,
+        time::Duration,
     },
     async_proto::{
         Protocol,
         ReadError,
     },
     chrono::prelude::*,
+    ootr_utils::spoiler::HashIcon,
+    rand::prelude::*,
+    sqlx::PgPool,
     tokio::{
         io,
         net::UnixListener,
         select,
-        sync::broadcast,
+        sync::{
+            RwLock,
+            broadcast,
+        },
     },
     wheel::{
         fs,
         traits::IoResultExt as _,
     },
-    multiworld::ClientKind,
+    multiworld::{
+        ClientKind,
+        Room,
+        RoomAuth,
+    },
     crate::{
         RoomListChange,
         Rooms,
@@ -33,6 +45,15 @@ pub(crate) enum ClientMessage {
     StopWhenEmpty,
     WaitUntilEmpty,
     WaitUntilInactive,
+    CreateTournamentRoom {
+        name: String,
+        hash1: HashIcon,
+        hash2: HashIcon,
+        hash3: HashIcon,
+        hash4: HashIcon,
+        hash5: HashIcon,
+        players: Vec<u64>,
+    },
 }
 
 #[derive(Protocol)]
@@ -42,7 +63,7 @@ pub(crate) enum WaitUntilInactiveMessage {
     Inactive,
 }
 
-pub(crate) async fn listen<C: ClientKind + 'static>(mut shutdown: rocket::Shutdown, rooms: Rooms<C>) -> wheel::Result<()> {
+pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Rooms<C>, mut shutdown: rocket::Shutdown) -> wheel::Result<()> {
     fs::remove_file(PATH).await.missing_ok()?;
     let listener = UnixListener::bind(PATH).at(PATH)?;
     loop {
@@ -50,6 +71,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(mut shutdown: rocket::Shutdo
             () = &mut shutdown => break,
             res = listener.accept() => {
                 let (mut sock, _) = res.at_unknown()?;
+                let db_pool = db_pool.clone();
                 let rooms = rooms.clone();
                 let shutdown = shutdown.clone();
                 tokio::spawn(async move {
@@ -125,6 +147,35 @@ pub(crate) async fn listen<C: ClientKind + 'static>(mut shutdown: rocket::Shutdo
                             }
                             WaitUntilInactiveMessage::Inactive.write(&mut sock).await.expect("error writing to UNIX socket");
                             return
+                        }
+                        ClientMessage::CreateTournamentRoom { name, hash1, hash2, hash3, hash4, hash5, players } => {
+                            let id = loop {
+                                let id = thread_rng().gen::<u64>();
+                                match sqlx::query_scalar!(r#"SELECT EXISTS (SELECT 1 FROM mw_rooms WHERE id = $1) AS "exists!""#, id as i64).fetch_one(&db_pool).await {
+                                    Ok(true) => {}
+                                    Ok(false) => break id, //TODO save room to database in same transaction
+                                    Err(_) => {
+                                        false.write(&mut sock).await.expect("error writing to UNIX socket");
+                                        return
+                                    }
+                                }
+                            };
+                            rooms.add(Arc::new(RwLock::new(Room {
+                                auth: RoomAuth::Invitational(players),
+                                clients: HashMap::default(),
+                                file_hash: Some([hash1, hash2, hash3, hash4, hash5]),
+                                base_queue: Vec::default(),
+                                player_queues: HashMap::default(),
+                                last_saved: Utc::now(),
+                                autodelete_delta: Duration::from_secs(60 * 60 * 24),
+                                autodelete_tx: {
+                                    let rooms = rooms.0.lock().await;
+                                    rooms.autodelete_tx.clone()
+                                },
+                                db_pool: db_pool.clone(),
+                                tracker_state: None,
+                                id, name,
+                            }))).await.write(&mut sock).await.expect("error writing to UNIX socket");
                         }
                     }
                 });

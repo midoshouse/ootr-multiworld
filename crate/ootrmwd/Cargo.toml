@@ -61,3 +61,7 @@ features = ["macros", "net", "process", "rt-multi-thread", "sync", "time"]
 git = "https://github.com/fenhl/wheel"
 branch = "main"
 features = ["rocket-master"]
+
+[target.'cfg(unix)'.dependencies.ootr-utils]
+git = "https://github.com/midoshouse/rust-ootr-utils"
+branch = "main"

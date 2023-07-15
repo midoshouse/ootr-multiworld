@@ -3990,6 +3990,7 @@ dependencies = [
  "futures",
  "multiworld",
  "multiworld-derive",
+ "ootr-utils",
  "rand 0.8.5",
  "ring",
  "rocket",

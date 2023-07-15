@@ -298,12 +298,22 @@ pub enum RoomAuth {
         hash: [u8; CREDENTIAL_LEN],
         salt: [u8; CREDENTIAL_LEN],
     },
+    Invitational(Vec<u64>),
 }
 
 impl RoomAuth {
-    pub fn availability(&self) -> RoomAvailability {
-        match self {
-            Self::Password { .. } => RoomAvailability::PasswordRequired,
+    pub fn availability(&self, logged_in_as_admin: bool, midos_house_user_id: Option<u64>) -> RoomAvailability {
+        if logged_in_as_admin {
+            RoomAvailability::Open
+        } else {
+            match self {
+                Self::Password { .. } => RoomAvailability::PasswordRequired,
+                Self::Invitational(users) => if midos_house_user_id.map_or(false, |user| users.contains(&user)) {
+                    RoomAvailability::Open
+                } else {
+                    RoomAvailability::Invisible
+                },
+            }
         }
     }
 }
@@ -314,6 +324,9 @@ impl fmt::Debug for RoomAuth {
             Self::Password { hash: _, salt: _ } => f.debug_struct("Password")
                 .field("hash", &format_args!("_"))
                 .field("salt", &format_args!("_"))
+                .finish(),
+            Self::Invitational(users) => f.debug_tuple("Invitational")
+                .field(users)
                 .finish(),
         }
     }
@@ -829,7 +842,8 @@ impl<C: ClientKind> Room<C> {
             let _ = self.autodelete_tx.send((self.id, self.autodelete_at()));
         }
         let (password_hash, password_salt) = match self.auth {
-            RoomAuth::Password { ref hash, ref salt } => (hash, salt),
+            RoomAuth::Password { ref hash, ref salt } => (Some(&hash[..]), Some(&salt[..])),
+            RoomAuth::Invitational(_) => (None, None),
         };
         sqlx::query!("INSERT INTO mw_rooms (
             id,

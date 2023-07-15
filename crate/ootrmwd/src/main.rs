@@ -171,6 +171,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
     }
 
     let mut logged_in_as_admin = false;
+    let midos_house_user_id = None;
     let mut waiting_until_empty = false;
     let mut room_stream = {
         let lock = rooms.0.lock().await;
@@ -178,7 +179,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
         writer.lock().await.write(ServerMessage::EnterLobby {
             rooms: stream::iter(lock.list.iter()).filter_map(|(id, room)| async move {
                 let room = room.read().await;
-                let password_required = match room.auth.availability() {
+                let password_required = match room.auth.availability(logged_in_as_admin, midos_house_user_id) {
                     RoomAvailability::Open => false,
                     RoomAvailability::PasswordRequired => true,
                     RoomAvailability::Invisible => return None,
@@ -195,7 +196,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
                 match room_list_change {
                     Ok(RoomListChange::New(room)) => {
                         let room = room.read().await;
-                        let password_required = match room.auth.availability() {
+                        let password_required = match room.auth.availability(logged_in_as_admin, midos_house_user_id) {
                             RoomAvailability::Open => Some(false),
                             RoomAvailability::PasswordRequired => Some(true),
                             RoomAvailability::Invisible => None, // don't announce the room to the client
@@ -209,7 +210,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
                         }
                     }
                     Ok(RoomListChange::Delete { id, name, auth }) => {
-                        let visible = match auth.availability() {
+                        let visible = match auth.availability(logged_in_as_admin, midos_house_user_id) {
                             RoomAvailability::Open | RoomAvailability::PasswordRequired => true,
                             RoomAvailability::Invisible => false,
                         };
@@ -248,6 +249,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
                                 password.as_bytes(),
                                 hash,
                             ).is_ok()),
+                            RoomAuth::Invitational(users) => midos_house_user_id.map_or(false, |user| users.contains(&user)),
                         };
                         if authorized {
                             if room.clients.len() >= usize::from(u8::MAX) { error!("this room is full") }
@@ -688,6 +690,9 @@ enum Error {
     #[cfg(unix)] #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[cfg(unix)]
+    #[error("error while creating tournament room")]
+    CreateTournamentRoom,
+    #[cfg(unix)]
     #[error("error while waiting until inactive")]
     WaitUntilInactive,
 }
@@ -715,6 +720,9 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                             break
                         }
                     }
+                },
+                Subcommand::CreateTournamentRoom { .. } => if !bool::read(&mut sock).await? {
+                    return Err(Error::CreateTournamentRoom)
                 },
             }
             return Ok(())
@@ -744,7 +752,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                         (_, _) => unimplemented!(), //TODO invitational rooms
                     },
                     clients: HashMap::default(),
-                    file_hash: None,
+                    file_hash: None, //TODO store in database
                     base_queue: Vec::read_sync(&mut &*row.base_queue)?,
                     player_queues: HashMap::read_sync(&mut &*row.player_queues)?,
                     last_saved: row.last_saved,
@@ -759,7 +767,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
             }
         }
         let rocket = http::rocket(db_pool.clone(), rng.clone(), port, rooms.clone()).await?;
-        #[cfg(unix)] let unix_socket_task = tokio::spawn(unix_socket::listen(rocket.shutdown(), rooms.clone())).map(|res| match res {
+        #[cfg(unix)] let unix_socket_task = tokio::spawn(unix_socket::listen(db_pool.clone(), rooms.clone(), rocket.shutdown())).map(|res| match res {
             Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => Err(Error::from(e)),
             Err(e) => Err(Error::from(e)),
