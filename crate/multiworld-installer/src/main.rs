@@ -753,7 +753,7 @@ impl Application for State {
                             .spacing(8)
                         )
                         .push(Text::new("Support").size(24))
-                        .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813."))
+                        .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @fenhl."))
                         .push(Row::new()
                             .push(Button::new(Text::new("invite link")).on_press(Message::DiscordInvite))
                             .push(Button::new(Text::new("direct channel link")).on_press(Message::DiscordChannel))

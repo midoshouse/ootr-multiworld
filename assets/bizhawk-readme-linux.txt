@@ -13,5 +13,5 @@ SUPPORT
 
 If you run into any problems, you can:
 
-* Ask in #setup-support on the OoT Randomizer Discord or in #general on the OoTR MW Tournament Discord (feel free to ping @Fenhl#4813), or
+* Ask in #setup-support on the OoT Randomizer Discord or in #general on the OoTR MW Tournament Discord (feel free to ping @fenhl), or
 * Open an issue at https://github.com/midoshouse/ootr-multiworld/issues (or search the existing issues)

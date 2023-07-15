@@ -894,13 +894,13 @@ impl Application for State {
                     .into(),
                 SessionState::Init => Column::new()
                     .push("Connecting to server…")
-                    .push("If this takes longer than 5 seconds, check your internet connection or contact @Fenhl#4813 on Discord for support.")
+                    .push("If this takes longer than 5 seconds, check your internet connection or contact @fenhl on Discord for support.")
                     .spacing(8)
                     .padding(8)
                     .into(),
                 SessionState::InitAutoRejoin { .. } => Column::new()
                     .push("Reconnecting to room…")
-                    .push("If this takes longer than 5 seconds, check your internet connection or contact @Fenhl#4813 on Discord for support.")
+                    .push("If this takes longer than 5 seconds, check your internet connection or contact @fenhl on Discord for support.")
                     .spacing(8)
                     .padding(8)
                     .into(),
@@ -1095,7 +1095,7 @@ fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, debug_inf
                 .spacing(8)
             )
             .push(Text::new("Support").size(24))
-            .push("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @Fenhl#4813.")
+            .push("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @fenhl.")
             .push(Row::new()
                 .push(Button::new("invite link").on_press(Message::DiscordInvite))
                 .push(Button::new("direct channel link").on_press(Message::DiscordChannel))

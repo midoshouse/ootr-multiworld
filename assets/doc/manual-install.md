@@ -2,7 +2,7 @@
 
 If you can't use [the installer](https://github.com/midoshouse/ootr-multiworld/releases/latest/download/multiworld-installer.exe) due to antivirus software blocking it, you can follow these manual install instructions.
 
-If you need help, please ask in [#setup-support on the OoTR Discord](https://discord.gg/BGRrKKn) (feel free to ping @Fenhl#4813) or [open an issue](https://github.com/midoshouse/ootr-multiworld/issues/new).
+If you need help, please ask in [#setup-support on the OoTR Discord](https://discord.gg/BGRrKKn) (feel free to ping `@fenhl`) or [open an issue](https://github.com/midoshouse/ootr-multiworld/issues/new).
 
 ## For BizHawk:
 
