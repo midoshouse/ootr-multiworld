@@ -292,11 +292,20 @@ impl<C: ClientKind> fmt::Debug for Client<C> {
     }
 }
 
+#[derive(Clone)]
 pub enum RoomAuth {
     Password {
         hash: [u8; CREDENTIAL_LEN],
         salt: [u8; CREDENTIAL_LEN],
     },
+}
+
+impl RoomAuth {
+    pub fn availability(&self) -> RoomAvailability {
+        match self {
+            Self::Password { .. } => RoomAvailability::PasswordRequired,
+        }
+    }
 }
 
 impl fmt::Debug for RoomAuth {
@@ -308,6 +317,12 @@ impl fmt::Debug for RoomAuth {
                 .finish(),
         }
     }
+}
+
+pub enum RoomAvailability {
+    Open,
+    PasswordRequired,
+    Invisible,
 }
 
 #[derive(Derivative)]
@@ -477,12 +492,6 @@ impl ProgressiveItems {
 }
 
 impl<C: ClientKind> Room<C> {
-    pub fn password_required(&self) -> bool {
-        match self.auth {
-            RoomAuth::Password { .. } => true,
-        }
-    }
-
     async fn write(&mut self, client_id: C::SessionId, msg: unversioned::ServerMessage) {
         if let Some(client) = self.clients.get(&client_id) {
             let mut writer = client.writer.lock().await;

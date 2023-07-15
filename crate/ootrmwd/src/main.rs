@@ -70,6 +70,7 @@ use {
         Player,
         Room,
         RoomAuth,
+        RoomAvailability,
         SendAllError,
         ws::{
             ServerError,
@@ -175,9 +176,14 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
         let lock = rooms.0.lock().await;
         let stream = lock.change_tx.subscribe();
         writer.lock().await.write(ServerMessage::EnterLobby {
-            rooms: stream::iter(lock.list.iter()).then(|(id, room)| async move {
+            rooms: stream::iter(lock.list.iter()).filter_map(|(id, room)| async move {
                 let room = room.read().await;
-                (*id, (room.name.clone(), room.password_required()))
+                let password_required = match room.auth.availability() {
+                    RoomAvailability::Open => false,
+                    RoomAvailability::PasswordRequired => true,
+                    RoomAvailability::Invisible => return None,
+                };
+                Some((*id, (room.name.clone(), password_required)))
             }).collect().await,
         }).await?;
         stream
@@ -189,13 +195,28 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
                 match room_list_change {
                     Ok(RoomListChange::New(room)) => {
                         let room = room.read().await;
-                        writer.lock().await.write(ServerMessage::NewRoom {
-                            id: room.id,
-                            name: room.name.clone(),
-                            password_required: room.password_required(),
-                        }).await?;
+                        let password_required = match room.auth.availability() {
+                            RoomAvailability::Open => Some(false),
+                            RoomAvailability::PasswordRequired => Some(true),
+                            RoomAvailability::Invisible => None, // don't announce the room to the client
+                        };
+                        if let Some(password_required) = password_required {
+                            writer.lock().await.write(ServerMessage::NewRoom {
+                                id: room.id,
+                                name: room.name.clone(),
+                                password_required,
+                            }).await?;
+                        }
                     }
-                    Ok(RoomListChange::Delete { id, name }) => writer.lock().await.write(ServerMessage::DeleteRoom { id, name }).await?,
+                    Ok(RoomListChange::Delete { id, name, auth }) => {
+                        let visible = match auth.availability() {
+                            RoomAvailability::Open | RoomAvailability::PasswordRequired => true,
+                            RoomAvailability::Invisible => false,
+                        };
+                        if visible {
+                            writer.lock().await.write(ServerMessage::DeleteRoom { id, name }).await?;
+                        }
+                    }
                     Ok(RoomListChange::Join | RoomListChange::Leave) => {}
                     Err(broadcast::error::RecvError::Closed) => unreachable!("room list should be maintained indefinitely"),
                     Err(broadcast::error::RecvError::Lagged(_)) => room_stream = rooms.0.lock().await.change_tx.subscribe(),
@@ -478,6 +499,7 @@ enum RoomListChange<C: ClientKind> {
     Delete {
         id: u64,
         name: String,
+        auth: RoomAuth,
     },
     /// A player has joined a room.
     Join,
@@ -554,8 +576,10 @@ impl<C: ClientKind> Rooms<C> {
     async fn remove(&self, id: u64) {
         let mut lock = self.0.lock().await;
         if let Some(room) = lock.list.remove(&id) {
-            let name = room.read().await.name.clone();
-            let _ = lock.change_tx.send(RoomListChange::Delete { id, name });
+            let room = room.read().await;
+            let name = room.name.clone();
+            let auth = room.auth.clone();
+            let _ = lock.change_tx.send(RoomListChange::Delete { id, name, auth });
         }
     }
 
