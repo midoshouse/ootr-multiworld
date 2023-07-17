@@ -592,7 +592,6 @@ impl<C: ClientKind> Room<C> {
         if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").player {
             let world = player.world;
             player.name = name;
-            drop(player);
             self.write_all(&ServerMessage::PlayerName(world, name)).await;
             true
         } else {
@@ -609,7 +608,6 @@ impl<C: ClientKind> Room<C> {
             }
             let world = player.world;
             player.file_hash = Some(hash);
-            drop(player);
             self.write_all(&ServerMessage::PlayerFileHash(world, hash)).await;
             Ok(())
         } else {
