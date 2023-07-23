@@ -72,6 +72,7 @@ use {
     multiworld::{
         DurationFormatter,
         Filename,
+        LobbyView,
         RoomFormatter,
         RoomView,
         SessionState,
@@ -96,6 +97,7 @@ use {
 };
 #[cfg(windows)] use directories::ProjectDirs;
 
+mod login;
 mod subscriptions;
 
 static LOG: Lazy<Mutex<std::fs::File>> = Lazy::new(|| {
@@ -262,12 +264,15 @@ enum Message {
     DiscordInvite,
     DismissWrongPassword,
     Exit,
-    JoinRoom,
-    Kick(NonZeroU8),
-    NewIssue,
-    Nop,
     FrontendConnected(Arc<Mutex<OwnedWriteHalf>>),
     FrontendSubscriptionError(Arc<Error>),
+    JoinRoom,
+    Kick(NonZeroU8),
+    LoginError(Arc<login::Error>),
+    LoginToken(String),
+    NewIssue,
+    Nop,
+    OpenLoginPage(Url),
     Plugin(Box<frontend::ClientMessage>), // boxed due to the large size of save data; if Message is too large, iced will overflow the stack on window resize
     ReconnectFrontend,
     ReconnectToLobby,
@@ -280,6 +285,7 @@ enum Message {
     SetAutoDeleteDelta(DurationFormatter),
     SetCreateNewRoom(bool),
     SetExistingRoomSelection(RoomFormatter),
+    SetLobbyView(LobbyView),
     SetNewRoomName(String),
     SetPassword(String),
     SetRoomView(RoomView),
@@ -301,10 +307,12 @@ struct State {
     frontend: FrontendFlags,
     debug_info_copied: bool,
     command_error: Option<Arc<Error>>,
+    login_error: Option<Arc<login::Error>>,
     frontend_subscription_error: Option<Arc<Error>>,
     frontend_connection_id: u8,
     frontend_writer: Option<LoggingWriter>,
     log: bool,
+    last_login_url: Option<Url>,
     websocket_url: Url,
     server_connection: SessionState<Arc<Error>>,
     server_writer: Option<LoggingSink>,
@@ -326,6 +334,17 @@ impl State {
         Some(if let Some(ref e) = self.command_error {
             MessageBuilder::default()
                 .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), ":"))
+                .push_line_safe(e)
+                .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                .build()
+        } else if let Some(ref e) = self.login_error {
+            let with_provider = if let SessionState::Lobby { view: LobbyView::Login(provider), .. } = self.server_connection {
+                format!(" with {provider}")
+            } else {
+                String::default()
+            };
+            MessageBuilder::default()
+                .push_line(format!("error in Mido's House Multiworld version {} while trying to sign in{with_provider}:", env!("CARGO_PKG_VERSION")))
                 .push_line_safe(e)
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
@@ -389,10 +408,12 @@ impl Application for State {
             frontend: frontend.clone(),
             debug_info_copied: false,
             command_error: None,
+            login_error: None,
             frontend_subscription_error: None,
             frontend_connection_id: 0,
             frontend_writer: None,
             log: CONFIG.log,
+            last_login_url: None,
             websocket_url: CONFIG.websocket_url().expect("failed to parse WebSocket URL"),
             server_connection: SessionState::Init,
             server_writer: None,
@@ -471,6 +492,9 @@ impl Application for State {
 
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
+            Message::SetLobbyView(new_view) => if let SessionState::Lobby { ref mut view, .. } = self.server_connection {
+                *view = new_view;
+            },
             Message::SetRoomView(new_view) => if let SessionState::Room { ref mut view, .. } = self.server_connection {
                 *view = new_view;
             },
@@ -497,45 +521,6 @@ impl Application for State {
                 *wrong_password = false;
             },
             Message::Exit => return window::close(),
-            Message::JoinRoom => if let SessionState::Lobby { create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } = self.server_connection {
-                if !password.is_empty() {
-                    let existing_room_selection = existing_room_selection.clone();
-                    let new_room_name = new_room_name.clone();
-                    let password = password.clone();
-                    let writer = self.server_writer.clone().expect("join room button only appears when connected to server");
-                    return cmd(async move {
-                        if create_new_room {
-                            if !new_room_name.is_empty() {
-                                writer.write(ClientMessage::CreateRoom { name: new_room_name, password }).await?;
-                            }
-                        } else {
-                            if let Some(room) = existing_room_selection {
-                                writer.write(ClientMessage::JoinRoom { id: room.id, password: room.password_required.then_some(password) }).await?;
-                            }
-                        }
-                        Ok(Message::Nop)
-                    })
-                }
-            }
-            Message::Kick(player_id) => if let Some(writer) = self.server_writer.clone() {
-                return cmd(async move {
-                    writer.write(ClientMessage::KickPlayer(player_id)).await?;
-                    Ok(Message::Nop)
-                })
-            },
-            Message::NewIssue => {
-                let mut issue_url = match Url::parse("https://github.com/midoshouse/ootr-multiworld/issues/new") {
-                    Ok(issue_url) => issue_url,
-                    Err(e) => return cmd(future::err(e.into())),
-                };
-                if let Some(error_md) = self.error_to_markdown() {
-                    issue_url.query_pairs_mut().append_pair("body", &error_md);
-                }
-                if let Err(e) = open(issue_url.to_string()) {
-                    return cmd(future::err(e.into()))
-                }
-            }
-            Message::Nop => {}
             Message::FrontendConnected(writer) => {
                 let writer = LoggingWriter { log: self.log, context: "to frontend", inner: Arc::clone(&writer) };
                 self.frontend_writer = Some(writer.clone());
@@ -569,6 +554,64 @@ impl Application for State {
                     }
                 }
                 self.frontend_subscription_error.get_or_insert(e);
+            }
+            Message::JoinRoom => if let SessionState::Lobby { create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } = self.server_connection {
+                if !password.is_empty() {
+                    let existing_room_selection = existing_room_selection.clone();
+                    let new_room_name = new_room_name.clone();
+                    let password = password.clone();
+                    let writer = self.server_writer.clone().expect("join room button only appears when connected to server");
+                    return cmd(async move {
+                        if create_new_room {
+                            if !new_room_name.is_empty() {
+                                writer.write(ClientMessage::CreateRoom { name: new_room_name, password }).await?;
+                            }
+                        } else {
+                            if let Some(room) = existing_room_selection {
+                                writer.write(ClientMessage::JoinRoom { id: room.id, password: room.password_required.then_some(password) }).await?;
+                            }
+                        }
+                        Ok(Message::Nop)
+                    })
+                }
+            }
+            Message::Kick(player_id) => if let Some(writer) = self.server_writer.clone() {
+                return cmd(async move {
+                    writer.write(ClientMessage::KickPlayer(player_id)).await?;
+                    Ok(Message::Nop)
+                })
+            },
+            Message::LoginError(e) => { self.login_error.get_or_insert(e); }
+            Message::LoginToken(bearer_token) => if let SessionState::Lobby { view: LobbyView::Login(provider), .. } = self.server_connection {
+                if let Some(writer) = self.server_writer.clone() {
+                    return cmd(async move {
+                        writer.write(match provider {
+                            login::Provider::RaceTime => ClientMessage::LoginRaceTime { bearer_token },
+                            login::Provider::Discord => ClientMessage::LoginDiscord { bearer_token },
+                        }).await?;
+                        Ok(Message::SetLobbyView(LobbyView::Settings))
+                    })
+                }
+            },
+            Message::NewIssue => {
+                let mut issue_url = match Url::parse("https://github.com/midoshouse/ootr-multiworld/issues/new") {
+                    Ok(issue_url) => issue_url,
+                    Err(e) => return cmd(future::err(e.into())),
+                };
+                if let Some(error_md) = self.error_to_markdown() {
+                    issue_url.query_pairs_mut().append_pair("body", &error_md);
+                }
+                if let Err(e) = open(issue_url.to_string()) {
+                    return cmd(future::err(e.into()))
+                }
+            }
+            Message::Nop => {}
+            Message::OpenLoginPage(url) => {
+                self.last_login_url = Some(url.clone());
+                return cmd(async move {
+                    open(url.to_string())?; //TODO async
+                    Ok(Message::Nop)
+                })
             }
             Message::Plugin(msg) => match *msg {
                 frontend::ClientMessage::PlayerId(new_player_id) => {
@@ -840,6 +883,8 @@ impl Application for State {
     fn view(&self) -> Element<'_, Message> {
         if let Some(ref e) = self.command_error {
             error_view("An error occurred:", e, self.debug_info_copied)
+        } else if let Some(ref e) = self.login_error {
+            error_view("An error occurred while trying to sign in:", e, self.debug_info_copied) //TODO button to reset error state
         } else if let Some(ref e) = self.frontend_subscription_error {
             if let Error::Io(ref e) = **e {
                 if e.kind() == io::ErrorKind::AddrInUse {
@@ -910,7 +955,33 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                SessionState::Lobby { wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } => {
+                SessionState::Lobby { view: LobbyView::Settings, wrong_password: false, .. } => Column::new()
+                    .push(Row::new()
+                        .push(Button::new("Back").on_press(Message::SetLobbyView(LobbyView::Normal)))
+                        .push(Space::with_width(Length::Fill))
+                        .push(concat!("version ", env!("CARGO_PKG_VERSION")))
+                    )
+                    //TODO persist login state and show here, with option to sign out
+                    .push(Button::new("Sign in with racetime.gg").on_press(Message::SetLobbyView(LobbyView::Login(login::Provider::RaceTime))))
+                    .push(Button::new("Sign in with Discord").on_press(Message::SetLobbyView(LobbyView::Login(login::Provider::Discord))))
+                    .spacing(8)
+                    .padding(8)
+                    .into(),
+                SessionState::Lobby { view: LobbyView::Login(provider), wrong_password: false, .. } => Column::new()
+                    .push(Text::new(format!("Signing in with {provider}…")))
+                    .push("Please continue in your web browser.")
+                    .push({
+                        let mut btn = Button::new("Reopen Web Page");
+                        if let Some(ref last_login_url) = self.last_login_url {
+                            btn = btn.on_press(Message::OpenLoginPage(last_login_url.clone()));
+                        }
+                        btn
+                    })
+                    .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Settings)))
+                    .spacing(8)
+                    .padding(8)
+                    .into(),
+                SessionState::Lobby { view: LobbyView::Normal, wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } => {
                     let mut col = Column::new()
                         .push(Radio::new("Connect to existing room", false, Some(create_new_room), Message::SetCreateNewRoom))
                         .push(Radio::new("Create new room", true, Some(create_new_room), Message::SetCreateNewRoom))
@@ -937,7 +1008,7 @@ impl Application for State {
                                 btn
                             })
                             .push(Space::with_width(Length::Fill))
-                            .push(concat!("v", env!("CARGO_PKG_VERSION")))
+                            .push(Button::new("Settings").on_press(Message::SetLobbyView(LobbyView::Settings)))
                         )
                         .spacing(8)
                         .padding(8)
@@ -1068,7 +1139,7 @@ impl Application for State {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let mut subscriptions = Vec::with_capacity(2);
+        let mut subscriptions = Vec::with_capacity(3);
         if self.updates_checked {
             subscriptions.push(match self.frontend {
                 FrontendFlags::BizHawk { port, .. } => Subscription::from_recipe(subscriptions::Connection { port, frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id }),
@@ -1077,6 +1148,9 @@ impl Application for State {
             });
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
                 subscriptions.push(Subscription::from_recipe(subscriptions::Client { log: self.log, websocket_url: self.websocket_url.clone() }));
+            }
+            if let SessionState::Lobby { view: LobbyView::Login(provider), .. } = self.server_connection {
+                subscriptions.push(Subscription::from_recipe(login::Subscription(provider)));
             }
         }
         Subscription::batch(subscriptions)

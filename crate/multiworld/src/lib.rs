@@ -920,6 +920,28 @@ pub struct LoginState {
     pub admin: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IdentityProvider {
+    RaceTime,
+    Discord,
+}
+
+impl fmt::Display for IdentityProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RaceTime => write!(f, "racetime.gg"),
+            Self::Discord => write!(f, "Discord"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum LobbyView {
+    Normal,
+    Settings,
+    Login(IdentityProvider),
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum RoomView {
     Normal,
@@ -945,6 +967,7 @@ pub enum SessionState<E> {
         existing_room_selection: Option<RoomFormatter>,
         new_room_name: String,
         password: String,
+        view: LobbyView,
         wrong_password: bool,
     },
     Room {
@@ -1016,6 +1039,7 @@ impl<E> SessionState<E> {
                         create_new_room: existing_room_selection.is_none(),
                         new_room_name: String::default(),
                         password: room_password.clone(),
+                        view: LobbyView::Normal,
                         wrong_password: false,
                         login_state, rooms, existing_room_selection,
                     }
@@ -1025,6 +1049,7 @@ impl<E> SessionState<E> {
                         existing_room_selection: None,
                         new_room_name: String::default(),
                         password: String::default(),
+                        view: LobbyView::Normal,
                         wrong_password: false,
                         login_state, rooms,
                     }
