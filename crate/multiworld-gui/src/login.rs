@@ -122,7 +122,10 @@ impl<H: Hasher, I> Recipe<H, I> for Subscription {
                 Provider::RaceTime => rocket::routes![racetime_callback],
                 Provider::Discord => rocket::routes![discord_callback],
             })
-            //TODO 500 error handler (“Login failed — Mido's House Multiworld”)
+            .register("/", rocket::catchers![
+                not_found,
+                internal_server_error,
+            ])
             .manage(oauth_client)
             .manage(csrf_token)
             .manage(token_tx);
@@ -175,6 +178,59 @@ fn page(title: &str, content: impl ToHtml) -> RawHtml<String> {
             }
         }
     }
+}
+
+#[rocket::catch(404)]
+fn not_found() -> RawHtml<String> {
+    page("Not Found — Mido's House Multiworld", html! {
+        h1 : "Error 404: Not Found";
+        p : "There is no page at this address.";
+        h2 : "Support";
+        p {
+            ul {
+                li {
+                    : "Ask in #setup-support on the OoT Randomizer Discord (";
+                    a(href = "https://discord.gg/BGRrKKn") : "invite link";
+                    : " • ";
+                    a(href = "https://discord.com/channels/274180765816848384/476723801032491008") : "direct channel link";
+                    : "). Feel free to ping @fenhl.";
+                }
+                li : "Ask in #general on the OoTR MW Tournament Discord.";
+                li {
+                    : "Or ";
+                    a(href = "https://github.com/midoshouse/ootr-multiworld/issues/new") : "open an issue";
+                    : ".";
+                }
+            }
+        }
+    })
+}
+
+#[rocket::catch(500)]
+fn internal_server_error() -> RawHtml<String> {
+    page("Internal Server Error — Mido's House Multiworld", html! {
+        h1 : "Error 500: Internal Server Error";
+        p : "An error occurred while trying to sign in.";
+        //TODO show error (global mutex holding last error?)
+        h2 : "Support";
+        p {
+            ul {
+                li {
+                    : "Ask in #setup-support on the OoT Randomizer Discord (";
+                    a(href = "https://discord.gg/BGRrKKn") : "invite link";
+                    : " • ";
+                    a(href = "https://discord.com/channels/274180765816848384/476723801032491008") : "direct channel link";
+                    : "). Feel free to ping @fenhl.";
+                }
+                li : "Ask in #general on the OoTR MW Tournament Discord.";
+                li {
+                    : "Or ";
+                    a(href = "https://github.com/midoshouse/ootr-multiworld/issues/new") : "open an issue";
+                    : ".";
+                }
+            }
+        }
+    })
 }
 
 #[derive(Debug)] enum RaceTime {}
