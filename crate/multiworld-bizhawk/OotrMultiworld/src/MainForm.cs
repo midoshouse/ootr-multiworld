@@ -319,7 +319,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
         if (type != ToolFormUpdateType.PreFrame && type != ToolFormUpdateType.FastPreFrame) {
             return;
         }
-        if ((APIs.GameInfo.GetGameInfo()?.Name ?? "Null") == "Null") {
+        if ((APIs.Emulation.GetGameInfo()?.Name ?? "Null") == "Null") {
             this.normalGameplay = false;
             return;
         }
@@ -451,14 +451,14 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
 
     private void ReadPlayerID() {
         var oldPlayerID = this.playerID;
-        if ((APIs.GameInfo.GetGameInfo()?.Name ?? "Null") == "Null") {
+        if ((APIs.Emulation.GetGameInfo()?.Name ?? "Null") == "Null") {
             this.playerID = null;
             //TODO send state to GUI? ("Please open the ROM…")
         } else {
             var romIdent = APIs.Memory.ReadByteRange(0x20, 0x15, "ROM");
             if (!Enumerable.SequenceEqual(romIdent, new List<byte>(Encoding.UTF8.GetBytes("THE LEGEND OF ZELDA \0")))) {
                 this.playerID = null;
-                //TODO send state to GUI? ($"Expected OoTR, found {APIs.GameInfo.GetGameInfo()?.Name ?? "Null"}")
+                //TODO send state to GUI? ($"Expected OoTR, found {APIs.Emulation.GetGameInfo()?.Name ?? "Null"}")
             } else {
                 //TODO also check OoTR version bytes and error on vanilla OoT
                 var newText = "Waiting for game…";

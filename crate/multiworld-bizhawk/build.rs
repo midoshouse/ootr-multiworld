@@ -69,11 +69,11 @@ async fn main() -> Result<(), Error> {
         if let Some(parent) = target_path.parent() {
             fs::create_dir_all(parent).await?;
         }
-        match tokio::fs::symlink_metadata(target_path).await { //TODO wheel
+        match fs::symlink_metadata(target_path).await {
             Ok(metadata) if metadata.is_symlink() || metadata.is_file() => fs::remove_file(target_path).await?,
             Ok(metadata) => panic!("unexpected file type: {metadata:?}"),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => Err(e).at(target_path)?,
+            Err(wheel::Error::Io { inner, .. }) if inner.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => Err(e)?,
         }
         fs::copy(&source_path, target_path).await?;
     }
