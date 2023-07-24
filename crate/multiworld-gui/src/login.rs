@@ -151,7 +151,7 @@ fn page(title: &str, content: impl ToHtml) -> RawHtml<String> {
                 meta(charset = "utf-8");
                 title : title;
                 meta(name = "viewport", content = "width=device-width, initial-scale=1, shrink-to-fit=no");
-                //TODO favicon
+                link(rel = "icon", sizes = "1024x1024", type = "image/png", href = "https://midos.house/static/mw.png");
                 link(rel = "stylesheet", href = "https://midos.house/static/common.css");
             }
             body {
