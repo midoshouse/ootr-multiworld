@@ -915,7 +915,7 @@ pub enum SessionStateError<E> {
     Server(String),
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct LoginState {
     pub admin: bool,
 }

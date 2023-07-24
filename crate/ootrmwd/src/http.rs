@@ -43,14 +43,15 @@ fn index() -> Redirect {
 macro_rules! supported_version {
     ($endpoint:literal, $version:ident, $variant:ident) => {
         #[rocket::get($endpoint)]
-        fn $version(rng: &State<Arc<SystemRandom>>, db_pool: &State<PgPool>, rooms: &State<Rooms<WebSocket>>, next_session_id: &State<AtomicUsize>, ws: WebSocket, shutdown: rocket::Shutdown) -> rocket_ws::Channel<'static> {
+        fn $version(rng: &State<Arc<SystemRandom>>, db_pool: &State<PgPool>, http_client: &State<reqwest::Client>, rooms: &State<Rooms<WebSocket>>, next_session_id: &State<AtomicUsize>, ws: WebSocket, shutdown: rocket::Shutdown) -> rocket_ws::Channel<'static> {
             let rng = (*rng).clone();
             let db_pool = (*db_pool).clone();
+            let http_client = (*http_client).clone();
             let rooms = (*rooms).clone();
             let session_id = next_session_id.fetch_add(1, SeqCst);
             ws.channel(move |stream| Box::pin(async move {
                 let (sink, stream) = stream.split();
-                match client_session(&rng, db_pool, rooms, session_id, VersionedReader { inner: stream, version: Version::$variant }, Arc::new(Mutex::new(VersionedWriter { inner: sink, version: Version::$variant })), shutdown).await {
+                match client_session(&rng, db_pool, http_client, rooms, session_id, VersionedReader { inner: stream, version: Version::$variant }, Arc::new(Mutex::new(VersionedWriter { inner: sink, version: Version::$variant })), shutdown).await {
                     Ok(()) => {}
                     Err(e) => {
                         eprintln!("error in WebSocket handler ({}): {e}", stringify!($version));
@@ -108,7 +109,7 @@ async fn internal_server_error() -> RawHtml<String> {
     }
 }
 
-pub(crate) async fn rocket(db_pool: PgPool, rng: Arc<SystemRandom>, port: u16, rooms: Rooms<WebSocket>) -> Result<Rocket<rocket::Ignite>, crate::Error> {
+pub(crate) async fn rocket(db_pool: PgPool, http_client: reqwest::Client, rng: Arc<SystemRandom>, port: u16, rooms: Rooms<WebSocket>) -> Result<Rocket<rocket::Ignite>, crate::Error> {
     Ok(rocket::custom(rocket::Config {
         log_level: rocket::config::LogLevel::Critical,
         port,
@@ -123,6 +124,7 @@ pub(crate) async fn rocket(db_pool: PgPool, rng: Arc<SystemRandom>, port: u16, r
         internal_server_error,
     ])
     .manage(db_pool)
+    .manage(http_client)
     .manage(rng)
     .manage(rooms)
     .manage(AtomicUsize::default())

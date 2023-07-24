@@ -38,6 +38,7 @@ use {
         },
     },
     rocket::Rocket,
+    serde::Deserialize,
     sqlx::postgres::{
         PgConnectOptions,
         PgPool,
@@ -61,6 +62,7 @@ use {
             timeout,
         },
     },
+    wheel::traits::ReqwestResponseExt as _,
     multiworld::{
         CREDENTIAL_LEN,
         ClientKind,
@@ -117,10 +119,12 @@ enum SessionError {
     #[error(transparent)] OneshotRecv(#[from] oneshot::error::RecvError),
     #[error(transparent)] QueueItem(#[from] multiworld::QueueItemError),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
+    #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Ring(#[from] ring::error::Unspecified),
     #[error(transparent)] SendAll(#[from] SendAllError),
     #[error(transparent)] SetHash(#[from] multiworld::SetHashError),
     #[error(transparent)] Sql(#[from] sqlx::Error),
+    #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("{0}")]
     Server(String),
@@ -128,7 +132,7 @@ enum SessionError {
     Shutdown,
 }
 
-async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms<C>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, shutdown: rocket::Shutdown) -> Result<(), SessionError> {
+async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, shutdown: rocket::Shutdown) -> Result<(), SessionError> {
     let ping_writer = Arc::clone(&writer);
     let ping_task = tokio::spawn(async move {
         let mut interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
@@ -139,7 +143,7 @@ async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, room
     });
     let mut read = next_message::<C>(reader);
     loop {
-        let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), rooms.clone(), socket_id, read, writer.clone(), shutdown.clone()).await?;
+        let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, writer.clone(), shutdown.clone()).await?;
         let _ = rooms.0.lock().await.change_tx.send(RoomListChange::Join);
         let (lobby_reader, end) = room_session(rooms.clone(), room, socket_id, room_reader, writer.clone(), end_rx, shutdown.clone()).await?;
         let _ = rooms.0.lock().await.change_tx.send(RoomListChange::Leave);
@@ -161,7 +165,7 @@ fn next_message<C: ClientKind>(reader: C::Reader) -> NextMessage<C> {
     Box::pin(timeout(Duration::from_secs(60), reader.read_owned()))
 }
 
-async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms: Rooms<C>, socket_id: C::SessionId, mut read: NextMessage<C>, writer: Arc<Mutex<C::Writer>>, mut shutdown: rocket::Shutdown) -> Result<(C::Reader, Arc<RwLock<Room<C>>>, oneshot::Receiver<EndRoomSession>), SessionError> {
+async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, mut read: NextMessage<C>, writer: Arc<Mutex<C::Writer>>, mut shutdown: rocket::Shutdown) -> Result<(C::Reader, Arc<RwLock<Room<C>>>, oneshot::Receiver<EndRoomSession>), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             let msg = format!($($msg)*);
@@ -171,7 +175,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
     }
 
     let mut logged_in_as_admin = false;
-    let midos_house_user_id = None;
+    let mut midos_house_user_id = None;
     let mut waiting_until_empty = false;
     let mut room_stream = {
         let lock = rooms.0.lock().await;
@@ -342,11 +346,46 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, rooms
                     }
                     ClientMessage::LoginApiKey { api_key } => if let Some(mw_admin) = sqlx::query_scalar!("SELECT mw_admin FROM api_keys WHERE key = $1", api_key).fetch_optional(&db_pool).await? {
                         logged_in_as_admin = mw_admin;
+                        //TODO update room list
                     } else {
                         error!("invalid API key")
                     },
-                    ClientMessage::LoginDiscord { bearer_token: _ } => unimplemented!(), //TODO verify bearer token and check resulting Discord user ID against database
-                    ClientMessage::LoginRaceTime { bearer_token: _ } => unimplemented!(), //TODO verify bearer token and check resulting racetime.gg user ID against database
+                    ClientMessage::LoginDiscord { bearer_token } => {
+                        #[derive(Deserialize)]
+                        struct DiscordUser {
+                            id: serenity::all::UserId,
+                        }
+
+                        let DiscordUser { id } = http_client.get("https://discord.com/api/v10/users/@me")
+                            .bearer_auth(bearer_token)
+                            .send().await?
+                            .detailed_error_for_status().await?
+                            .json_with_text_in_error().await?;
+                        if let Some(mhid) = sqlx::query_scalar!("SELECT id FROM users WHERE discord_id = $1", i64::from(id)).fetch_optional(&db_pool).await? {
+                            midos_house_user_id = Some(mhid as u64);
+                        } else {
+                            error!("no Mido's House user associated with this Discord account") //TODO automatically create
+                        }
+                        //TODO update room list
+                    }
+                    ClientMessage::LoginRaceTime { bearer_token } => {
+                        #[derive(Deserialize)]
+                        struct RaceTimeUser {
+                            id: String,
+                        }
+
+                        let RaceTimeUser { id } = http_client.get("https://racetime.gg/o/userinfo")
+                            .bearer_auth(bearer_token)
+                            .send().await?
+                            .detailed_error_for_status().await?
+                            .json_with_text_in_error().await?;
+                        if let Some(mhid) = sqlx::query_scalar!("SELECT id FROM users WHERE racetime_id = $1", id).fetch_optional(&db_pool).await? {
+                            midos_house_user_id = Some(mhid as u64);
+                        } else {
+                            error!("no Mido's House user associated with this racetime.gg account") //TODO automatically create
+                        }
+                        //TODO update room list
+                    }
                     ClientMessage::Stop => if logged_in_as_admin {
                         //TODO close TCP connections and listener
                         for room in rooms.0.lock().await.list.values() {
@@ -683,6 +722,7 @@ enum Error {
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] PgInterval(#[from] PgIntervalDecodeError),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
+    #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Ring(#[from] ring::error::Unspecified),
     #[error(transparent)] Rocket(#[from] rocket::Error),
     #[error(transparent)] Sql(#[from] sqlx::Error),
@@ -730,6 +770,13 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
         #[cfg(not(unix))] match subcommand {}
     } else {
         let rng = Arc::new(SystemRandom::new());
+        let http_client = reqwest::Client::builder()
+            .user_agent(concat!("MidosHouse/", env!("CARGO_PKG_VERSION")))
+            .timeout(Duration::from_secs(30))
+            .use_rustls_tls()
+            .trust_dns(true)
+            .https_only(true)
+            .build()?;
         let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database(&database).application_name("ootrmwd")).await?;
         let rooms = Rooms::default();
         {
@@ -766,7 +813,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 }))).await);
             }
         }
-        let rocket = http::rocket(db_pool.clone(), rng.clone(), port, rooms.clone()).await?;
+        let rocket = http::rocket(db_pool.clone(), http_client, rng.clone(), port, rooms.clone()).await?;
         #[cfg(unix)] let unix_socket_task = tokio::spawn(unix_socket::listen(db_pool.clone(), rooms.clone(), rocket.shutdown())).map(|res| match res {
             Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => Err(Error::from(e)),

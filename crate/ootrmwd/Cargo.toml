@@ -32,6 +32,11 @@ features = ["pyo3", "sqlx"]
 [dependencies.multiworld-derive]
 path = "../multiworld-derive"
 
+[dependencies.reqwest]
+version = "0.11"
+default-features = false
+features = ["rustls-tls", "trust-dns"]
+
 [dependencies.ring]
 version = "0.16"
 features = ["std"]
@@ -48,6 +53,16 @@ branch = "rocket-master"
 git = "https://github.com/SergioBenitez/Rocket"
 branch = "master"
 
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+
+[dependencies.serenity]
+git = "https://github.com/serenity-rs/serenity"
+branch = "next"
+default-features = false
+features = ["model", "rustls_backend"]
+
 [dependencies.sqlx]
 version = "0.6"
 default-features = false
@@ -60,7 +75,7 @@ features = ["macros", "net", "process", "rt-multi-thread", "sync", "time"]
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
 branch = "main"
-features = ["rocket-master"]
+features = ["reqwest", "rocket-master", "serde", "serde_json"]
 
 [target.'cfg(unix)'.dependencies.ootr-utils]
 git = "https://github.com/midoshouse/rust-ootr-utils"
