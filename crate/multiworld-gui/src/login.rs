@@ -47,6 +47,7 @@ use {
     },
     rocket_util::{
         Doctype,
+        ToHtml,
         html,
     },
     tokio::sync::mpsc,
@@ -142,6 +143,40 @@ impl<H: Hasher, I> Recipe<H, I> for Subscription {
     }
 }
 
+fn page(title: &str, content: impl ToHtml) -> RawHtml<String> {
+    html! {
+        : Doctype;
+        html {
+            head {
+                meta(charset = "utf-8");
+                title : title;
+                meta(name = "viewport", content = "width=device-width, initial-scale=1, shrink-to-fit=no");
+                //TODO favicon
+                link(rel = "stylesheet", href = "https://midos.house/static/common.css");
+            }
+            body {
+                div {
+                    nav {
+                        div(class = "logo") {
+                            img(class = "mw-logo", src = "https://midos.house/static/mw.png");
+                        }
+                        h1 : "Mido's House Multiworld";
+                    }
+                    main {
+                        : content;
+                    }
+                }
+                footer {
+                    p {
+                        a(href = "https://github.com/midoshouse/ootr-multiworld") : "source code";
+                    }
+                    p : "Special thanks to Maplestar for the chest icon used in the logo!";
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug)] enum RaceTime {}
 #[derive(Debug)] enum Discord {}
 
@@ -170,29 +205,19 @@ enum CallbackError<P: ProviderTrait> {
 
 impl<'r, P: ProviderTrait> Responder<'r, 'static> for CallbackError<P> {
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
-        html! {
-            : Doctype;
-            html {
-                head {
-                    meta(charset = "utf-8");
-                    title : "Login failed — Mido's House Multiworld";
-                    //TODO style
-                }
-                body {
-                    h1 : "Login failed";
-                    p {
-                        : "Sorry, it seems that there was an error trying to sign in with ";
-                        : P::NAME;
-                        : ":";
-                    }
-                    p : self.to_string();
-                    p {
-                        : "Debug info: ";
-                        code : format!("{self:?}");
-                    }
-                }
+        page("Login failed — Mido's House Multiworld", html! {
+            h1 : "Login failed";
+            p {
+                : "Sorry, it seems that there was an error trying to sign in with ";
+                : P::NAME;
+                : ":";
             }
-        }.respond_to(request)
+            p : self.to_string();
+            p {
+                : "Debug info: ";
+                code : format!("{self:?}");
+            }
+        }).respond_to(request)
     }
 }
 
@@ -208,20 +233,10 @@ async fn discord_callback(oauth_client: &State<BasicClient>, csrf_token: &State<
     sender.send(token.access_token().secret().clone()).await.map_err(|_| CallbackError::Send)?;
     shutdown.notify();
     //TODO save refresh token
-    Ok(html! {
-        : Doctype;
-        html {
-            head {
-                meta(charset = "utf-8");
-                title : "Login successful — Mido's House Multiworld";
-                //TODO style
-            }
-            body {
-                h1 : "Discord login successful";
-                p : "You can now close this tab and continue in the multiworld app.";
-            }
-        }
-    })
+    Ok(page("Login successful — Mido's House Multiworld", html! {
+        h1 : "Discord login successful";
+        p : "You can now close this tab and continue in the multiworld app.";
+    }))
 }
 
 #[rocket::get("/auth/racetime?<code>&<state>")]
@@ -235,18 +250,8 @@ async fn racetime_callback(oauth_client: &State<BasicClient>, csrf_token: &State
     sender.send(token.access_token().secret().clone()).await.map_err(|_| CallbackError::Send)?;
     shutdown.notify();
     //TODO save refresh token
-    Ok(html! {
-        : Doctype;
-        html {
-            head {
-                meta(charset = "utf-8");
-                title : "Login successful — Mido's House Multiworld";
-                //TODO style
-            }
-            body {
-                h1 : "racetime.gg login successful";
-                p : "You can now close this tab and continue in the multiworld app.";
-            }
-        }
-    })
+    Ok(page("Login successful — Mido's House Multiworld", html! {
+        h1 : "racetime.gg login successful";
+        p : "You can now close this tab and continue in the multiworld app.";
+    }))
 }
