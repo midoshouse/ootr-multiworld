@@ -146,7 +146,7 @@ impl From<unversioned::ServerMessage> for Option<ServerMessage> {
             unversioned::ServerMessage::EnterLobby { rooms } => Some(ServerMessage::EnterLobby { rooms: rooms.into_values().map(|(name, _)| name).collect() }),
             unversioned::ServerMessage::NewRoom { name, id: _, password_required: _ } => Some(ServerMessage::NewRoom(name)),
             unversioned::ServerMessage::DeleteRoom { name, id: _ } => Some(ServerMessage::DeleteRoom(name)),
-            unversioned::ServerMessage::EnterRoom { players, num_unassigned_clients, autodelete_delta, room_id: _ } => Some(ServerMessage::EnterRoom { players, num_unassigned_clients, autodelete_delta }),
+            unversioned::ServerMessage::EnterRoom { players, num_unassigned_clients, autodelete_delta, room_id: _, allow_send_all: _ } => Some(ServerMessage::EnterRoom { players, num_unassigned_clients, autodelete_delta }),
             unversioned::ServerMessage::PlayerId(world) => Some(ServerMessage::PlayerId(world)),
             unversioned::ServerMessage::ResetPlayerId(world) => Some(ServerMessage::ResetPlayerId(world)),
             unversioned::ServerMessage::ClientConnected => Some(ServerMessage::ClientConnected),

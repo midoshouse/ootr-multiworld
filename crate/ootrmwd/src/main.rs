@@ -272,6 +272,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             writer.lock().await.write(ServerMessage::EnterRoom {
                                 room_id: room.id,
                                 autodelete_delta: room.autodelete_delta,
+                                allow_send_all: room.allow_send_all,
                                 players, num_unassigned_clients,
                             }).await?;
                             drop(room);
@@ -326,6 +327,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             base_queue: Vec::default(),
                             player_queues: HashMap::default(),
                             last_saved: Utc::now(),
+                            allow_send_all: true,
                             autodelete_tx: {
                                 let rooms = rooms.0.lock().await;
                                 rooms.autodelete_tx.clone()
@@ -341,6 +343,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             room_id: id,
                             players: Vec::default(),
                             num_unassigned_clients: 1,
+                            allow_send_all: true,
                             autodelete_delta,
                         }).await?;
                         break (reader, room, end_rx)
@@ -819,6 +822,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 base_queue,
                 player_queues,
                 last_saved,
+                allow_send_all,
                 autodelete_delta
             FROM mw_rooms"#).fetch(&db_pool);
             while let Some(row) = query.try_next().await? {
@@ -834,6 +838,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     base_queue: Vec::read_sync(&mut &*row.base_queue)?,
                     player_queues: HashMap::read_sync(&mut &*row.player_queues)?,
                     last_saved: row.last_saved,
+                    allow_send_all: row.allow_send_all,
                     autodelete_delta: decode_pginterval(row.autodelete_delta)?,
                     autodelete_tx: {
                         let rooms = rooms.0.lock().await;

@@ -167,6 +167,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 base_queue: Vec::default(),
                                 player_queues: HashMap::default(),
                                 last_saved: Utc::now(),
+                                allow_send_all: false,
                                 autodelete_delta: Duration::from_secs(60 * 60 * 24),
                                 autodelete_tx: {
                                     let rooms = rooms.0.lock().await;

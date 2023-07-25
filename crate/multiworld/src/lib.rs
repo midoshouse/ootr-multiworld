@@ -350,6 +350,7 @@ pub struct Room<C: ClientKind> {
     pub base_queue: Vec<Item>,
     pub player_queues: HashMap<NonZeroU8, Vec<Item>>,
     pub last_saved: DateTime<Utc>,
+    pub allow_send_all: bool,
     pub autodelete_delta: Duration,
     pub autodelete_tx: broadcast::Sender<(u64, DateTime<Utc>)>,
     #[cfg(feature = "sqlx")]
@@ -404,6 +405,8 @@ pub enum SendAllError {
     #[error(transparent)] Clone(#[from] ootr_utils::CloneError),
     #[error(transparent)] Python(#[from] PyErr),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error("the SendAll command is not allowed in tournament rooms")]
+    Disallowed,
     #[error("this room is for a different seed: server has {} but client has {}", natjoin(.server).unwrap(), natjoin(.client).unwrap())]
     FileHash {
         server: [HashIcon; 5],
@@ -744,6 +747,9 @@ impl<C: ClientKind> Room<C> {
 
     #[cfg(feature = "pyo3")]
     pub async fn send_all(&mut self, source_world: NonZeroU8, spoiler_log: &SpoilerLog) -> Result<(), SendAllError> {
+        if !self.allow_send_all {
+            return Err(SendAllError::Disallowed)
+        }
         if let Some(room_hash) = self.file_hash {
             if spoiler_log.file_hash != room_hash {
                 return Err(SendAllError::FileHash { server: room_hash, client: spoiler_log.file_hash })
@@ -854,16 +860,18 @@ impl<C: ClientKind> Room<C> {
             base_queue,
             player_queues,
             last_saved,
-            autodelete_delta
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET
+            autodelete_delta,
+            allow_send_all
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO UPDATE SET
             name = EXCLUDED.name,
             password_hash = EXCLUDED.password_hash,
             password_salt = EXCLUDED.password_salt,
             base_queue = EXCLUDED.base_queue,
             player_queues = EXCLUDED.player_queues,
             last_saved = EXCLUDED.last_saved,
-            autodelete_delta = EXCLUDED.autodelete_delta
-        ", self.id as i64, &self.name, password_hash, password_salt, base_queue, player_queues, self.last_saved, self.autodelete_delta as _).execute(&self.db_pool).await?;
+            autodelete_delta = EXCLUDED.autodelete_delta,
+            allow_send_all = EXCLUDED.allow_send_all
+        ", self.id as i64, &self.name, password_hash, password_salt, base_queue, player_queues, self.last_saved, self.autodelete_delta as _, self.allow_send_all).execute(&self.db_pool).await?;
         Ok(())
     }
 
@@ -981,6 +989,7 @@ pub enum SessionState<E> {
         num_unassigned_clients: u8,
         item_queue: Vec<u16>,
         autodelete_delta: Duration,
+        allow_send_all: bool,
         view: RoomView,
         wrong_file_hash: Option<[[HashIcon; 5]; 2]>,
     },
@@ -1075,7 +1084,7 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            latest::ServerMessage::EnterRoom { room_id, players, num_unassigned_clients, autodelete_delta } => if let Self::Lobby { login_state, rooms, password, .. } = self {
+            latest::ServerMessage::EnterRoom { room_id, players, num_unassigned_clients, autodelete_delta, allow_send_all } => if let Self::Lobby { login_state, rooms, password, .. } = self {
                 if let Some((_, (room_name, _))) = rooms.iter().find(|&(&id, _)| id == room_id) {
                     *self = Self::Room {
                         login_state: login_state.clone(),
@@ -1085,7 +1094,7 @@ impl<E> SessionState<E> {
                         item_queue: Vec::default(),
                         view: RoomView::Normal,
                         wrong_file_hash: None,
-                        room_id, players, num_unassigned_clients, autodelete_delta,
+                        room_id, players, num_unassigned_clients, autodelete_delta, allow_send_all,
                     };
                 } else {
                     *self = Self::Error {

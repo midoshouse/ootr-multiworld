@@ -117,6 +117,7 @@ pub enum ServerMessage {
         players: Vec<Player>,
         num_unassigned_clients: u8,
         autodelete_delta: Duration,
+        allow_send_all: bool,
     },
     /// A previously unassigned world has been taken by a client.
     PlayerId(NonZeroU8),

@@ -1057,52 +1057,54 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                SessionState::Room { view: RoomView::Options, wrong_file_hash: None, autodelete_delta, .. } => Column::new()
-                    .push(Button::new("Back").on_press(Message::SetRoomView(RoomView::Normal)))
-                    .push("Automatically delete this room if no items are sent for:")
-                    .push({
-                        let mut values = vec![
-                            DurationFormatter(Duration::from_secs(60 * 60 * 24)),
-                            DurationFormatter(Duration::from_secs(60 * 60 * 24 * 7)),
-                            DurationFormatter(Duration::from_secs(60 * 60 * 24 * 90)),
-                        ];
-                        if let Err(idx) = values.binary_search(&DurationFormatter(autodelete_delta)) {
-                            values.insert(idx, DurationFormatter(autodelete_delta));
-                        }
-                        PickList::new(values, Some(DurationFormatter(autodelete_delta)), Message::SetAutoDeleteDelta)
-                    })
-                    .push(Row::new()
-                        .push("Send all items from world:")
+                SessionState::Room { view: RoomView::Options, wrong_file_hash: None, autodelete_delta, allow_send_all, .. } => {
+                    let mut col = Column::new()
+                        .push(Button::new("Back").on_press(Message::SetRoomView(RoomView::Normal)))
+                        .push("Automatically delete this room if no items are sent for:")
                         .push({
-                            let mut input = TextInput::new("", &self.send_all_world).on_input(Message::SetSendAllWorld).on_paste(Message::SetSendAllWorld).width(Length::Fixed(32.0));
-                            if self.send_all_world.parse::<NonZeroU8>().is_ok() {
-                                input = input.on_submit(Message::SendAll);
+                            let mut values = vec![
+                                DurationFormatter(Duration::from_secs(60 * 60 * 24)),
+                                DurationFormatter(Duration::from_secs(60 * 60 * 24 * 7)),
+                                DurationFormatter(Duration::from_secs(60 * 60 * 24 * 90)),
+                            ];
+                            if let Err(idx) = values.binary_search(&DurationFormatter(autodelete_delta)) {
+                                values.insert(idx, DurationFormatter(autodelete_delta));
                             }
-                            input
-                        })
-                        .spacing(8)
-                    )
-                    .push(Row::new()
-                        .push({
-                            let mut input = TextInput::new("Spoiler Log", &self.send_all_path).on_input(Message::SetSendAllPath).on_paste(Message::SetSendAllPath);
-                            if self.send_all_world.parse::<NonZeroU8>().is_ok() {
-                                input = input.on_submit(Message::SendAll);
-                            }
-                            input
-                        })
-                        .push(Button::new("Browse…").on_press(Message::SendAllBrowse))
-                        .push({
-                            let mut btn = Button::new("Send");
-                            if self.send_all_world.parse::<NonZeroU8>().is_ok() {
-                                btn = btn.on_press(Message::SendAll);
-                            }
-                            btn
-                        })
-                        .spacing(8)
-                    )
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                            PickList::new(values, Some(DurationFormatter(autodelete_delta)), Message::SetAutoDeleteDelta)
+                        });
+                    if allow_send_all {
+                        col = col.push(Row::new()
+                            .push("Send all items from world:")
+                            .push({
+                                let mut input = TextInput::new("", &self.send_all_world).on_input(Message::SetSendAllWorld).on_paste(Message::SetSendAllWorld).width(Length::Fixed(32.0));
+                                if self.send_all_world.parse::<NonZeroU8>().is_ok() {
+                                    input = input.on_submit(Message::SendAll);
+                                }
+                                input
+                            })
+                            .spacing(8)
+                        )
+                        .push(Row::new()
+                            .push({
+                                let mut input = TextInput::new("Spoiler Log", &self.send_all_path).on_input(Message::SetSendAllPath).on_paste(Message::SetSendAllPath);
+                                if self.send_all_world.parse::<NonZeroU8>().is_ok() {
+                                    input = input.on_submit(Message::SendAll);
+                                }
+                                input
+                            })
+                            .push(Button::new("Browse…").on_press(Message::SendAllBrowse))
+                            .push({
+                                let mut btn = Button::new("Send");
+                                if self.send_all_world.parse::<NonZeroU8>().is_ok() {
+                                    btn = btn.on_press(Message::SendAll);
+                                }
+                                btn
+                            })
+                            .spacing(8)
+                        );
+                    }
+                    col.spacing(8).padding(8).into()
+                }
                 SessionState::Room { view: RoomView::Normal, wrong_file_hash: None, ref players, num_unassigned_clients, .. } => {
                     let (players, other) = format_room_state(players, num_unassigned_clients, self.last_world);
                     let mut col = Column::new()
