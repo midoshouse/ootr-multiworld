@@ -332,6 +332,7 @@ impl fmt::Debug for RoomAuth {
     }
 }
 
+#[derive(PartialEq, Eq)]
 pub enum RoomAvailability {
     Open,
     PasswordRequired,

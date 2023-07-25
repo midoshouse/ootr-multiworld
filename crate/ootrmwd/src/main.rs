@@ -4,6 +4,7 @@
 use {
     std::{
         collections::HashMap,
+        mem,
         num::NonZeroU32,
         pin::{
             Pin,
@@ -344,9 +345,10 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                         }).await?;
                         break (reader, room, end_rx)
                     }
-                    ClientMessage::LoginApiKey { api_key } => if let Some(mw_admin) = sqlx::query_scalar!("SELECT mw_admin FROM api_keys WHERE key = $1", api_key).fetch_optional(&db_pool).await? {
-                        logged_in_as_admin = mw_admin;
-                        //TODO update room list
+                    ClientMessage::LoginApiKey { api_key } => if let Some(row) = sqlx::query!("SELECT user_id, mw_admin FROM api_keys WHERE key = $1", api_key).fetch_optional(&db_pool).await? {
+                        let was_admin = mem::replace(&mut logged_in_as_admin, row.mw_admin);
+                        let old_mhid = midos_house_user_id.replace(row.user_id as u64);
+                        update_room_list(rooms.clone(), Arc::clone(&writer), was_admin, old_mhid, logged_in_as_admin, midos_house_user_id).await?;
                     } else {
                         error!("invalid API key")
                     },
@@ -362,11 +364,11 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             .detailed_error_for_status().await?
                             .json_with_text_in_error().await?;
                         if let Some(mhid) = sqlx::query_scalar!("SELECT id FROM users WHERE discord_id = $1", i64::from(id)).fetch_optional(&db_pool).await? {
-                            midos_house_user_id = Some(mhid as u64);
+                            let old_mhid = midos_house_user_id.replace(mhid as u64);
+                            update_room_list(rooms.clone(), Arc::clone(&writer), logged_in_as_admin, old_mhid, logged_in_as_admin, midos_house_user_id).await?;
                         } else {
                             error!("no Mido's House user associated with this Discord account") //TODO automatically create
                         }
-                        //TODO update room list
                     }
                     ClientMessage::LoginRaceTime { bearer_token } => {
                         #[derive(Deserialize)]
@@ -380,11 +382,11 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             .detailed_error_for_status().await?
                             .json_with_text_in_error().await?;
                         if let Some(mhid) = sqlx::query_scalar!("SELECT id FROM users WHERE racetime_id = $1", id).fetch_optional(&db_pool).await? {
-                            midos_house_user_id = Some(mhid as u64);
+                            let old_mhid = midos_house_user_id.replace(mhid as u64);
+                            update_room_list(rooms.clone(), Arc::clone(&writer), logged_in_as_admin, old_mhid, logged_in_as_admin, midos_house_user_id).await?;
                         } else {
                             error!("no Mido's House user associated with this racetime.gg account") //TODO automatically create
                         }
-                        //TODO update room list
                     }
                     ClientMessage::Stop => if logged_in_as_admin {
                         //TODO close TCP connections and listener
@@ -436,6 +438,35 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
             }
         }
     })
+}
+
+async fn update_room_list<C: ClientKind>(rooms: Rooms<C>, writer: Arc<Mutex<C::Writer>>, was_admin: bool, old_mhid: Option<u64>, is_admin: bool, new_mhid: Option<u64>) -> Result<(), SessionError> {
+    if was_admin == is_admin && old_mhid == new_mhid { return Ok(()) }
+    let lock = rooms.0.lock().await;
+    for (id, room) in &lock.list {
+        let room = room.read().await;
+        let new_availability = room.auth.availability(is_admin, new_mhid);
+        if new_availability != room.auth.availability(was_admin, old_mhid) {
+            let password_required = match new_availability {
+                RoomAvailability::Open => Some(false),
+                RoomAvailability::PasswordRequired => Some(true),
+                RoomAvailability::Invisible => None,
+            };
+            writer.lock().await.write(if let Some(password_required) = password_required {
+                ServerMessage::NewRoom {
+                    id: *id,
+                    name: room.name.clone(),
+                    password_required,
+                }
+            } else {
+                ServerMessage::DeleteRoom {
+                    id: *id,
+                    name: room.name.clone(),
+                }
+            }).await?;
+        }
+    }
+    Ok(())
 }
 
 async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: Arc<RwLock<Room<C>>>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, mut end_rx: oneshot::Receiver<EndRoomSession>, mut shutdown: rocket::Shutdown) -> Result<(NextMessage<C>, EndRoomSession), SessionError> {
