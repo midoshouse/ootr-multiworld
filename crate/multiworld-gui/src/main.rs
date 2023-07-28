@@ -559,7 +559,7 @@ impl Application for State {
             Message::FrontendSubscriptionError(e) => {
                 if let Error::Read(async_proto::ReadError::Io(ref e)) = *e {
                     match (&self.frontend, e.kind()) {
-                        (FrontendFlags::BizHawk { .. } | FrontendFlags::Pj64V4, io::ErrorKind::UnexpectedEof) => return window::close(), // BizHawk closed
+                        (FrontendFlags::BizHawk { .. } | FrontendFlags::Pj64V4, io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof) => return window::close(), // BizHawk closed
                         (FrontendFlags::Pj64V3, io::ErrorKind::ConnectionReset) => {
                             self.frontend_writer = None;
                             return Command::none()
