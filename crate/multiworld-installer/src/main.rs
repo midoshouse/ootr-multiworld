@@ -639,8 +639,8 @@ impl Application for State {
                         #[cfg(target_os = "linux")] {
                             let dlls_dir = emulator_dir.join("dll");
                             fs::create_dir(&dlls_dir).await.exist_ok()?;
-                            #[cfg(debug_assertions)] fs::write(dlls_dir.join("multiworld.dll"), include_bytes!("../../../target/debug/libmultiworld.so")).await?;
-                            #[cfg(not(debug_assertions))] fs::write(dlls_dir.join("multiworld.dll"), include_bytes!("../../../target/release/libmultiworld.so")).await?;
+                            #[cfg(debug_assertions)] fs::write(dlls_dir.join("libmultiworld.so"), include_bytes!("../../../target/debug/libmultiworld.so")).await?;
+                            #[cfg(not(debug_assertions))] fs::write(dlls_dir.join("libmultiworld.so"), include_bytes!("../../../target/release/libmultiworld.so")).await?;
                         }
                         #[cfg(target_os = "windows")] {
                             #[cfg(debug_assertions)] fs::write(external_tools_dir.join("multiworld.dll"), include_bytes!("../../../target/debug/multiworld.dll")).await?; //TODO test if placing in `dll` works, use that if it does to keep the external tools menu clean
