@@ -514,7 +514,7 @@ impl Application for State {
                         }
                     }
                 } else {
-                    match emulator {
+                    let version = match emulator {
                         #[cfg(target_os = "windows")] Emulator::BizHawk => {
                             let [major, minor, patch, _] = match winver::get_file_version_info(PathBuf::from(emulator_path).join("EmuHawk.exe")) {
                                 Ok(version) => version,
@@ -530,9 +530,12 @@ impl Application for State {
                                 Equal => {}
                                 Greater => return cmd(future::err(Error::BizHawkVersionRegression)),
                             }
-                            return cmd(future::ok(Message::LocateMultiworld(Some(major))))
+                            Some(major)
                         }
-                        #[cfg(target_os = "linux")] Emulator::BizHawk => {} //TODO BizHawk version check on Linux
+                        #[cfg(target_os = "linux")] Emulator::BizHawk => {
+                            //TODO BizHawk version check on Linux
+                            None
+                        }
                         #[cfg(target_os = "windows")] Emulator::Project64 => {
                             let [major, minor, _, _] = match winver::get_file_version_info(PathBuf::from(emulator_path).join("Project64.exe")) {
                                 Ok(version) => version,
@@ -543,9 +546,10 @@ impl Application for State {
                                 (2, 4..) | (3..=4, _) => {} //TODO warn about Project64 v4 being experimental?
                                 (5.., _) => return cmd(future::err(Error::Project64TooNew)),
                             }
-                            return cmd(future::ok(Message::LocateMultiworld(Some(major))))
+                            Some(major)
                         }
-                    }
+                    };
+                    return cmd(future::ok(Message::LocateMultiworld(version)))
                 },
                 Page::AskBizHawkUpdate { ref emulator_path, ref multiworld_path } => {
                     let http_client = self.http_client.clone();
