@@ -349,6 +349,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                         break (reader, room, end_rx)
                     }
                     ClientMessage::LoginApiKey { api_key } => if let Some(row) = sqlx::query!("SELECT user_id, mw_admin FROM api_keys WHERE key = $1", api_key).fetch_optional(&db_pool).await? {
+                        writer.lock().await.write(ServerMessage::LoginSuccess).await?;
                         let was_admin = mem::replace(&mut logged_in_as_admin, row.mw_admin);
                         let old_mhid = midos_house_user_id.replace(row.user_id as u64);
                         update_room_list(rooms.clone(), Arc::clone(&writer), was_admin, old_mhid, logged_in_as_admin, midos_house_user_id).await?;
@@ -367,6 +368,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             .detailed_error_for_status().await?
                             .json_with_text_in_error().await?;
                         if let Some(mhid) = sqlx::query_scalar!("SELECT id FROM users WHERE discord_id = $1", i64::from(id)).fetch_optional(&db_pool).await? {
+                            writer.lock().await.write(ServerMessage::LoginSuccess).await?;
                             let old_mhid = midos_house_user_id.replace(mhid as u64);
                             update_room_list(rooms.clone(), Arc::clone(&writer), logged_in_as_admin, old_mhid, logged_in_as_admin, midos_house_user_id).await?;
                         } else {
@@ -385,6 +387,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             .detailed_error_for_status().await?
                             .json_with_text_in_error().await?;
                         if let Some(mhid) = sqlx::query_scalar!("SELECT id FROM users WHERE racetime_id = $1", id).fetch_optional(&db_pool).await? {
+                            writer.lock().await.write(ServerMessage::LoginSuccess).await?;
                             let old_mhid = midos_house_user_id.replace(mhid as u64);
                             update_room_list(rooms.clone(), Arc::clone(&writer), logged_in_as_admin, old_mhid, logged_in_as_admin, midos_house_user_id).await?;
                         } else {

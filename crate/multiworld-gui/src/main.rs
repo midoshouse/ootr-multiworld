@@ -955,18 +955,22 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                SessionState::Lobby { view: LobbyView::Settings, wrong_password: false, .. } => Column::new()
-                    .push(Row::new()
-                        .push(Button::new("Back").on_press(Message::SetLobbyView(LobbyView::Normal)))
-                        .push(Space::with_width(Length::Fill))
-                        .push(concat!("version ", env!("CARGO_PKG_VERSION")))
-                    )
-                    //TODO persist login state and show here, with option to sign out
-                    .push(Button::new("Sign in with racetime.gg").on_press(Message::SetLobbyView(LobbyView::Login(login::Provider::RaceTime))))
-                    .push(Button::new("Sign in with Discord").on_press(Message::SetLobbyView(LobbyView::Login(login::Provider::Discord))))
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                SessionState::Lobby { view: LobbyView::Settings, wrong_password: false, login_state, .. } => {
+                    let mut col = Column::new()
+                        .push(Row::new()
+                            .push(Button::new("Back").on_press(Message::SetLobbyView(LobbyView::Normal)))
+                            .push(Space::with_width(Length::Fill))
+                            .push(concat!("version ", env!("CARGO_PKG_VERSION")))
+                        );
+                    if login_state.is_some() {
+                        col = col.push("You are signed in."); //TODO option to sign out
+                    } else {
+                        col = col
+                            .push(Button::new("Sign in with racetime.gg").on_press(Message::SetLobbyView(LobbyView::Login(login::Provider::RaceTime))))
+                            .push(Button::new("Sign in with Discord").on_press(Message::SetLobbyView(LobbyView::Login(login::Provider::Discord))));
+                    }
+                    col.spacing(8).padding(8).into()
+                }
                 SessionState::Lobby { view: LobbyView::Login(provider), wrong_password: false, .. } => Column::new()
                     .push(Text::new(format!("Signing in with {provider}…")))
                     .push("Please continue in your web browser.")
