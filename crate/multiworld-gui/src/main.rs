@@ -368,6 +368,7 @@ impl State {
 
 #[derive(Debug, Clone)]
 enum FrontendFlags {
+    Dummy,
     BizHawk {
         path: PathBuf,
         pid: Pid,
@@ -381,6 +382,7 @@ enum FrontendFlags {
 impl FrontendFlags {
     fn display_with_version(&self) -> Cow<'static, str> {
         match self {
+            Self::Dummy => "(no frontend)".into(),
             Self::BizHawk { local_bizhawk_version, .. } => format!("BizHawk {local_bizhawk_version}").into(),
             Self::Pj64V3 => "Project64 3.x".into(),
             Self::Pj64V4 => "Project64 4.x".into(),
@@ -391,6 +393,7 @@ impl FrontendFlags {
 impl fmt::Display for FrontendFlags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Dummy => write!(f, "(no frontend)"),
             Self::BizHawk { .. } => write!(f, "BizHawk"),
             Self::Pj64V3 | Self::Pj64V4 => write!(f, "Project64"),
         }
@@ -458,6 +461,7 @@ impl Application for State {
                     #[cfg(unix)] fs::set_permissions(&updater_path, fs::Permissions::from_mode(0o755)).await?;
                     let mut cmd = std::process::Command::new(updater_path);
                     match frontend {
+                        FrontendFlags::Dummy => return Ok(Message::UpToDate),
                         FrontendFlags::BizHawk { path, pid, local_bizhawk_version, port: _ } => {
                             cmd.arg("bizhawk");
                             cmd.arg(process::id().to_string());
@@ -907,10 +911,11 @@ impl Application for State {
                 .spacing(8)
                 .padding(8)
                 .into()
-        } else if self.frontend_writer.is_none() {
+        } else if self.frontend_writer.is_none() && !matches!(self.frontend, FrontendFlags::Dummy) {
             Column::new()
                 .push(Text::new(format!("Waiting for {}…", self.frontend)))
                 .push(match &self.frontend {
+                    FrontendFlags::Dummy => unreachable!(),
                     FrontendFlags::BizHawk { .. } => "Make sure your game is running and unpaused.",
                     FrontendFlags::Pj64V3 => "1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.",
                     FrontendFlags::Pj64V4 => "This should take less than 5 seconds.",
@@ -1147,11 +1152,12 @@ impl Application for State {
     fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = Vec::with_capacity(3);
         if self.updates_checked {
-            subscriptions.push(match self.frontend {
-                FrontendFlags::BizHawk { port, .. } => Subscription::from_recipe(subscriptions::Connection { port, frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id }),
-                FrontendFlags::Pj64V4 => Subscription::from_recipe(subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id }),
-                FrontendFlags::Pj64V3 => Subscription::from_recipe(subscriptions::Listener { frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id }),
-            });
+            match self.frontend {
+                FrontendFlags::Dummy => {}
+                FrontendFlags::BizHawk { port, .. } => subscriptions.push(Subscription::from_recipe(subscriptions::Connection { port, frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id })),
+                FrontendFlags::Pj64V4 => subscriptions.push(Subscription::from_recipe(subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id })),
+                FrontendFlags::Pj64V3 => subscriptions.push(Subscription::from_recipe(subscriptions::Listener { frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id })),
+            }
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
                 subscriptions.push(Subscription::from_recipe(subscriptions::Client { log: self.log, websocket_url: self.websocket_url.clone() }));
             }
@@ -1206,6 +1212,8 @@ enum MainError {
 #[derive(clap::Subcommand)]
 #[clap(rename_all = "lower")]
 enum FrontendArgs {
+    #[clap(name = "dummy-frontend")]
+    Dummy,
     BizHawk {
         path: PathBuf,
         pid: Pid,
@@ -1232,6 +1240,7 @@ fn main(CliArgs { frontend }: CliArgs) -> Result<(), MainError> {
         },
         ..Settings::with_flags(match frontend {
             None => FrontendFlags::Pj64V3,
+            Some(FrontendArgs::Dummy) => FrontendFlags::Dummy,
             Some(FrontendArgs::BizHawk { path, pid, local_bizhawk_version, port }) => FrontendFlags::BizHawk { path, pid, local_bizhawk_version, port },
             Some(FrontendArgs::Pj64V4) => FrontendFlags::Pj64V4,
         })
