@@ -51,7 +51,10 @@ use {
         ToHtml,
         html,
     },
-    tokio::sync::mpsc,
+    tokio::{
+        sync::mpsc,
+        task::JoinHandle,
+    },
     tokio_stream::wrappers::ReceiverStream,
     crate::Message,
 };
@@ -76,6 +79,29 @@ impl Recipe for Subscription {
     }
 
     fn stream(self: Box<Self>, _: EventStream) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
+        struct RocketDropStream<S: Stream> {
+            rocket: JoinHandle<()>,
+            stream: S,
+        }
+
+        impl<S: Stream> Stream for RocketDropStream<S> {
+            type Item = S::Item;
+
+            fn poll_next(self: Pin<&mut Self>, cx: &mut futures::task::Context<'_>) -> futures::task::Poll<Option<S::Item>> {
+                unsafe { self.map_unchecked_mut(|s| &mut s.stream) }.poll_next(cx)
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                self.stream.size_hint()
+            }
+        }
+
+        impl<S: Stream> Drop for RocketDropStream<S> {
+            fn drop(&mut self) {
+                self.rocket.abort();
+            }
+        }
+
         stream::once(async move {
             let oauth_client = match self.0 {
                 Provider::RaceTime => BasicClient::new(
@@ -133,10 +159,15 @@ impl Recipe for Subscription {
             if let Some(pkce_verifier) = pkce_verifier {
                 rocket = rocket.manage(pkce_verifier);
             }
-            let Rocket { .. } = rocket.launch().await?;
-            Ok::<_, Error>(stream::once(future::ready(Message::OpenLoginPage(auth_url)))
-                .chain(ReceiverStream::new(token_rx).map(Message::LoginToken))
-                .map(Ok))
+            let rocket = rocket.ignite().await?;
+            Ok::<_, Error>(RocketDropStream {
+                rocket: tokio::spawn(async move {
+                    let Rocket { .. } = rocket.launch().await.expect("error in OAuth callback web server");
+                }),
+                stream: stream::once(future::ready(Message::OpenLoginPage(auth_url)))
+                    .chain(ReceiverStream::new(token_rx).map(Message::LoginToken))
+                    .map(Ok),
+            })
         })
         .try_flatten()
         .map(|res| match res {
