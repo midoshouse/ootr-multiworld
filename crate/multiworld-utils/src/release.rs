@@ -5,7 +5,6 @@ use {
     std::{
         cmp::Ordering::*,
         env,
-        ffi::OsString,
         fmt,
         io::{
             Cursor,
@@ -150,20 +149,20 @@ impl Task<Result<(reqwest::Client, Repo, Version, bool), Error>> for Setup {
     }
 }
 
-enum CreateRelease<'c> {
-    CreateNotesFile(Repo, reqwest::Client, broadcast::Sender<Release>, &'c Cli, Args),
-    EditNotes(Repo, reqwest::Client, broadcast::Sender<Release>, &'c Cli, Args, NamedTempFile),
+enum CreateRelease {
+    CreateNotesFile(Repo, reqwest::Client, broadcast::Sender<Release>, Args),
+    EditNotes(Repo, reqwest::Client, broadcast::Sender<Release>, Args, NamedTempFile),
     ReadNotes(Repo, reqwest::Client, broadcast::Sender<Release>, NamedTempFile),
     Create(Repo, reqwest::Client, broadcast::Sender<Release>, String),
 }
 
-impl<'c> CreateRelease<'c> {
-    fn new(repo: Repo, client: reqwest::Client, tx: broadcast::Sender<Release>, cli: &'c Cli, args: Args) -> Self {
-        Self::CreateNotesFile(repo, client, tx, cli, args)
+impl CreateRelease {
+    fn new(repo: Repo, client: reqwest::Client, tx: broadcast::Sender<Release>, args: Args) -> Self {
+        Self::CreateNotesFile(repo, client, tx, args)
     }
 }
 
-impl fmt::Display for CreateRelease<'_> {
+impl fmt::Display for CreateRelease {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::CreateNotesFile(..) => write!(f, "creating release notes file"),
@@ -174,7 +173,7 @@ impl fmt::Display for CreateRelease<'_> {
     }
 }
 
-impl Progress for CreateRelease<'_> {
+impl Progress for CreateRelease {
     fn progress(&self) -> Percent {
         Percent::fraction(match self {
             Self::CreateNotesFile(..) => 0,
@@ -186,43 +185,33 @@ impl Progress for CreateRelease<'_> {
 }
 
 #[async_trait]
-impl Task<Result<Release, Error>> for CreateRelease<'_> {
+impl Task<Result<Release, Error>> for CreateRelease {
     async fn run(self) -> Result<Result<Release, Error>, Self> {
         match self {
-            Self::CreateNotesFile(repo, client, tx, cli, args) => gres::transpose(async move {
+            Self::CreateNotesFile(repo, client, tx, args) => gres::transpose(async move {
                 let notes_file = tokio::task::spawn_blocking(|| {
                     tempfile::Builder::default()
                         .prefix("ootrmw-release-notes")
                         .suffix(".md")
                         .tempfile()
                 }).await??;
-                Ok(Err(Self::EditNotes(repo, client, tx, cli, args, notes_file)))
+                Ok(Err(Self::EditNotes(repo, client, tx, args, notes_file)))
             }).await,
-            Self::EditNotes(repo, client, tx, cli, args, notes_file) => gres::transpose(async move {
+            Self::EditNotes(repo, client, tx, args, notes_file) => gres::transpose(async move {
                 let mut cmd;
-                let (cmd_name, cli_lock) = if let Some(ref editor) = args.release_notes_editor {
-                    cmd = Command::new(editor);
+                let cmd_name = if env::var("TERM_PROGRAM").as_deref() == Ok("vscode") {
+                    cmd = Command::new("code.cmd");
                     if !args.no_wait {
                         cmd.arg("--wait");
                     }
-                    ("editor", Some(cli.lock().await))
+                    "code"
+                } else if env::var_os("STY").is_none() && env::var_os("SSH_CLIENT").is_none() && env::var_os("SSH_TTY").is_none() {
+                    cmd = Command::new("C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd");
+                    "code"
                 } else {
-                    if env::var("TERM_PROGRAM").as_deref() == Ok("vscode") {
-                        cmd = Command::new("code.cmd");
-                        if !args.no_wait {
-                            cmd.arg("--wait");
-                        }
-                        ("code", None)
-                    } else if env::var_os("STY").is_none() && env::var_os("SSH_CLIENT").is_none() && env::var_os("SSH_TTY").is_none() {
-                        cmd = Command::new("C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd");
-                        ("code", None)
-                    } else {
-                        cmd = Command::new("C:\\ProgramData\\chocolatey\\bin\\nano.exe");
-                        ("nano", Some(cli.lock().await))
-                    }
+                    unimplemented!("cannot edit release notes")
                 };
                 cmd.arg(notes_file.path()).spawn()?.check(cmd_name).await?; // spawn before checking to avoid capturing stdio
-                drop(cli_lock);
                 Ok(Err(Self::ReadNotes(repo, client, tx, notes_file)))
             }).await,
             Self::ReadNotes(repo, client, tx, mut notes_file) => gres::transpose(async move {
@@ -439,7 +428,11 @@ impl Task<Result<(), Error>> for BuildBizHawk {
                 build.arg("--package=multiworld-bizhawk");
                 build.check("cargo build --package=multiworld-bizhawk").await?;
                 let _ = bizhawk_tx.send(WindowsBizHawkNotification);
-                Ok(Err(Self::Zip(client, repo, release_rx, version)))
+                Ok(if debug {
+                    Ok(())
+                } else {
+                    Err(Self::Zip(client, repo, release_rx, version))
+                })
             }).await,
             Self::Zip(client, repo, release_rx, version) => gres::transpose(async move {
                 let zip_data = tokio::task::spawn_blocking(move || {
@@ -903,9 +896,6 @@ struct Args {
     /// Don't pass `--wait` to the release notes editor
     #[clap(short = 'W', long)]
     no_wait: bool,
-    /// the editor for the release notes
-    #[clap(short = 'e', long)]
-    release_notes_editor: Option<OsString>,
     /// Only update the server
     #[clap(short, long, conflicts_with("no_publish"), conflicts_with("no_server"), conflicts_with("no_wait"), conflicts_with("release_notes_editor"))]
     server_only: bool,
@@ -1011,7 +1001,7 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
         }
 
         let release = build_tasks![
-            release = cli.run(CreateRelease::new(create_release_repo, create_release_client, release_tx, cli, create_release_args), "release created").map_err(Error::Io),
+            release = cli.run(CreateRelease::new(create_release_repo, create_release_client, release_tx, create_release_args), "release created").map_err(Error::Io),
             async move { cli.run(BuildUpdater::new(true, debug_updater_tx), "debug updater build done").await? },
             async move { cli.run(BuildUpdater::new(false, updater_tx), "updater build done").await? },
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildGui::new(true, client, repo, debug_updater_rx, release_rx_gui_debug, debug_gui_tx), "Windows debug GUI build done").await? } },
@@ -1028,8 +1018,7 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
         if !args.no_publish {
             let line = cli.new_line("[....] publishing release").await?;
             repo.publish_release(&client, release).await?;
-            line.replace("[done] release published").await?;
-            line.drop_async().await;
+            line.replace("[done] release published")?;
         }
     }
     Ok(())

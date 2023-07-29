@@ -82,7 +82,7 @@ features = ["serde"]
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
 branch = "main"
-features = ["async-proto"]
+features = ["async-proto", "reqwest", "serde", "serde_json"]
 
 [target.'cfg(unix)'.dependencies]
 xdg = "2"

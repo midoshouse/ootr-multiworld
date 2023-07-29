@@ -2164,11 +2164,12 @@ dependencies = [
 
 [[package]]
 name = "gres"
-version = "0.2.4"
-source = "git+https://github.com/fenhl/gres?branch=main#0ed7235b76b8e37d70952dc6c3714bf775fcdac0"
+version = "0.2.5"
+source = "git+https://github.com/fenhl/gres?branch=main#7186445ed4ba10b87a97e90f006e5f9a540795b3"
 dependencies = [
  "async-trait",
  "crossterm 0.25.0",
+ "parking_lot 0.12.1",
  "tokio",
 ]
 

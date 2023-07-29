@@ -24,6 +24,7 @@ enum Error {
     #[error(transparent)] Io(#[from] std::io::Error),
     #[cfg(not(windows))] #[error(transparent)] ParseInt(#[from] std::num::ParseIntError),
     #[cfg(not(windows))] #[error(transparent)] Reqwest(#[from] reqwest::Error),
+    #[cfg(not(windows))] #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error("missing environment variable")]
     Env,
     #[cfg(not(windows))]
