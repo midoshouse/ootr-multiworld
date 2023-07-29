@@ -13,7 +13,7 @@ rand = "0.8"
 thiserror = "1"
 
 [dependencies.async-proto]
-version = "0.16"
+version = "=0.16.9" # rocket-ws is still on tungstenite 0.19
 features = ["chrono"]
 
 [dependencies.chrono]
@@ -64,7 +64,7 @@ default-features = false
 features = ["model", "rustls_backend"]
 
 [dependencies.sqlx]
-version = "0.6"
+version = "0.7"
 default-features = false
 features = ["chrono", "postgres", "runtime-tokio-rustls"]
 

@@ -8,8 +8,8 @@ edition.workspace = true
 proc-macro = true
 
 [dependencies]
-itertools = "0.10"
-lazy-regex = "2"
+itertools = "0.11"
+lazy-regex = "3"
 proc-macro2 = "1"
 quote = "1"
 semver = "1"

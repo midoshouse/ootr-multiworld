@@ -1,12 +1,12 @@
 use {
     std::{
         any::TypeId,
-        hash::{
-            Hash as _,
-            Hasher,
-        },
+        hash::Hash as _,
         net::Ipv4Addr,
-        pin::pin,
+        pin::{
+            Pin,
+            pin,
+        },
         sync::Arc,
         time::Duration,
     },
@@ -18,13 +18,16 @@ use {
         },
         stream::{
             self,
-            BoxStream,
             SplitSink,
+            Stream,
             StreamExt as _,
             TryStreamExt as _,
         },
     },
-    iced_futures::subscription::Recipe,
+    iced::advanced::subscription::{
+        EventStream,
+        Recipe,
+    },
     tokio::{
         net::{
             TcpListener,
@@ -62,15 +65,15 @@ pub(crate) struct Connection {
     pub(crate) connection_id: u8,
 }
 
-impl<H: Hasher, I> Recipe<H, I> for Connection {
+impl Recipe for Connection {
     type Output = Message;
 
-    fn hash(&self, state: &mut H) {
+    fn hash(&self, state: &mut iced::advanced::Hasher) {
         TypeId::of::<Self>().hash(state);
         self.connection_id.hash(state);
     }
 
-    fn stream(self: Box<Self>, _: BoxStream<'_, I>) -> BoxStream<'_, Message> {
+    fn stream(self: Box<Self>, _: EventStream) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
         let frontend = self.frontend.clone();
         let log = self.log;
         stream::once(TcpStream::connect((Ipv4Addr::LOCALHOST, self.port)).map_err(Error::from))
@@ -108,15 +111,15 @@ pub(crate) struct Listener {
     pub(crate) connection_id: u8,
 }
 
-impl<H: Hasher, I> Recipe<H, I> for Listener {
+impl Recipe for Listener {
     type Output = Message;
 
-    fn hash(&self, state: &mut H) {
+    fn hash(&self, state: &mut iced::advanced::Hasher) {
         TypeId::of::<Self>().hash(state);
         self.connection_id.hash(state);
     }
 
-    fn stream(self: Box<Self>, _: BoxStream<'_, I>) -> BoxStream<'_, Message> {
+    fn stream(self: Box<Self>, _: EventStream) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
         let frontend = self.frontend.clone();
         let log = self.log;
         stream::once(TcpListener::bind((Ipv4Addr::LOCALHOST, frontend::PORT)))
@@ -159,14 +162,14 @@ pub(crate) struct Client {
     pub(crate) websocket_url: Url,
 }
 
-impl<H: Hasher, I> Recipe<H, I> for Client {
+impl Recipe for Client {
     type Output = Message;
 
-    fn hash(&self, state: &mut H) {
+    fn hash(&self, state: &mut iced::advanced::Hasher) {
         TypeId::of::<Self>().hash(state);
     }
 
-    fn stream(self: Box<Self>, _: BoxStream<'_, I>) -> BoxStream<'_, Message> {
+    fn stream(self: Box<Self>, _: EventStream) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
         let log = self.log;
         stream::once(tokio_tungstenite::connect_async(self.websocket_url))
             .err_into::<Error>()

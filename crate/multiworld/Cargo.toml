@@ -15,7 +15,7 @@ derivative = "2"
 either = "1"
 futures = "0.3"
 if_chain = "1"
-itertools = "0.10"
+itertools = "0.11"
 once_cell = "1"
 ring = "0.16"
 semver = "1"
@@ -23,7 +23,7 @@ serde_json = "1"
 thiserror = "1"
 
 [dependencies.async-proto]
-version = "0.16"
+version = "=0.16.9" # rocket-ws is still on tungstenite 0.19
 features = ["semver"]
 
 [dependencies.chrono]
@@ -40,7 +40,8 @@ branch = "main"
 
 [dependencies.oottracker]
 git = "https://github.com/fenhl/oottracker"
-branch = "main"
+#branch = "main"
+rev = "38ac31c244c8d6bcc36abce04ca19763681c50d2" # rocket-ws is still on tungstenite 0.19
 
 [dependencies.pyo3]
 version = "0.19"
@@ -61,7 +62,7 @@ version = "1"
 features = ["derive"]
 
 [dependencies.sqlx]
-version = "0.6"
+version = "0.7"
 default-features = false
 features = ["macros", "postgres"]
 optional = true
@@ -71,7 +72,7 @@ version = "1"
 features = ["net", "process", "sync", "time"]
 
 [dependencies.tokio-tungstenite]
-version = "0.19"
+version = "0.19" # rocket-ws is still on tungstenite 0.19
 features = ["rustls-tls-webpki-roots"]
 
 [dependencies.url]

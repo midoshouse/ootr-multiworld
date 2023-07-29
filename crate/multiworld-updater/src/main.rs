@@ -163,7 +163,7 @@ impl Clone for Message {
 }
 
 fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) -> Command<Message> {
-    Command::single(iced_native::command::Action::Future(Box::pin(async move {
+    Command::single(iced_runtime::command::Action::Future(Box::pin(async move {
         match future.await {
             Ok(msg) => msg,
             Err(e) => Message::Error(Arc::new(e.into())),

@@ -178,7 +178,7 @@ impl LoggingSink {
     }
 }
 
-fn hash_icon(icon: HashIcon) -> Image {
+fn hash_icon(icon: HashIcon) -> Image<image::Handle> {
     Image::new(image::Handle::from_memory(match icon {
         HashIcon::Beans => &include_bytes!("../../../assets/hash-icon/deku-stick.png")[..],
         HashIcon::BigMagic => &include_bytes!("../../../assets/hash-icon/deku-nut.png")[..],
@@ -295,7 +295,7 @@ enum Message {
 }
 
 fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) -> Command<Message> {
-    Command::single(iced_native::command::Action::Future(Box::pin(async move {
+    Command::single(iced_runtime::command::Action::Future(Box::pin(async move {
         match future.await {
             Ok(msg) => msg,
             Err(e) => Message::CommandError(Arc::new(e.into())),

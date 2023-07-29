@@ -9,8 +9,8 @@ name = "multiworld"
 crate-type = ["cdylib"]
 
 [dependencies]
-async-proto = "0.16"
-itertools = "0.10"
+async-proto = "=0.16.9" # rocket-ws is still on tungstenite 0.19
+itertools = "0.11"
 libc = "0.2"
 once_cell = "1"
 thiserror = "1"
@@ -32,7 +32,8 @@ branch = "main"
 
 [dependencies.oottracker]
 git = "https://github.com/fenhl/oottracker"
-branch = "main"
+#branch = "main"
+rev = "38ac31c244c8d6bcc36abce04ca19763681c50d2" # rocket-ws is still on tungstenite 0.19
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"

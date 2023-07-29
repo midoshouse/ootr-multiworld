@@ -8,15 +8,14 @@ edition.workspace = true
 winres = "0.1"
 
 [dependencies]
-async-proto = "0.16"
+async-proto = "=0.16.9" # rocket-ws is still on tungstenite 0.19
 dark-light = "1"
 futures = "0.3"
-iced_futures = "0.6"
-iced_native = "0.10"
-itertools = "0.10"
+iced_runtime = "0.1"
+itertools = "0.11"
 oauth2 = "4"
 once_cell = "1"
-open = "4"
+open = "5"
 rfd = "0.11"
 semver = "1"
 serde_json = "1"
@@ -35,8 +34,8 @@ version = "4"
 features = ["derive"]
 
 [dependencies.iced]
-version = "0.9"
-features = ["default_system_font", "glow", "image", "tokio"]
+version = "0.10"
+features = ["advanced", "image", "tokio"]
 
 [dependencies.image]
 version = "0.24"
@@ -52,7 +51,8 @@ branch = "main"
 
 [dependencies.oottracker]
 git = "https://github.com/fenhl/oottracker"
-branch = "main"
+#branch = "main"
+rev = "38ac31c244c8d6bcc36abce04ca19763681c50d2" # rocket-ws is still on tungstenite 0.19
 
 [dependencies.reqwest]
 version = "0.11"
@@ -77,7 +77,7 @@ version = "1"
 features = ["fs", "net", "sync", "time"]
 
 [dependencies.tokio-tungstenite]
-version = "0.19"
+version = "0.19" # rocket-ws is still on tungstenite 0.19
 features = ["rustls-tls-webpki-roots"]
 
 [dependencies.wheel]

@@ -2,23 +2,24 @@ use {
     std::{
         any::TypeId,
         fmt,
-        hash::{
-            Hash as _,
-            Hasher,
-        },
+        hash::Hash as _,
         marker::PhantomData,
+        pin::Pin,
         sync::Arc,
     },
     futures::{
         future,
         stream::{
             self,
-            BoxStream,
+            Stream,
             StreamExt as _,
             TryStreamExt as _,
         },
     },
-    iced_futures::subscription::Recipe,
+    iced::advanced::subscription::{
+        EventStream,
+        Recipe,
+    },
     oauth2::{
         AuthUrl,
         AuthorizationCode,
@@ -66,15 +67,15 @@ pub(crate) enum Error {
 
 pub(crate) struct Subscription(pub(crate) Provider);
 
-impl<H: Hasher, I> Recipe<H, I> for Subscription {
+impl Recipe for Subscription {
     type Output = Message;
 
-    fn hash(&self, state: &mut H) {
+    fn hash(&self, state: &mut iced::advanced::Hasher) {
         TypeId::of::<Self>().hash(state);
         self.0.hash(state);
     }
 
-    fn stream(self: Box<Self>, _: BoxStream<'_, I>) -> BoxStream<'_, Message> {
+    fn stream(self: Box<Self>, _: EventStream) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
         stream::once(async move {
             let oauth_client = match self.0 {
                 Provider::RaceTime => BasicClient::new(
