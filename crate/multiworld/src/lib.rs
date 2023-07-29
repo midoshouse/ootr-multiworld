@@ -922,7 +922,10 @@ pub enum SessionStateError<E> {
     #[error("server error #{0}")]
     Future(u8),
     #[error("received an unexpected message from the server given the current connection state")]
-    Mismatch,
+    Mismatch {
+        expected: &'static str,
+        actual: Box<SessionState<E>>,
+    },
     #[error("server error: {0}")]
     Server(String),
 }
@@ -1008,7 +1011,10 @@ impl<E> SessionState<E> {
                 password.clear();
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Lobby",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1016,7 +1022,10 @@ impl<E> SessionState<E> {
                 *wrong_file_hash = Some([server, client]);
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1024,7 +1033,10 @@ impl<E> SessionState<E> {
                 *create_new_room = false;
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Lobby",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1072,7 +1084,10 @@ impl<E> SessionState<E> {
                 rooms.insert(id, (name, password_required));
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Lobby",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1083,7 +1098,10 @@ impl<E> SessionState<E> {
                 }
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Lobby",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1101,13 +1119,19 @@ impl<E> SessionState<E> {
                     };
                 } else {
                     *self = Self::Error {
-                        e: SessionStateError::Mismatch,
+                        e: SessionStateError::Mismatch {
+                            expected: "Lobby with room ID",
+                            actual: Box::new(mem::replace(self, Self::Init)),
+                        },
                         auto_retry: false,
                     };
                 }
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Lobby",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1118,7 +1142,10 @@ impl<E> SessionState<E> {
                 }
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1129,7 +1156,10 @@ impl<E> SessionState<E> {
                 }
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1137,7 +1167,10 @@ impl<E> SessionState<E> {
                 *num_unassigned_clients += 1;
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1147,7 +1180,10 @@ impl<E> SessionState<E> {
                 }
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1155,7 +1191,10 @@ impl<E> SessionState<E> {
                 *num_unassigned_clients -= 1;
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1165,7 +1204,10 @@ impl<E> SessionState<E> {
                 }
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1173,7 +1215,10 @@ impl<E> SessionState<E> {
                 *item_queue = queue.clone();
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1181,7 +1226,10 @@ impl<E> SessionState<E> {
                 item_queue.push(item);
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1189,7 +1237,10 @@ impl<E> SessionState<E> {
                 login_state.get_or_insert_with(LoginState::default).admin = true;
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Lobby",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1202,7 +1253,10 @@ impl<E> SessionState<E> {
                 }
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1210,7 +1264,10 @@ impl<E> SessionState<E> {
                 *autodelete_delta = new_delta;
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1219,7 +1276,10 @@ impl<E> SessionState<E> {
                 progressive_items.insert(world, state);
             } else {
                 *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 };
             },
@@ -1227,7 +1287,10 @@ impl<E> SessionState<E> {
                 Self::Lobby { login_state, .. } => { login_state.get_or_insert_with(LoginState::default); }
                 Self::Room { login_state, .. } => { login_state.get_or_insert_with(LoginState::default); }
                 Self::Error { .. } | Self::Init | Self::InitAutoRejoin { .. } | Self::Closed => *self = Self::Error {
-                    e: SessionStateError::Mismatch,
+                    e: SessionStateError::Mismatch {
+                        expected: "Lobby or Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
                     auto_retry: false,
                 },
             },
