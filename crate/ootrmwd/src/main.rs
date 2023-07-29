@@ -30,6 +30,12 @@ use {
             TryStreamExt as _,
         },
     },
+    log_lock::{
+        ArcRwLock,
+        Mutex,
+        OwnedRwLockWriteGuard,
+        lock,
+    },
     rand::prelude::*,
     ring::{
         pbkdf2,
@@ -50,9 +56,6 @@ use {
         process::Command,
         select,
         sync::{
-            Mutex,
-            OwnedRwLockWriteGuard,
-            RwLock,
             broadcast,
             oneshot,
         },
@@ -139,19 +142,19 @@ async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http
         let mut interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
         loop {
             interval.tick().await;
-            if let Err(_) = ping_writer.lock().await.write(ServerMessage::Ping).await { break }
+            if let Err(_) = lock!(ping_writer).write(ServerMessage::Ping).await { break }
         }
     });
     let mut read = next_message::<C>(reader);
     loop {
         let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, writer.clone(), shutdown.clone()).await?;
-        let _ = rooms.0.lock().await.change_tx.send(RoomListChange::Join);
+        let _ = lock!(rooms.0).change_tx.send(RoomListChange::Join);
         let (lobby_reader, end) = room_session(rooms.clone(), room, socket_id, room_reader, writer.clone(), end_rx, shutdown.clone()).await?;
-        let _ = rooms.0.lock().await.change_tx.send(RoomListChange::Leave);
+        let _ = lock!(rooms.0).change_tx.send(RoomListChange::Leave);
         match end {
             EndRoomSession::ToLobby => read = lobby_reader,
             EndRoomSession::Disconnect => {
-                writer.lock().await.write(ServerMessage::Goodbye).await?;
+                lock!(writer).write(ServerMessage::Goodbye).await?;
                 break
             }
         }
@@ -166,11 +169,11 @@ fn next_message<C: ClientKind>(reader: C::Reader) -> NextMessage<C> {
     Box::pin(timeout(Duration::from_secs(60), reader.read_owned()))
 }
 
-async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, mut read: NextMessage<C>, writer: Arc<Mutex<C::Writer>>, mut shutdown: rocket::Shutdown) -> Result<(C::Reader, Arc<RwLock<Room<C>>>, oneshot::Receiver<EndRoomSession>), SessionError> {
+async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, mut read: NextMessage<C>, writer: Arc<Mutex<C::Writer>>, mut shutdown: rocket::Shutdown) -> Result<(C::Reader, ArcRwLock<Room<C>>, oneshot::Receiver<EndRoomSession>), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             let msg = format!($($msg)*);
-            writer.lock().await.write(ServerMessage::OtherError(msg.clone())).await?;
+            lock!(writer).write(ServerMessage::OtherError(msg.clone())).await?;
             return Err(SessionError::Server(msg))
         }};
     }
@@ -179,11 +182,11 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
     let mut midos_house_user_id = None;
     let mut waiting_until_empty = false;
     let mut room_stream = {
-        let lock = rooms.0.lock().await;
+        let lock = lock!(rooms.0);
         let stream = lock.change_tx.subscribe();
-        writer.lock().await.write(ServerMessage::EnterLobby {
+        lock!(writer).write(ServerMessage::EnterLobby {
             rooms: stream::iter(lock.list.iter()).filter_map(|(id, room)| async move {
-                let room = room.read().await;
+                let room = lock!(@read room);
                 let password_required = match room.auth.availability(logged_in_as_admin, midos_house_user_id) {
                     RoomAvailability::Open => false,
                     RoomAvailability::PasswordRequired => true,
@@ -200,14 +203,14 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
             room_list_change = room_stream.recv() => {
                 match room_list_change {
                     Ok(RoomListChange::New(room)) => {
-                        let room = room.read().await;
+                        let room = lock!(@read room);
                         let password_required = match room.auth.availability(logged_in_as_admin, midos_house_user_id) {
                             RoomAvailability::Open => Some(false),
                             RoomAvailability::PasswordRequired => Some(true),
                             RoomAvailability::Invisible => None, // don't announce the room to the client
                         };
                         if let Some(password_required) = password_required {
-                            writer.lock().await.write(ServerMessage::NewRoom {
+                            lock!(writer).write(ServerMessage::NewRoom {
                                 id: room.id,
                                 name: room.name.clone(),
                                 password_required,
@@ -220,23 +223,23 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             RoomAvailability::Invisible => false,
                         };
                         if visible {
-                            writer.lock().await.write(ServerMessage::DeleteRoom { id, name }).await?;
+                            lock!(writer).write(ServerMessage::DeleteRoom { id, name }).await?;
                         }
                     }
                     Ok(RoomListChange::Join | RoomListChange::Leave) => {}
                     Err(broadcast::error::RecvError::Closed) => unreachable!("room list should be maintained indefinitely"),
-                    Err(broadcast::error::RecvError::Lagged(_)) => room_stream = rooms.0.lock().await.change_tx.subscribe(),
+                    Err(broadcast::error::RecvError::Lagged(_)) => room_stream = lock!(rooms.0).change_tx.subscribe(),
                 }
                 if waiting_until_empty {
                     let mut any_players = false;
-                    for room in rooms.0.lock().await.list.values() {
-                        if room.read().await.clients.values().any(|client| client.player.is_some()) {
+                    for room in lock!(rooms.0).list.values() {
+                        if lock!(@read room).clients.values().any(|client| client.player.is_some()) {
                             any_players = true;
                             break
                         }
                     }
                     if !any_players {
-                        writer.lock().await.write(ServerMessage::RoomsEmpty).await?;
+                        lock!(writer).write(ServerMessage::RoomsEmpty).await?;
                     }
                 }
             }
@@ -245,7 +248,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                 match msg {
                     ClientMessage::Ping => {}
                     ClientMessage::JoinRoom { ref room, password } => if let Some(room_arc) = rooms.get_arc(room).await {
-                        let mut room = room_arc.write().await;
+                        let mut room = lock!(@write room_arc);
                         let authorized = logged_in_as_admin || match &room.auth {
                             RoomAuth::Password { hash, salt } => password.map_or(false, |password| pbkdf2::verify(
                                 pbkdf2::PBKDF2_HMAC_SHA512,
@@ -269,7 +272,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                                     num_unassigned_clients += 1;
                                 }
                             }
-                            writer.lock().await.write(ServerMessage::EnterRoom {
+                            lock!(writer).write(ServerMessage::EnterRoom {
                                 room_id: room.id,
                                 autodelete_delta: room.autodelete_delta,
                                 allow_send_all: room.allow_send_all,
@@ -278,7 +281,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             drop(room);
                             break (reader, room_arc, end_rx)
                         } else {
-                            writer.lock().await.write(ServerMessage::StructuredError(ServerError::WrongPassword)).await?;
+                            lock!(writer).write(ServerMessage::StructuredError(ServerError::WrongPassword)).await?;
                         }
                     } else {
                         match room {
@@ -317,7 +320,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             let id = thread_rng().gen::<u64>();
                             if !sqlx::query_scalar!(r#"SELECT EXISTS (SELECT 1 FROM mw_rooms WHERE id = $1) AS "exists!""#, id as i64).fetch_one(&db_pool).await? { break id } //TODO save room to database in same transaction
                         };
-                        let room = Arc::new(RwLock::new(Room {
+                        let room = ArcRwLock::new(Room {
                             name: name.clone(),
                             auth: RoomAuth::Password {
                                 hash: password_hash,
@@ -329,17 +332,17 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             last_saved: Utc::now(),
                             allow_send_all: true,
                             autodelete_tx: {
-                                let rooms = rooms.0.lock().await;
+                                let rooms = lock!(rooms.0);
                                 rooms.autodelete_tx.clone()
                             },
                             db_pool: db_pool.clone(),
                             tracker_state: None,
                             id, clients, autodelete_delta,
-                        }));
+                        });
                         if !rooms.add(room.clone()).await {
-                            writer.lock().await.write(ServerMessage::StructuredError(ServerError::RoomExists)).await?;
+                            lock!(writer).write(ServerMessage::StructuredError(ServerError::RoomExists)).await?;
                         }
-                        writer.lock().await.write(ServerMessage::EnterRoom {
+                        lock!(writer).write(ServerMessage::EnterRoom {
                             room_id: id,
                             players: Vec::default(),
                             num_unassigned_clients: 1,
@@ -349,7 +352,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                         break (reader, room, end_rx)
                     }
                     ClientMessage::LoginApiKey { api_key } => if let Some(row) = sqlx::query!("SELECT user_id, mw_admin FROM api_keys WHERE key = $1", api_key).fetch_optional(&db_pool).await? {
-                        writer.lock().await.write(ServerMessage::LoginSuccess).await?;
+                        lock!(writer).write(ServerMessage::LoginSuccess).await?;
                         let was_admin = mem::replace(&mut logged_in_as_admin, row.mw_admin);
                         let old_mhid = midos_house_user_id.replace(row.user_id as u64);
                         update_room_list(rooms.clone(), Arc::clone(&writer), was_admin, old_mhid, logged_in_as_admin, midos_house_user_id).await?;
@@ -368,7 +371,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             .detailed_error_for_status().await?
                             .json_with_text_in_error().await?;
                         if let Some(mhid) = sqlx::query_scalar!("SELECT id FROM users WHERE discord_id = $1", i64::from(id)).fetch_optional(&db_pool).await? {
-                            writer.lock().await.write(ServerMessage::LoginSuccess).await?;
+                            lock!(writer).write(ServerMessage::LoginSuccess).await?;
                             let old_mhid = midos_house_user_id.replace(mhid as u64);
                             update_room_list(rooms.clone(), Arc::clone(&writer), logged_in_as_admin, old_mhid, logged_in_as_admin, midos_house_user_id).await?;
                         } else {
@@ -387,7 +390,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             .detailed_error_for_status().await?
                             .json_with_text_in_error().await?;
                         if let Some(mhid) = sqlx::query_scalar!("SELECT id FROM users WHERE racetime_id = $1", id).fetch_optional(&db_pool).await? {
-                            writer.lock().await.write(ServerMessage::LoginSuccess).await?;
+                            lock!(writer).write(ServerMessage::LoginSuccess).await?;
                             let old_mhid = midos_house_user_id.replace(mhid as u64);
                             update_room_list(rooms.clone(), Arc::clone(&writer), logged_in_as_admin, old_mhid, logged_in_as_admin, midos_house_user_id).await?;
                         } else {
@@ -396,8 +399,8 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                     }
                     ClientMessage::Stop => if logged_in_as_admin {
                         //TODO close TCP connections and listener
-                        for room in rooms.0.lock().await.list.values() {
-                            room.write().await.save(false).await?;
+                        for room in lock!(rooms.0).list.values() {
+                            lock!(@write room).save(false).await?;
                         }
                         shutdown.notify();
                         return Err(SessionError::Shutdown)
@@ -416,14 +419,14 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                     ClientMessage::WaitUntilEmpty => if logged_in_as_admin {
                         waiting_until_empty = true;
                         let mut any_players = false;
-                        for room in rooms.0.lock().await.list.values() {
-                            if room.read().await.clients.values().any(|client| client.player.is_some()) {
+                        for room in lock!(rooms.0).list.values() {
+                            if lock!(@read room).clients.values().any(|client| client.player.is_some()) {
                                 any_players = true;
                                 break
                             }
                         }
                         if !any_players {
-                            writer.lock().await.write(ServerMessage::RoomsEmpty).await?;
+                            lock!(writer).write(ServerMessage::RoomsEmpty).await?;
                         }
                     } else {
                         error!("WaitUntilEmpty command requires admin login")
@@ -448,9 +451,9 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
 
 async fn update_room_list<C: ClientKind>(rooms: Rooms<C>, writer: Arc<Mutex<C::Writer>>, was_admin: bool, old_mhid: Option<u64>, is_admin: bool, new_mhid: Option<u64>) -> Result<(), SessionError> {
     if was_admin == is_admin && old_mhid == new_mhid { return Ok(()) }
-    let lock = rooms.0.lock().await;
+    let lock = lock!(rooms.0);
     for (id, room) in &lock.list {
-        let room = room.read().await;
+        let room = lock!(@read room);
         let new_availability = room.auth.availability(is_admin, new_mhid);
         if new_availability != room.auth.availability(was_admin, old_mhid) {
             let password_required = match new_availability {
@@ -458,7 +461,7 @@ async fn update_room_list<C: ClientKind>(rooms: Rooms<C>, writer: Arc<Mutex<C::W
                 RoomAvailability::PasswordRequired => Some(true),
                 RoomAvailability::Invisible => None,
             };
-            writer.lock().await.write(if let Some(password_required) = password_required {
+            lock!(writer).write(if let Some(password_required) = password_required {
                 ServerMessage::NewRoom {
                     id: *id,
                     name: room.name.clone(),
@@ -475,11 +478,11 @@ async fn update_room_list<C: ClientKind>(rooms: Rooms<C>, writer: Arc<Mutex<C::W
     Ok(())
 }
 
-async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: Arc<RwLock<Room<C>>>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, mut end_rx: oneshot::Receiver<EndRoomSession>, mut shutdown: rocket::Shutdown) -> Result<(NextMessage<C>, EndRoomSession), SessionError> {
+async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, mut end_rx: oneshot::Receiver<EndRoomSession>, mut shutdown: rocket::Shutdown) -> Result<(NextMessage<C>, EndRoomSession), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             let msg = format!($($msg)*);
-            writer.lock().await.write(ServerMessage::OtherError(msg.clone())).await?;
+            lock!(writer).write(ServerMessage::OtherError(msg.clone())).await?;
             return Err(SessionError::Server(msg))
         }};
     }
@@ -493,13 +496,13 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: Arc<RwLock<Room<C>>>
                 let (reader, msg) = res??;
                 match msg {
                     ClientMessage::Ping => {}
-                    ClientMessage::JoinRoom { room: Either::Left(id), .. } => if id != room.read().await.id {
+                    ClientMessage::JoinRoom { room: Either::Left(id), .. } => if id != lock!(@read room).id {
                         error!("received a JoinRoom message, which only works in the lobby, but you're in a room")
                     },
-                    ClientMessage::JoinRoom { room: Either::Right(name), .. } => if name != room.read().await.name {
+                    ClientMessage::JoinRoom { room: Either::Right(name), .. } => if name != lock!(@read room).name {
                         error!("received a JoinRoom message, which only works in the lobby, but you're in a room")
                     },
-                    ClientMessage::CreateRoom { name, .. } => if name != room.read().await.name {
+                    ClientMessage::CreateRoom { name, .. } => if name != lock!(@read room).name {
                         error!("received a CreateRoom message, which only works in the lobby, but you're in a room")
                     },
                     ClientMessage::LoginApiKey { .. } => error!("received a LoginApiKey message, which only works in the lobby, but you're in a room"),
@@ -508,23 +511,23 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: Arc<RwLock<Room<C>>>
                     ClientMessage::Stop => error!("received a Stop message, which only works in the lobby, but you're in a room"),
                     ClientMessage::Track { .. } => error!("received a Track message, which only works in the lobby, but you're in a room"),
                     ClientMessage::WaitUntilEmpty => error!("received a WaitUntilEmpty message, which only works in the lobby, but you're in a room"),
-                    ClientMessage::PlayerId(id) => if !room.write().await.load_player(socket_id, id).await? {
+                    ClientMessage::PlayerId(id) => if !lock!(@write room).load_player(socket_id, id).await? {
                         error!("world {id} is already taken")
                     },
-                    ClientMessage::ResetPlayerId => room.write().await.unload_player(socket_id).await,
-                    ClientMessage::PlayerName(name) => if !room.write().await.set_player_name(socket_id, name).await {
+                    ClientMessage::ResetPlayerId => lock!(@write room).unload_player(socket_id).await,
+                    ClientMessage::PlayerName(name) => if !lock!(@write room).set_player_name(socket_id, name).await {
                         error!("please claim a world before setting your player name")
                     },
-                    ClientMessage::SendItem { key, kind, target_world } => match room.write().await.queue_item(socket_id, key, kind, target_world).await {
+                    ClientMessage::SendItem { key, kind, target_world } => match lock!(@write room).queue_item(socket_id, key, kind, target_world).await {
                         Ok(()) => {}
-                        Err(multiworld::QueueItemError::FileHash { server, client }) => writer.lock().await.write(ServerMessage::WrongFileHash { server, client }).await?,
+                        Err(multiworld::QueueItemError::FileHash { server, client }) => lock!(writer).write(ServerMessage::WrongFileHash { server, client }).await?,
                         Err(e) => {
-                            writer.lock().await.write(ServerMessage::OtherError(e.to_string())).await?;
+                            lock!(writer).write(ServerMessage::OtherError(e.to_string())).await?;
                             return Err(e.into())
                         }
                     },
                     ClientMessage::KickPlayer(id) => {
-                        let mut room = room.write().await;
+                        let mut room = lock!(@write room);
                         for (&socket_id, client) in &room.clients {
                             if let Some(Player { world, .. }) = client.player {
                                 if world == id {
@@ -535,16 +538,16 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: Arc<RwLock<Room<C>>>
                         }
                     }
                     ClientMessage::DeleteRoom => {
-                        let mut room = room.write().await;
+                        let mut room = lock!(@write room);
                         room.delete().await;
                         rooms.remove(room.id.clone()).await;
                     }
-                    ClientMessage::SaveData(save) => room.write().await.set_save_data(socket_id, save).await?,
-                    ClientMessage::SendAll { source_world, spoiler_log } => match room.write().await.send_all(source_world, &spoiler_log).await {
+                    ClientMessage::SaveData(save) => lock!(@write room).set_save_data(socket_id, save).await?,
+                    ClientMessage::SendAll { source_world, spoiler_log } => match lock!(@write room).send_all(source_world, &spoiler_log).await {
                         Ok(()) => {}
-                        Err(multiworld::SendAllError::FileHash { server, client }) => writer.lock().await.write(ServerMessage::WrongFileHash { server, client }).await?,
+                        Err(multiworld::SendAllError::FileHash { server, client }) => lock!(writer).write(ServerMessage::WrongFileHash { server, client }).await?,
                         Err(e) => {
-                            writer.lock().await.write(ServerMessage::OtherError(e.to_string())).await?;
+                            lock!(writer).write(ServerMessage::OtherError(e.to_string())).await?;
                             return Err(e.into())
                         }
                     },
@@ -552,15 +555,15 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: Arc<RwLock<Room<C>>>
                         eprintln!("save data error reported by Mido's House Multiworld version {version}: {debug}");
                         let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
                     },
-                    ClientMessage::FileHash(hash) => match room.write().await.set_file_hash(socket_id, hash).await {
+                    ClientMessage::FileHash(hash) => match lock!(@write room).set_file_hash(socket_id, hash).await {
                         Ok(()) => {}
-                        Err(multiworld::SetHashError::FileHash { server, client }) => writer.lock().await.write(ServerMessage::WrongFileHash { server, client }).await?,
+                        Err(multiworld::SetHashError::FileHash { server, client }) => lock!(writer).write(ServerMessage::WrongFileHash { server, client }).await?,
                         Err(e) => {
-                            writer.lock().await.write(ServerMessage::OtherError(e.to_string())).await?;
+                            lock!(writer).write(ServerMessage::OtherError(e.to_string())).await?;
                             return Err(e.into())
                         }
                     },
-                    ClientMessage::AutoDeleteDelta(new_delta) => room.write().await.set_autodelete_delta(new_delta).await,
+                    ClientMessage::AutoDeleteDelta(new_delta) => lock!(@write room).set_autodelete_delta(new_delta).await,
                 }
                 read = next_message::<C>(reader);
             },
@@ -572,7 +575,7 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: Arc<RwLock<Room<C>>>
 #[derivative(Clone(bound = ""))]
 enum RoomListChange<C: ClientKind> {
     /// A new room has been created.
-    New(Arc<RwLock<Room<C>>>),
+    New(ArcRwLock<Room<C>>),
     /// A room has been deleted.
     Delete {
         id: u64,
@@ -586,7 +589,7 @@ enum RoomListChange<C: ClientKind> {
 }
 
 struct RoomsInner<C: ClientKind> {
-    list: HashMap<u64, Arc<RwLock<Room<C>>>>,
+    list: HashMap<u64, ArcRwLock<Room<C>>>,
     change_tx: broadcast::Sender<RoomListChange<C>>,
     autodelete_tx: broadcast::Sender<(u64, DateTime<Utc>)>,
     #[cfg(unix)]
@@ -598,17 +601,17 @@ struct RoomsInner<C: ClientKind> {
 struct Rooms<C: ClientKind>(Arc<Mutex<RoomsInner<C>>>);
 
 impl<C: ClientKind> Rooms<C> {
-    async fn get_arc(&self, room: &Either<u64, String>) -> Option<Arc<RwLock<Room<C>>>> {
+    async fn get_arc(&self, room: &Either<u64, String>) -> Option<ArcRwLock<Room<C>>> {
         match room {
-            &Either::Left(room_id) => if let Some(room) = self.0.lock().await.list.get(&room_id) {
-                Some(Arc::clone(room))
+            &Either::Left(room_id) => if let Some(room) = lock!(self.0).list.get(&room_id) {
+                Some(room.clone())
             } else {
                 None
             },
             Either::Right(room_name) => {
-                for room in self.0.lock().await.list.values() {
-                    let room = Arc::clone(room);
-                    if room.read().await.name == *room_name {
+                for room in lock!(self.0).list.values() {
+                    let room = room.clone();
+                    if lock!(@read room).name == *room_name {
                         return Some(room)
                     }
                 }
@@ -619,14 +622,14 @@ impl<C: ClientKind> Rooms<C> {
 
     async fn write(&self, room: &Either<u64, String>) -> Option<OwnedRwLockWriteGuard<Room<C>>> {
         match room {
-            &Either::Left(room_id) => if let Some(room) = self.0.lock().await.list.get(&room_id) {
-                Some(Arc::clone(room).write_owned().await)
+            &Either::Left(room_id) => if let Some(room) = lock!(self.0).list.get(&room_id) {
+                Some(lock!(@write @owned room.clone()))
             } else {
                 None
             },
             Either::Right(room_name) => {
-                for room in self.0.lock().await.list.values() {
-                    let room = Arc::clone(room).write_owned().await;
+                for room in lock!(self.0).list.values() {
+                    let room = lock!(@write @owned room.clone());
                     if room.name == *room_name {
                         return Some(room)
                     }
@@ -636,15 +639,15 @@ impl<C: ClientKind> Rooms<C> {
         }
     }
 
-    async fn add(&self, room: Arc<RwLock<Room<C>>>) -> bool {
+    async fn add(&self, room: ArcRwLock<Room<C>>) -> bool {
         let (id, name) = {
-            let room = room.read().await;
+            let room = lock!(@read room);
             (room.id, room.name.clone())
         };
-        let mut lock = self.0.lock().await;
+        let mut lock = lock!(self.0);
         let _ = lock.change_tx.send(RoomListChange::New(room.clone()));
         for existing_room in lock.list.values() {
-            if existing_room.read().await.name == name {
+            if lock!(@read existing_room).name == name {
                 return false
             }
         }
@@ -652,9 +655,9 @@ impl<C: ClientKind> Rooms<C> {
     }
 
     async fn remove(&self, id: u64) {
-        let mut lock = self.0.lock().await;
+        let mut lock = lock!(self.0);
         if let Some(room) = lock.list.remove(&id) {
-            let room = room.read().await;
+            let room = lock!(@read room);
             let name = room.name.clone();
             let auth = room.auth.clone();
             let _ = lock.change_tx.send(RoomListChange::Delete { id, name, auth });
@@ -663,9 +666,9 @@ impl<C: ClientKind> Rooms<C> {
 
     async fn wait_cleanup(&self, mut shutdown: rocket::Shutdown) -> Result<(), broadcast::error::RecvError> {
         let (mut autodelete_at, mut autodelete_rx) = {
-            let lock = self.0.lock().await;
+            let lock = lock!(self.0);
             (
-                stream::iter(&lock.list).then(|(name, room)| async move { (name.clone(), room.read().await.autodelete_at()) }).collect::<HashMap<_, _>>().await,
+                stream::iter(&lock.list).then(|(name, room)| async move { (name.clone(), lock!(@read room).autodelete_at()) }).collect::<HashMap<_, _>>().await,
                 lock.autodelete_tx.subscribe(),
             )
         };
@@ -695,9 +698,9 @@ impl<C: ClientKind> Rooms<C> {
     #[cfg(unix)]
     async fn wait_inactive(&self, mut shutdown: rocket::Shutdown) -> Result<(), broadcast::error::RecvError> {
         let (mut inactive_at, mut inactive_rx) = {
-            let lock = self.0.lock().await;
+            let lock = lock!(self.0);
             (
-                stream::iter(&lock.list).then(|(name, room)| async move { (name.clone(), room.read().await.last_saved + chrono::Duration::hours(1)) }).collect::<HashMap<_, _>>().await,
+                stream::iter(&lock.list).then(|(name, room)| async move { (name.clone(), lock!(@read room).last_saved + chrono::Duration::hours(1)) }).collect::<HashMap<_, _>>().await,
                 lock.inactive_tx.subscribe(),
             )
         };
@@ -829,7 +832,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 autodelete_delta
             FROM mw_rooms"#).fetch(&db_pool);
             while let Some(row) = query.try_next().await? {
-                assert!(rooms.add(Arc::new(RwLock::new(Room {
+                assert!(rooms.add(ArcRwLock::new(Room {
                     id: row.id as u64,
                     name: row.name.clone(),
                     auth: match (row.password_hash, row.password_salt) {
@@ -844,12 +847,12 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     allow_send_all: row.allow_send_all,
                     autodelete_delta: decode_pginterval(row.autodelete_delta)?,
                     autodelete_tx: {
-                        let rooms = rooms.0.lock().await;
+                        let rooms = lock!(rooms.0);
                         rooms.autodelete_tx.clone()
                     },
                     db_pool: db_pool.clone(),
                     tracker_state: None,
-                }))).await);
+                })).await);
             }
         }
         let rocket = http::rocket(db_pool.clone(), http_client, rng.clone(), port, rooms.clone()).await?;
@@ -865,11 +868,11 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 rooms.wait_cleanup(shutdown.clone()).await?;
                 let now = Utc::now();
                 while let Some(room) = {
-                    let rooms = rooms.0.lock().await;
-                    let mut rooms_to_delete = pin!(stream::iter(rooms.list.values()).filter(|room| async { room.read().await.autodelete_at() <= now }));
+                    let rooms = lock!(rooms.0);
+                    let mut rooms_to_delete = pin!(stream::iter(rooms.list.values()).filter(|room| async { lock!(@read room).autodelete_at() <= now }));
                     rooms_to_delete.next().await.cloned()
                 } {
-                    let mut room = room.write().await;
+                    let mut room = lock!(@write room);
                     room.delete().await;
                     rooms.remove(room.id).await;
                 }

@@ -2,7 +2,6 @@ use {
     std::{
         collections::HashMap,
         mem,
-        sync::Arc,
         time::Duration,
     },
     async_proto::{
@@ -10,6 +9,10 @@ use {
         ReadError,
     },
     chrono::prelude::*,
+    log_lock::{
+        ArcRwLock,
+        lock,
+    },
     ootr_utils::spoiler::HashIcon,
     rand::prelude::*,
     sqlx::PgPool,
@@ -17,10 +20,7 @@ use {
         io,
         net::UnixListener,
         select,
-        sync::{
-            RwLock,
-            broadcast,
-        },
+        sync::broadcast,
     },
     wheel::{
         fs,
@@ -83,18 +83,18 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                     match msg {
                         ClientMessage::Stop | ClientMessage::StopWhenEmpty | ClientMessage::WaitUntilEmpty => {
                             if let ClientMessage::StopWhenEmpty | ClientMessage::WaitUntilEmpty = msg {
-                                let mut room_stream = rooms.0.lock().await.change_tx.subscribe();
+                                let mut room_stream = lock!(rooms.0).change_tx.subscribe();
                                 loop {
                                     match room_stream.recv().await {
                                         Ok(RoomListChange::New(_)) => {}
                                         Ok(RoomListChange::Delete { .. }) => {}
                                         Ok(RoomListChange::Join | RoomListChange::Leave) => {}
                                         Err(broadcast::error::RecvError::Closed) => unreachable!("room list should be maintained indefinitely"),
-                                        Err(broadcast::error::RecvError::Lagged(_)) => room_stream = rooms.0.lock().await.change_tx.subscribe(),
+                                        Err(broadcast::error::RecvError::Lagged(_)) => room_stream = lock!(rooms.0).change_tx.subscribe(),
                                     }
                                     let mut any_players = false;
-                                    for room in rooms.0.lock().await.list.values() {
-                                        if room.read().await.clients.values().any(|client| client.player.is_some()) {
+                                    for room in lock!(rooms.0).list.values() {
+                                        if lock!(@read room).clients.values().any(|client| client.player.is_some()) {
                                             any_players = true;
                                             break
                                         }
@@ -103,8 +103,8 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 }
                             }
                             if let ClientMessage::Stop | ClientMessage::StopWhenEmpty = msg {
-                                for room in rooms.0.lock().await.list.values() {
-                                    let _ = room.write().await.save(false).await;
+                                for room in lock!(rooms.0).list.values() {
+                                    let _ = lock!(@write room).save(false).await;
                                 }
                                 shutdown.notify();
                                 0u8.write(&mut sock).await.expect("error writing to UNIX socket");
@@ -112,14 +112,14 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                             }
                             0u8.write(&mut sock).await.expect("error writing to UNIX socket");
                         }
-                        ClientMessage::WaitUntilInactive => { //TODO use this instead of wait-until-empty in release script after the next release after 10.0.3
+                        ClientMessage::WaitUntilInactive => {
                             let mut active_rooms = HashMap::default();
-                            let mut room_stream = rooms.0.lock().await.change_tx.subscribe();
+                            let mut room_stream = lock!(rooms.0).change_tx.subscribe();
                             loop {
                                 let now = Utc::now();
                                 let previous_active_rooms = mem::take(&mut active_rooms);
-                                for room in rooms.0.lock().await.list.values() {
-                                    let room = room.read().await;
+                                for room in lock!(rooms.0).list.values() {
+                                    let room = lock!(@read room);
                                     if room.last_saved > now - chrono::Duration::hours(1) && room.clients.values().any(|client| client.player.is_some()) {
                                         active_rooms.insert(room.name.clone(), (room.last_saved + chrono::Duration::hours(1), room.clients.values().filter(|client| client.player.is_some()).count().try_into().expect("too many players")));
                                     }
@@ -160,7 +160,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                     }
                                 }
                             };
-                            rooms.add(Arc::new(RwLock::new(Room {
+                            rooms.add(ArcRwLock::new(Room {
                                 auth: RoomAuth::Invitational(players),
                                 clients: HashMap::default(),
                                 file_hash: Some([hash1, hash2, hash3, hash4, hash5]),
@@ -170,13 +170,13 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 allow_send_all: false,
                                 autodelete_delta: Duration::from_secs(60 * 60 * 24),
                                 autodelete_tx: {
-                                    let rooms = rooms.0.lock().await;
+                                    let rooms = lock!(rooms.0);
                                     rooms.autodelete_tx.clone()
                                 },
                                 db_pool: db_pool.clone(),
                                 tracker_state: None,
                                 id, name,
-                            }))).await.write(&mut sock).await.expect("error writing to UNIX socket");
+                            })).await.write(&mut sock).await.expect("error writing to UNIX socket");
                         }
                     }
                 });

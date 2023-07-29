@@ -7,6 +7,7 @@ use {
         },
     },
     futures::stream::StreamExt as _,
+    log_lock::Mutex,
     ring::rand::SystemRandom,
     rocket::{
         Rocket,
@@ -23,7 +24,6 @@ use {
     },
     rocket_ws::WebSocket,
     sqlx::PgPool,
-    tokio::sync::Mutex,
     multiworld::ws::{
         Version,
         VersionedReader,

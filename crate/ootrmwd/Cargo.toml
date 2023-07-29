@@ -25,6 +25,10 @@ features = ["clock", "std"]
 version = "4"
 features = ["derive"]
 
+[dependencies.log-lock]
+git = "https://github.com/fenhl/log-lock"
+branch = "main"
+
 [dependencies.multiworld]
 path = "../multiworld"
 features = ["pyo3", "sqlx"]

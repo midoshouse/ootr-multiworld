@@ -28,13 +28,16 @@ use {
         EventStream,
         Recipe,
     },
+    log_lock::{
+        Mutex,
+        lock,
+    },
     tokio::{
         net::{
             TcpListener,
             TcpStream,
         },
         select,
-        sync::Mutex,
         time::{
             Instant,
             interval_at,
@@ -188,7 +191,7 @@ impl Recipe for Client {
                                     let (stream, msg) = res??;
                                     break Some((Message::Server(msg), (stream, sink, interval)))
                                 },
-                                _ = interval.tick() => ws::ClientMessage::Ping.write_ws(&mut *sink.lock().await).await?,
+                                _ = interval.tick() => ws::ClientMessage::Ping.write_ws(&mut *lock!(sink)).await?,
                             }
                         })
                     }))

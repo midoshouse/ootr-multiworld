@@ -31,6 +31,10 @@ version = "0.4"
 default-features = false
 features = ["clock", "std"]
 
+[dependencies.log-lock]
+git = "https://github.com/fenhl/log-lock"
+branch = "main"
+
 [dependencies.multiworld-derive]
 path = "../multiworld-derive"
 

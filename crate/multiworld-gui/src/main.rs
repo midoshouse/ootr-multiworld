@@ -21,7 +21,10 @@ use {
     },
     async_proto::Protocol,
     chrono::prelude::*,
-    dark_light::Mode::*,
+    dark_light::Mode::{
+        Dark,
+        Light,
+    },
     futures::{
         future,
         stream::Stream,
@@ -43,6 +46,10 @@ use {
     },
     ::image::ImageFormat,
     itertools::Itertools as _,
+    log_lock::{
+        Mutex,
+        lock,
+    },
     once_cell::sync::Lazy,
     ootr_utils::spoiler::HashIcon,
     open::that as open,
@@ -56,7 +63,6 @@ use {
             OwnedReadHalf,
             OwnedWriteHalf,
         },
-        sync::Mutex,
         time::{
             Instant,
             sleep_until,
@@ -123,7 +129,7 @@ impl LoggingReader {
     async fn read<T: Protocol + fmt::Debug>(&mut self) -> Result<T, async_proto::ReadError> {
         let msg = T::read(&mut self.inner).await?;
         if self.log {
-            writeln!(&*LOG.lock().await, "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
+            writeln!(&*lock!(LOG), "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
         }
         Ok(msg)
     }
@@ -139,7 +145,7 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
     async fn read_owned(mut self) -> Result<(Self, ServerMessage), async_proto::ReadError> {
         let msg = ServerMessage::read_ws(&mut self.inner).await?;
         if self.log {
-            writeln!(&*LOG.lock().await, "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
+            writeln!(&*lock!(LOG), "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
         }
         Ok((self, msg))
     }
@@ -155,9 +161,9 @@ struct LoggingWriter {
 impl LoggingWriter {
     async fn write(&self, msg: impl Protocol + fmt::Debug) -> Result<(), async_proto::WriteError> {
         if self.log {
-            writeln!(&*LOG.lock().await, "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
+            writeln!(&*lock!(LOG), "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
         }
-        msg.write(&mut *self.inner.lock().await).await
+        msg.write(&mut *lock!(self.inner)).await
     }
 }
 
@@ -171,9 +177,9 @@ struct LoggingSink {
 impl LoggingSink {
     async fn write(&self, msg: ClientMessage) -> Result<(), async_proto::WriteError> {
         if self.log {
-            writeln!(&*LOG.lock().await, "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
+            writeln!(&*lock!(LOG), "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
         }
-        msg.write_ws(&mut *self.inner.lock().await).await
+        msg.write_ws(&mut *lock!(self.inner)).await
     }
 }
 
@@ -485,7 +491,7 @@ impl Application for State {
     fn theme(&self) -> Self::Theme {
         match dark_light::detect() { //TODO automatically update on system theme change
             Dark => Theme::Dark,
-            Light | Default => Theme::Light,
+            Light | dark_light::Mode::Default => Theme::Light,
         }
     }
 
@@ -944,12 +950,16 @@ impl Application for State {
                 SessionState::Init => Column::new()
                     .push("Connecting to server…")
                     .push("If this takes longer than 5 seconds, check your internet connection or contact @fenhl on Discord for support.")
+                    .push(Space::with_height(Length::Fill))
+                    .push(concat!("version ", env!("CARGO_PKG_VERSION")))
                     .spacing(8)
                     .padding(8)
                     .into(),
                 SessionState::InitAutoRejoin { .. } => Column::new()
                     .push("Reconnecting to room…")
                     .push("If this takes longer than 5 seconds, check your internet connection or contact @fenhl on Discord for support.")
+                    .push(Space::with_height(Length::Fill))
+                    .push(concat!("version ", env!("CARGO_PKG_VERSION")))
                     .spacing(8)
                     .padding(8)
                     .into(),

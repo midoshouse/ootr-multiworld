@@ -22,6 +22,10 @@ use {
     chrono::prelude::*,
     derivative::Derivative,
     itertools::Itertools as _,
+    log_lock::{
+        Mutex,
+        lock,
+    },
     ootr_utils::spoiler::HashIcon,
     oottracker::websocket::MwItem as Item,
     semver::Version,
@@ -35,7 +39,6 @@ use {
         },
         process::Command,
         sync::{
-            Mutex,
             broadcast,
             oneshot,
         },
@@ -511,7 +514,7 @@ impl ProgressiveItems {
 impl<C: ClientKind> Room<C> {
     async fn write(&mut self, client_id: C::SessionId, msg: unversioned::ServerMessage) {
         if let Some(client) = self.clients.get(&client_id) {
-            let mut writer = client.writer.lock().await;
+            let mut writer = lock!(client.writer);
             if let Err(e) = writer.write(msg).await {
                 eprintln!("error sending message: {e} ({e:?})");
                 drop(writer);
@@ -523,7 +526,7 @@ impl<C: ClientKind> Room<C> {
     async fn write_all(&mut self, msg: &unversioned::ServerMessage) {
         let mut notified = HashSet::new();
         while let Some((&client_id, client)) = self.clients.iter().find(|&(client_id, _)| !notified.contains(client_id)) {
-            let mut writer = client.writer.lock().await;
+            let mut writer = lock!(client.writer);
             if let Err(e) = writer.write(msg.clone()).await {
                 eprintln!("error sending message: {e} ({e:?})");
                 drop(writer);
