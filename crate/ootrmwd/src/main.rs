@@ -538,9 +538,12 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                         }
                     }
                     ClientMessage::DeleteRoom => {
-                        let mut room = lock!(@write room);
-                        room.delete().await;
-                        rooms.remove(room.id.clone()).await;
+                        let id = {
+                            let mut room = lock!(@write room);
+                            room.delete().await;
+                            room.id
+                        };
+                        rooms.remove(id).await;
                     }
                     ClientMessage::SaveData(save) => lock!(@write room).set_save_data(socket_id, save).await?,
                     ClientMessage::SendAll { source_world, spoiler_log } => match lock!(@write room).send_all(source_world, &spoiler_log).await {
@@ -872,9 +875,12 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     let mut rooms_to_delete = pin!(stream::iter(rooms.list.values()).filter(|room| async { lock!(@read room).autodelete_at() <= now }));
                     rooms_to_delete.next().await.cloned()
                 } {
-                    let mut room = lock!(@write room);
-                    room.delete().await;
-                    rooms.remove(room.id).await;
+                    let id = {
+                        let mut room = lock!(@write room);
+                        room.delete().await;
+                        room.id
+                    };
+                    rooms.remove(id).await;
                 }
             }
         }).map(|res| match res {
