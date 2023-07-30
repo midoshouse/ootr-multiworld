@@ -54,23 +54,23 @@ use {
 #[derive(Clone)] struct WindowsBizHawkNotification;
 
 enum Setup {
-    CreateReqwestClient,
-    CheckVersion(reqwest::Client),
+    CreateReqwestClient(bool),
+    CheckVersion(bool, reqwest::Client),
     CheckBizHawkVersion(reqwest::Client, Repo, bool),
     LockRust(reqwest::Client, Repo, Version, bool),
     UpdateRust(reqwest::Client, Repo, Version, DirLock, bool),
 }
 
-impl Default for Setup {
-    fn default() -> Self {
-        Self::CreateReqwestClient
+impl Setup {
+    fn new(server_only: bool) -> Self {
+        Self::CreateReqwestClient(server_only)
     }
 }
 
 impl fmt::Display for Setup {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::CreateReqwestClient => write!(f, "creating reqwest client"),
+            Self::CreateReqwestClient(..) => write!(f, "creating reqwest client"),
             Self::CheckVersion(..) => write!(f, "checking version"),
             Self::CheckBizHawkVersion(..) => write!(f, "checking BizHawk version"),
             Self::LockRust(..) => write!(f, "waiting for Rust lock"),
@@ -82,7 +82,7 @@ impl fmt::Display for Setup {
 impl Progress for Setup {
     fn progress(&self) -> Percent {
         Percent::fraction(match self {
-            Self::CreateReqwestClient => 0,
+            Self::CreateReqwestClient(..) => 0,
             Self::CheckVersion(..) => 1,
             Self::CheckBizHawkVersion(..) => 2,
             Self::LockRust(..) => 3,
@@ -95,7 +95,7 @@ impl Progress for Setup {
 impl Task<Result<(reqwest::Client, Repo, Version, bool), Error>> for Setup {
     async fn run(self) -> Result<Result<(reqwest::Client, Repo, Version, bool), Error>, Self> {
         match self {
-            Self::CreateReqwestClient => gres::transpose(async move {
+            Self::CreateReqwestClient(server_only) => gres::transpose(async move {
                 let mut headers = reqwest::header::HeaderMap::new();
                 headers.insert(reqwest::header::AUTHORIZATION, reqwest::header::HeaderValue::from_str(&format!("token {}", fs::read_to_string("assets/release-token").await?))?);
                 let client = reqwest::Client::builder()
@@ -106,9 +106,9 @@ impl Task<Result<(reqwest::Client, Repo, Version, bool), Error>> for Setup {
                     .use_rustls_tls()
                     .https_only(true)
                     .build()?;
-                Ok(Err(Self::CheckVersion(client)))
+                Ok(Err(Self::CheckVersion(server_only, client)))
             }).await,
-            Self::CheckVersion(client) => gres::transpose(async move {
+            Self::CheckVersion(server_only, client) => gres::transpose(async move {
                 //TODO make sure working dir is clean and on default branch and up to date with remote and remote is up to date
                 let repo = Repo::new("midoshouse", "ootr-multiworld");
                 let is_major = if let Some(latest_release) = repo.latest_release(&client).await? {
@@ -116,7 +116,7 @@ impl Task<Result<(reqwest::Client, Repo, Version, bool), Error>> for Setup {
                     let remote_version = latest_release.version()?;
                     match local_version.cmp(&remote_version) {
                         Less => return Err(Error::VersionRegression),
-                        Equal => return Err(Error::SameVersion),
+                        Equal => if server_only { false } else { return Err(Error::SameVersion) },
                         Greater => local_version.major > remote_version.major,
                     }
                 } else {
@@ -961,7 +961,7 @@ impl wheel::CustomExit for Error {
 
 /// Separate function to ensure CLI is dropped before exit
 async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
-    let (client, repo, bizhawk_version, is_major) = cli.run(Setup::default(), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
+    let (client, repo, bizhawk_version, is_major) = cli.run(Setup::new(args.server_only), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
     if args.server_only {
         cli.run(BuildServer::new(!args.force, is_major), "server build done").await??;
     } else {
