@@ -121,6 +121,7 @@ pub enum ServerMessage {
     DeleteRoom(u64),
     EnterRoom {
         room_id: u64,
+        //TODO (v13) add room_name field
         players: Vec<Player>,
         num_unassigned_clients: u8,
         autodelete_delta: Duration,

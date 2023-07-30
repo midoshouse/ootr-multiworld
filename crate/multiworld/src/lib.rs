@@ -1105,27 +1105,22 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            latest::ServerMessage::EnterRoom { room_id, players, num_unassigned_clients, autodelete_delta, allow_send_all } => if let Self::Lobby { login_state, rooms, password, .. } = self {
-                if let Some((_, (room_name, _))) = rooms.iter().find(|&(&id, _)| id == room_id) {
-                    *self = Self::Room {
-                        login_state: login_state.clone(),
-                        room_name: room_name.clone(),
-                        room_password: password.clone(),
-                        progressive_items: HashMap::default(),
-                        item_queue: Vec::default(),
-                        view: RoomView::Normal,
-                        wrong_file_hash: None,
-                        room_id, players, num_unassigned_clients, autodelete_delta, allow_send_all,
-                    };
+            latest::ServerMessage::EnterRoom { room_id, players, num_unassigned_clients, autodelete_delta, allow_send_all } => if let Self::Lobby { login_state, rooms, password, new_room_name, .. } = self {
+                let room_name = if let Some((_, (room_name, _))) = rooms.iter().find(|&(&id, _)| id == room_id) {
+                    room_name.clone()
                 } else {
-                    *self = Self::Error {
-                        e: SessionStateError::Mismatch {
-                            expected: "Lobby with room ID",
-                            actual: Box::new(mem::replace(self, Self::Init)),
-                        },
-                        auto_retry: false,
-                    };
-                }
+                    new_room_name.clone()
+                };
+                *self = Self::Room {
+                    login_state: login_state.clone(),
+                    room_name: room_name.clone(),
+                    room_password: password.clone(),
+                    progressive_items: HashMap::default(),
+                    item_queue: Vec::default(),
+                    view: RoomView::Normal,
+                    wrong_file_hash: None,
+                    room_id, players, num_unassigned_clients, autodelete_delta, allow_send_all,
+                };
             } else {
                 *self = Self::Error {
                     e: SessionStateError::Mismatch {
