@@ -53,6 +53,7 @@ use {
     once_cell::sync::Lazy,
     ootr_utils::spoiler::HashIcon,
     open::that as open,
+    rand::prelude::*,
     rfd::AsyncFileDialog,
     semver::Version,
     serenity::utils::MessageBuilder,
@@ -848,7 +849,7 @@ impl Application for State {
                     if self.retry.elapsed() >= Duration::from_secs(60 * 60 * 24) {
                         self.wait_time = Duration::from_secs(1); // reset wait time after no error for a day
                     } else {
-                        self.wait_time *= 2; // exponential backoff
+                        self.wait_time = self.wait_time.mul_f64(thread_rng().gen_range(1.0..=2.0)); // randomized exponential backoff
                     }
                     self.retry = Instant::now() + self.wait_time;
                     let retry = self.retry;
