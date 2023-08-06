@@ -239,18 +239,18 @@ enum Page {
     },
     LocateMultiworld {
         emulator: Emulator,
-        emulator_path: String,
+        emulator_path: Option<String>,
         multiworld_path: String,
     },
     InstallMultiworld {
         emulator: Emulator,
-        emulator_path: String,
+        emulator_path: Option<String>,
         multiworld_path: Option<String>,
         config_write_failed: bool,
     },
     AskLaunch {
         emulator: Emulator,
-        emulator_path: String,
+        emulator_path: Option<String>,
         multiworld_path: Option<String>,
     },
 }
@@ -258,15 +258,27 @@ enum Page {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Sequence, clap::ValueEnum)]
 #[clap(rename_all = "lower")]
 enum Emulator {
+    EverDrive,
     BizHawk,
-    #[cfg(target_os = "windows")] Project64,
+    Project64,
+}
+
+impl Emulator {
+    fn is_supported(&self) -> bool {
+        match self {
+            Self::EverDrive => true,
+            Self::BizHawk => cfg!(any(target_os = "linux", target_os = "windows")),
+            Self::Project64 => cfg!(target_os = "windows"),
+        }
+    }
 }
 
 impl fmt::Display for Emulator {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::EverDrive => write!(f, "EverDrive"),
             Self::BizHawk => write!(f, "BizHawk"),
-            #[cfg(target_os = "windows")] Self::Project64 => write!(f, "Project64"),
+            Self::Project64 => write!(f, "Project64"),
         }
     }
 }
@@ -287,7 +299,7 @@ impl Application for State {
     type Flags = Args;
 
     fn new(Args { mut emulator }: Args) -> (Self, Command<Message>) {
-        if let Ok(only_emulator) = all().exactly_one() {
+        if let Ok(only_emulator) = all().filter(Emulator::is_supported).exactly_one() {
             emulator.get_or_insert(only_emulator);
         }
         (Self {
@@ -338,13 +350,17 @@ impl Application for State {
                 Page::LocateEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => Page::SelectEmulator { emulator: Some(emulator), install_emulator: Some(install_emulator), emulator_path: Some(emulator_path.clone()), multiworld_path: multiworld_path.clone() },
                 Page::InstallEmulator { .. } => unreachable!(),
                 Page::AskBizHawkUpdate { ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator: Emulator::BizHawk, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
-                Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
+                Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => match emulator {
+                    Emulator::EverDrive => Page::SelectEmulator { emulator: Some(emulator), install_emulator: Some(false), emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
+                    Emulator::BizHawk | Emulator::Project64 => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone().expect("emulator path must be set for this emulator"), multiworld_path: Some(multiworld_path.clone()) },
+                },
                 Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path, .. } | Page::AskLaunch { emulator, ref emulator_path, ref multiworld_path } => match emulator {
-                    Emulator::BizHawk => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
-                    #[cfg(target_os = "windows")] Emulator::Project64 => if let Some(multiworld_path) = multiworld_path.clone() {
+                    Emulator::EverDrive => unreachable!(),
+                    Emulator::BizHawk => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone().expect("emulator path must be set for BizHawk"), multiworld_path: multiworld_path.clone() },
+                    Emulator::Project64 => if let Some(multiworld_path) = multiworld_path.clone() {
                         Page::LocateMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path }
                     } else {
-                        Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: None }
+                        Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone().expect("emulator path must be set for Project64"), multiworld_path: None }
                     },
                 },
             },
@@ -352,17 +368,18 @@ impl Application for State {
                 let current_path = emulator_path.clone();
                 return cmd(async move {
                     Ok(if let Some(emulator_dir) = AsyncFileDialog::new().set_title(match (emulator, install_emulator) {
+                        (Emulator::EverDrive, _) => unreachable!(),
                         (Emulator::BizHawk, false) => "Select BizHawk Folder",
                         (Emulator::BizHawk, true) => "Choose Location for BizHawk Installation",
-                        #[cfg(target_os = "windows")] (Emulator::Project64, false) => "Select Project64 Folder",
-                        #[cfg(target_os = "windows")] (Emulator::Project64, true) => "Choose Location for Project64 Installation",
+                        (Emulator::Project64, false) => "Select Project64 Folder",
+                        (Emulator::Project64, true) => "Choose Location for Project64 Installation",
                     }).set_directory(Path::new(&current_path)).pick_folder().await {
                         Message::EmulatorPath(emulator_dir.path().to_str().ok_or(Error::NonUtf8Path)?.to_owned())
                     } else {
                         Message::Nop
                     })
                 })
-            }
+            },
             Message::BrowseMultiworldPath => if let Page::LocateMultiworld { ref multiworld_path, .. } = self.page {
                 let current_path = Path::new(multiworld_path).parent().map(Path::to_owned);
                 return cmd(async move {
@@ -371,7 +388,7 @@ impl Application for State {
                     if let Some(current_path) = current_path {
                         dialog = dialog.set_directory(&current_path);
                     }
-                    dialog = dialog.set_file_name("Mido's House Multiworld for Project64.exe");
+                    dialog = dialog.set_file_name("Mido's House Multiworld.exe");
                     dialog = dialog.add_filter("Windows executable", &["exe"]);
                     Ok(if let Some(multiworld_path) = dialog.save_file().await {
                         Message::MultiworldPath(multiworld_path.path().to_str().ok_or(Error::NonUtf8Path)?.to_owned())
@@ -379,24 +396,29 @@ impl Application for State {
                         Message::Nop
                     })
                 })
-            }
+            },
             Message::ConfigWriteFailed => if let Page::InstallMultiworld { ref mut config_write_failed, .. } = self.page { *config_write_failed = true },
             Message::Continue => match self.page {
                 Page::Error(_, _) | Page::Elevated => unreachable!(),
                 Page::SelectEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => {
                     let emulator = emulator.expect("emulator must be selected to continue here");
-                    #[cfg(target_os = "windows")] if matches!(emulator, Emulator::Project64) && !is_elevated() {
-                        // Project64 installation and plugin installation both require admin permissions (UAC)
-                        self.page = Page::Elevated;
-                        return cmd(async move {
-                            tokio::task::spawn_blocking(|| Ok::<_, Error>(runas::Command::new(env::current_exe()?).arg("--emulator=project64").gui(true).status().at_command("runas")?.check("runas")?)).await??;
-                            Ok(Message::Exit)
-                        })
+                    match emulator {
+                        Emulator::EverDrive => return cmd(future::ok(Message::LocateMultiworld(None))),
+                        Emulator::Project64 if !is_elevated() => {
+                            // Project64 installation and plugin installation both require admin permissions (UAC)
+                            self.page = Page::Elevated;
+                            return cmd(async move {
+                                tokio::task::spawn_blocking(|| Ok::<_, Error>(runas::Command::new(env::current_exe()?).arg("--emulator=project64").gui(true).status().at_command("runas")?.check("runas")?)).await??;
+                                Ok(Message::Exit)
+                            })
+                        }
+                        _ => {}
                     }
                     let emulator_path = emulator_path.clone();
                     let (install_emulator, emulator_path) = match (install_emulator, emulator_path) {
                         (Some(install_emulator), Some(emulator_path)) => (install_emulator, emulator_path),
                         (_, _) => match emulator {
+                            Emulator::EverDrive => unreachable!(),
                             Emulator::BizHawk => if let Some(user_dirs) = UserDirs::new() {
                                 // check for existing BizHawk install in Downloads folder (where the bizhawk-co-op install scripts places it)
                                 let bizhawk_install_path = user_dirs.home_dir().join("bin").join("BizHawk");
@@ -422,7 +444,7 @@ impl Application for State {
                             } else {
                                 (true, String::default())
                             },
-                            #[cfg(target_os = "windows")] Emulator::Project64 => if let Some(pj64_install_path) = env::var_os("ProgramFiles(x86)").or_else(|| env::var_os("ProgramFiles")).map(|program_files| PathBuf::from(program_files).join("Project64 3.0")) {
+                            Emulator::Project64 => if let Some(pj64_install_path) = env::var_os("ProgramFiles(x86)").or_else(|| env::var_os("ProgramFiles")).map(|program_files| PathBuf::from(program_files).join("Project64 3.0")) {
                                 let exists = pj64_install_path.exists();
                                 let Ok(pj64_install_path) = pj64_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
                                 (!exists, pj64_install_path)
@@ -437,6 +459,7 @@ impl Application for State {
                     let emulator_path = emulator_path.clone();
                     self.page = Page::InstallEmulator { update: false, emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
                     match emulator {
+                        Emulator::EverDrive => unreachable!(),
                         Emulator::BizHawk => {
                             //TODO indicate progress
                             let http_client = self.http_client.clone();
@@ -515,7 +538,7 @@ impl Application for State {
                                 Ok(Message::LocateMultiworld(None))
                             })
                         }
-                        #[cfg(target_os = "windows")] Emulator::Project64 => {
+                        Emulator::Project64 => {
                             //TODO indicate progress
                             let http_client = self.http_client.clone();
                             let emulator_path_arg = format!("/DIR={emulator_path}");
@@ -558,6 +581,7 @@ impl Application for State {
                     }
                 } else {
                     let version = match emulator {
+                        Emulator::EverDrive => unreachable!(),
                         #[cfg(target_os = "windows")] Emulator::BizHawk => {
                             let [major, minor, patch, _] = match winver::get_file_version_info(PathBuf::from(emulator_path).join("EmuHawk.exe")) {
                                 Ok(version) => version,
@@ -591,6 +615,7 @@ impl Application for State {
                             }
                             Some(major)
                         }
+                        #[cfg(target_os = "linux")] Emulator::Project64 => unreachable!(),
                     };
                     return cmd(future::ok(Message::LocateMultiworld(version)))
                 },
@@ -635,25 +660,38 @@ impl Application for State {
                 Page::AskLaunch { emulator, ref emulator_path, ref multiworld_path } => {
                     if self.open_emulator {
                         match emulator {
-                            #[cfg(target_os = "linux")] Emulator::BizHawk => if let Err(e) = std::process::Command::new(Path::new(emulator_path).join("EmuHawkMono.sh")).arg("--open-ext-tool-dll=OotrMultiworld").current_dir(emulator_path).spawn() {
-                                return cmd(future::ready(Err(e).at(Path::new(emulator_path).join("EmuHawkMono.sh")).map_err(Error::from)))
-                            },
-                            #[cfg(target_os = "windows")] Emulator::BizHawk => if let Err(e) = std::process::Command::new(Path::new(emulator_path).join("EmuHawk.exe")).arg("--open-ext-tool-dll=OotrMultiworld").current_dir(emulator_path).spawn() {
-                                return cmd(future::ready(Err(e).at(Path::new(emulator_path).join("EmuHawk.exe")).map_err(Error::from)))
-                            },
-                            #[cfg(target_os = "windows")] Emulator::Project64 => {
-                                if let Err(e) = std::process::Command::new(Path::new(emulator_path).join("Project64.exe")).current_dir(emulator_path).spawn() {
-                                    return cmd(future::ready(Err(e).at(Path::new(emulator_path).join("Project64.exe")).map_err(Error::from)))
+                            Emulator::EverDrive => {
+                                let multiworld_path = multiworld_path.as_ref().expect("multiworld app path must be set for EverDrive");
+                                if let Err(e) = std::process::Command::new(multiworld_path).spawn() {
+                                    return cmd(future::ready(Err(e).at(multiworld_path).map_err(Error::from)))
                                 }
-                                if let Err(e) = std::process::Command::new(multiworld_path.as_ref().expect("multiworld app path must be set for Project64")).spawn() {
-                                    return cmd(future::ready(Err(e).at(multiworld_path.as_ref().expect("multiworld app path must be set for Project64")).map_err(Error::from)))
+                            }
+                            Emulator::BizHawk => {
+                                let emulator_path = emulator_path.as_ref().expect("emulator path must be set for BizHawk");
+                                #[cfg(target_os = "linux")] let bizhawk_exe_name = "EmuHawkMono.sh";
+                                #[cfg(target_os = "windows")] let bizhawk_exe_name = "EmuHawk.exe";
+                                let bizhawk_path = Path::new(emulator_path).join(bizhawk_exe_name);
+                                if let Err(e) = std::process::Command::new(&bizhawk_path).arg("--open-ext-tool-dll=OotrMultiworld").current_dir(emulator_path).spawn() {
+                                    return cmd(future::ready(Err(e).at(bizhawk_path).map_err(Error::from)))
+                                }
+                            }
+                            #[cfg(target_os = "linux")] Emulator::Project64 => unreachable!(),
+                            #[cfg(target_os = "windows")] Emulator::Project64 => {
+                                let emulator_path = emulator_path.as_ref().expect("emulator path must be set for Project64");
+                                let pj64_path = Path::new(emulator_path).join("Project64.exe");
+                                if let Err(e) = std::process::Command::new(&pj64_path).current_dir(emulator_path).spawn() {
+                                    return cmd(future::ready(Err(e).at(pj64_path).map_err(Error::from)))
+                                }
+                                let multiworld_path = multiworld_path.as_ref().expect("multiworld app path must be set for Project64");
+                                if let Err(e) = std::process::Command::new(multiworld_path).spawn() {
+                                    return cmd(future::ready(Err(e).at(multiworld_path).map_err(Error::from)))
                                 }
                             }
                         }
                     }
                     return window::close()
                 }
-            }
+            },
             Message::CopyDebugInfo => if let Page::Error(ref e, ref mut debug_info_copied) = self.page {
                 *debug_info_copied = true;
                 return clipboard::write(e.to_markdown())
@@ -672,15 +710,27 @@ impl Application for State {
             Message::InstallMultiworld => {
                 let (emulator, emulator_path, multiworld_path) = match self.page {
                     Page::LocateEmulator { emulator, ref emulator_path, ref multiworld_path, .. } |
-                    Page::InstallEmulator { emulator, ref emulator_path, ref multiworld_path, .. } |
+                    Page::InstallEmulator { emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, Some(emulator_path.clone()), multiworld_path.clone()),
                     Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, emulator_path.clone(), multiworld_path.clone()),
                     Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => (emulator, emulator_path.clone(), Some(multiworld_path.clone())),
                     _ => unreachable!(),
                 };
                 self.page = Page::InstallMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone(), config_write_failed: false };
-                let emulator_dir = PathBuf::from(emulator_path);
                 match emulator {
+                    Emulator::EverDrive => {
+                        let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Project64"));
+                        return cmd(async move {
+                            fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
+                            //TODO download latest release instead of embedding in installer
+                            #[cfg(all(target_os = "linux", debug_assertions))] fs::write(multiworld_path, include_bytes!("../../../target/debug/multiworld-gui")).await?;
+                            #[cfg(all(target_os = "linux", not(debug_assertions)))] fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-gui")).await?;
+                            #[cfg(all(target_os = "windows", debug_assertions))] fs::write(multiworld_path, include_bytes!("../../../target/debug/multiworld-gui.exe")).await?;
+                            #[cfg(all(target_os = "windows", not(debug_assertions)))] fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-gui.exe")).await?;
+                            Ok(Message::MultiworldInstalled)
+                        })
+                    }
                     Emulator::BizHawk => return cmd(async move {
+                        let emulator_dir = PathBuf::from(emulator_path.expect("emulator path must be set for BizHawk"));
                         let external_tools_dir = emulator_dir.join("ExternalTools");
                         fs::create_dir(&external_tools_dir).await.exist_ok()?;
                         #[cfg(target_os = "linux")] {
@@ -697,7 +747,8 @@ impl Application for State {
                         #[cfg(not(debug_assertions))] fs::write(external_tools_dir.join("OotrMultiworld.dll"), include_bytes!("../../multiworld-bizhawk/OotrMultiworld/src/bin/Release/net48/OotrMultiworld.dll")).await?;
                         Ok(Message::MultiworldInstalled)
                     }),
-                    #[cfg(target_os = "windows")] Emulator::Project64 => {
+                    Emulator::Project64 => {
+                        let emulator_dir = PathBuf::from(emulator_path.expect("emulator path must be set for Project64"));
                         let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Project64"));
                         return cmd(async move {
                             fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
@@ -733,18 +784,18 @@ impl Application for State {
             }
             Message::LocateMultiworld(emulator_version) => {
                 let (emulator, emulator_path, multiworld_path) = match self.page {
-                    Page::LocateEmulator { emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, emulator_path.clone(), multiworld_path.clone()),
-                    Page::InstallEmulator { emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, emulator_path.clone(), multiworld_path.clone()),
+                    Page::SelectEmulator { emulator, ref emulator_path, ref multiworld_path, .. } => (emulator.expect("Continue clicked with no emulator selected"), emulator_path.clone(), multiworld_path.clone()),
+                    Page::LocateEmulator { emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, Some(emulator_path.clone()), multiworld_path.clone()),
+                    Page::InstallEmulator { emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, Some(emulator_path.clone()), multiworld_path.clone()),
                     _ => unreachable!(),
                 };
                 match (emulator, emulator_version) {
-                    #[cfg(target_os = "linux")] (Emulator::BizHawk, _) => return cmd(future::ok(Message::InstallMultiworld)),
-                    #[cfg(target_os = "windows")] (Emulator::BizHawk, _) | (Emulator::Project64, Some(4..)) => return cmd(future::ok(Message::InstallMultiworld)),
-                    #[cfg(target_os = "windows")] (Emulator::Project64, _) => {
+                    (Emulator::BizHawk, _) | (Emulator::Project64, Some(4..)) => return cmd(future::ok(Message::InstallMultiworld)),
+                    (Emulator::EverDrive, _) | (Emulator::Project64, _) => {
                         let multiworld_path = if let Some(multiworld_path) = multiworld_path {
                             multiworld_path
                         } else if let Some(user_dirs) = UserDirs::new() {
-                            let multiworld_path = user_dirs.home_dir().join("bin").join("Mido's House Multiworld for Project64.exe");
+                            let multiworld_path = user_dirs.home_dir().join("bin").join("Mido's House Multiworld.exe");
                             let Ok(multiworld_path) = multiworld_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
                             multiworld_path
                         } else {
@@ -785,33 +836,29 @@ impl Application for State {
     fn view(&self) -> Element<'_, Message> {
         let (top, next_btn) = match self.page {
             Page::Error(ref e, debug_info_copied) => (
-                Into::<Element<'_, Message>>::into(Scrollable::new(Row::new()
-                    .push(Column::new()
-                        .push(Text::new("Error").size(24))
-                        .push(Text::new("An error occured while trying to install Mido's House Multiworld:"))
-                        .push(Text::new(e.to_string()))
-                        .push(Row::new()
-                            .push(Button::new(Text::new("Copy debug info")).on_press(Message::CopyDebugInfo))
-                            .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }))
-                            .spacing(8)
-                        )
-                        .push(Text::new("Support").size(24))
-                        .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @fenhl."))
-                        .push(Row::new()
-                            .push(Button::new(Text::new("invite link")).on_press(Message::DiscordInvite))
-                            .push(Button::new(Text::new("direct channel link")).on_press(Message::DiscordChannel))
-                            .spacing(8)
-                        )
-                        .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord."))
-                        .push(Row::new()
-                            .push(Text::new("• Or "))
-                            .push(Button::new(Text::new("open an issue")).on_press(Message::NewIssue))
-                            .spacing(8)
-                        )
-                        .spacing(8))
-                    .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
-                    .spacing(16)
-                )),
+                Into::<Element<'_, Message>>::into(Column::new()
+                    .push(Text::new("Error").size(24))
+                    .push(Text::new("An error occured while trying to install Mido's House Multiworld:"))
+                    .push(Text::new(e.to_string()))
+                    .push(Row::new()
+                        .push(Button::new(Text::new("Copy debug info")).on_press(Message::CopyDebugInfo))
+                        .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }))
+                        .spacing(8)
+                    )
+                    .push(Text::new("Support").size(24))
+                    .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @fenhl."))
+                    .push(Row::new()
+                        .push(Button::new(Text::new("invite link")).on_press(Message::DiscordInvite))
+                        .push(Button::new(Text::new("direct channel link")).on_press(Message::DiscordChannel))
+                        .spacing(8)
+                    )
+                    .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord."))
+                    .push(Row::new()
+                        .push(Text::new("• Or "))
+                        .push(Button::new(Text::new("open an issue")).on_press(Message::NewIssue))
+                        .spacing(8)
+                    )
+                    .spacing(8)),
                 None,
             ),
             Page::Elevated => (
@@ -823,7 +870,7 @@ impl Application for State {
                     let mut col = Column::new();
                     col = col.push(Text::new("Which emulator do you want to use?"));
                     col = col.push(Text::new("Multiworld can be added to an existing installation of the selected emulator, or it can install the emulator for you."));
-                    for iter_emulator in all::<Emulator>() {
+                    for iter_emulator in all().filter(Emulator::is_supported) {
                         col = col.push(Radio::new(iter_emulator.to_string(), iter_emulator, emulator, Message::SetEmulator));
                     }
                     col = col.push(Text::new("Looking for a different console or emulator? "));
@@ -849,11 +896,12 @@ impl Application for State {
                             Cow::Owned(format!("{emulator} target folder"))
                         } else {
                             match emulator {
+                                Emulator::EverDrive => unreachable!(),
                                 Emulator::BizHawk => {
                                     #[cfg(target_os = "linux")] { Cow::Borrowed("The folder with EmuHawkMono.sh in it") }
                                     #[cfg(target_os = "windows")] { Cow::Borrowed("The folder with EmuHawk.exe in it") }
                                 }
-                                #[cfg(target_os = "windows")] Emulator::Project64 => Cow::Borrowed("The folder with Project64.exe in it"),
+                                Emulator::Project64 => Cow::Borrowed("The folder with Project64.exe in it"),
                             }
                         }, emulator_path).on_input(Message::EmulatorPath).on_paste(Message::EmulatorPath).padding(5))
                         .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseEmulatorPath))
@@ -902,12 +950,15 @@ impl Application for State {
                     let mut col = Column::new();
                     col = col.push(Text::new("Multiworld has been installed."));
                     match emulator {
+                        Emulator::EverDrive => {
+                            col = col.push(Checkbox::new("Open Multiworld now", self.open_emulator, Message::SetOpenEmulator));
+                        }
                         Emulator::BizHawk => {
                             col = col.push(Text::new("To play multiworld, in BizHawk, select Tools → External Tool → Mido's House Multiworld."));
                             col = col.push(Checkbox::new("Open BizHawk now", self.open_emulator, Message::SetOpenEmulator));
                         }
-                        #[cfg(target_os = "windows")] Emulator::Project64 => {
-                            col = col.push(Text::new("To play multiworld, open the “Mido's House Multiworld for Project64” app and follow its instructions."));
+                        Emulator::Project64 => {
+                            col = col.push(Text::new("To play multiworld, open the “Mido's House Multiworld” app and follow its instructions."));
                             col = col.push(Checkbox::new("Open Multiworld and Project64 now", self.open_emulator, Message::SetOpenEmulator));
                         }
                     }
@@ -917,7 +968,12 @@ impl Application for State {
             ),
         };
         let mut view = Column::new()
-            .push(top);
+            .push(Scrollable::new(
+                Row::new()
+                    .push(top)
+                    .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
+                    .spacing(16)
+            ).height(Length::Fill));
         if let Some((btn_content, enabled)) = next_btn {
             let mut bottom_row = Row::new();
             if matches!(self.page, Page::SelectEmulator { .. }) {
@@ -930,7 +986,7 @@ impl Application for State {
             if enabled { next_btn = next_btn.on_press(Message::Continue) }
             bottom_row = bottom_row.push(next_btn);
             view = view
-                .push(Space::with_height(Length::Fill))
+                //.push(Space::with_height(Length::Fill))
                 .push(bottom_row.spacing(8));
         }
         view
