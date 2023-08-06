@@ -5,9 +5,13 @@
 use {
     std::{
         cmp::Ordering::*,
+        convert::Infallible as Never,
         env,
         io::prelude::*,
-        path::PathBuf,
+        path::{
+            Path,
+            PathBuf,
+        },
         sync::Arc,
         time::Duration,
     },
@@ -61,6 +65,7 @@ use {
         },
         traits::{
             IoResultExt as _,
+            ResultNeverErrExt as _,
             SyncCommandOutputExt as _,
         },
     },
@@ -70,6 +75,7 @@ use {
             ReleaseAsset,
             Repo,
         },
+        io_error_from_reqwest,
     },
     crate::util::absolute_path,
 };
@@ -86,7 +92,6 @@ mod util;
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
-    #[error(transparent)] Io(#[from] tokio::io::Error),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] SemVer(#[from] semver::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
@@ -281,10 +286,10 @@ impl Application for App {
                         let old_script = fs::read(&script_path).await?;
                         let new_script = http_client.get(script.browser_download_url).send().await?.error_for_status()?.bytes().await?;
                         if old_script != new_script {
-                            let temp_path = tokio::task::spawn_blocking(|| tempfile::Builder::default().prefix("ootrmw-pj64").suffix(".js").tempfile()).await??;
-                            io::copy_buf(&mut &*new_script, &mut tokio::fs::File::from_std(temp_path.reopen()?)).await?;
+                            let temp_path = tokio::task::spawn_blocking(|| tempfile::Builder::default().prefix("ootrmw-pj64").suffix(".js").tempfile()).await?.at_unknown()?;
+                            io::copy_buf(&mut &*new_script, &mut tokio::fs::File::from_std(temp_path.reopen().at(&temp_path)?)).await.at(&temp_path)?;
                             tokio::task::spawn_blocking(move || {
-                                if let Err(source) = runas::Command::new(env::current_exe()?).arg("pj64script").arg(temp_path.as_ref()).arg(&script_path).gui(true).status().at_command("runas")?.check("runas") {
+                                if let Err(source) = runas::Command::new(env::current_exe().at_unknown()?).arg("pj64script").arg(temp_path.as_ref()).arg(&script_path).gui(true).status().at_command("runas")?.check("runas") {
                                     return Err(Error::Pj64Script {
                                         temp_path: temp_path.as_ref().to_owned(),
                                         script_path, source,
@@ -304,7 +309,7 @@ impl Application for App {
                     let path = path.clone();
                     let local_bizhawk_version = local_bizhawk_version.clone();
                     return cmd(async move {
-                        let mut zip_file = StreamReader::new(response.bytes_stream().map_err(|e| io::Error::new(io::ErrorKind::Other, e)));
+                        let mut zip_file = StreamReader::new(response.bytes_stream().map_err(io_error_from_reqwest));
                         let mut zip_file = async_zip::base::read::stream::ZipFileReader::with_tokio(&mut zip_file);
                         let mut required_bizhawk_version = None;
                         while let Some(mut entry) = zip_file.next_with_entry().await? {
@@ -360,9 +365,9 @@ impl Application for App {
                     let path = path.clone();
                     return cmd(async move {
                         let mut data = response.bytes_stream();
-                        let mut exe_file = File::create(path).await?;
+                        let mut exe_file = File::create(&path).await?;
                         while let Some(chunk) = data.try_next().await? {
-                            exe_file.write_all(chunk.as_ref()).await?;
+                            exe_file.write_all(chunk.as_ref()).await.at(&path)?;
                         }
                         Ok(Message::WaitDownload(exe_file))
                     })
@@ -432,7 +437,8 @@ impl Application for App {
                     let path = path.clone();
                     return cmd(async move {
                         let path = absolute_path(path).await?;
-                        std::process::Command::new(path.join("EmuHawk.exe")).arg("--open-ext-tool-dll=OotrMultiworld").current_dir(path).spawn()?;
+                        let emuhawk_path = path.join("EmuHawk.exe");
+                        std::process::Command::new(&emuhawk_path).arg("--open-ext-tool-dll=OotrMultiworld").current_dir(path).spawn().at(emuhawk_path)?;
                         Ok(Message::Done)
                     })
                 }
@@ -440,7 +446,7 @@ impl Application for App {
                     self.state = State::Launch;
                     let path = path.clone();
                     return cmd(async move {
-                        std::process::Command::new(path).spawn()?;
+                        std::process::Command::new(&path).spawn().at(path)?;
                         Ok(Message::Done)
                     })
                 }
@@ -450,10 +456,10 @@ impl Application for App {
                 return window::close()
             }
             Message::DiscordInvite => if let Err(e) = open("https://discord.gg/BGRrKKn") {
-                self.state = State::Error(Arc::new(e.into()), false);
+                self.state = State::Error(Arc::new(Err::<Never, _>(e).at_unknown().never_unwrap_err().into()), false);
             },
             Message::DiscordChannel => if let Err(e) = open("https://discord.com/channels/274180765816848384/476723801032491008") {
-                self.state = State::Error(Arc::new(e.into()), false);
+                self.state = State::Error(Arc::new(Err::<Never, _>(e).at_unknown().never_unwrap_err().into()), false);
             },
             Message::NewIssue => if let State::Error(ref e, _) = self.state {
                 let mut issue_url = match Url::parse("https://github.com/midoshouse/ootr-multiworld/issues/new") {
@@ -462,7 +468,7 @@ impl Application for App {
                 };
                 issue_url.query_pairs_mut().append_pair("body", &e.to_markdown());
                 if let Err(e) = open(issue_url.to_string()) {
-                    self.state = State::Error(Arc::new(e.into()), false);
+                    self.state = State::Error(Arc::new(Err::<Never, _>(e).at_unknown().never_unwrap_err().into()), false);
                 }
             } else {
                 self.state = State::Error(Arc::new(Error::CopyDebugInfo), false);
@@ -476,50 +482,50 @@ impl Application for App {
         match self.state {
             State::WaitExit => match self.args {
                 EmuArgs::BizHawk { .. } => Column::new()
-                    .push(Text::new("An update for Mido's House Multiworld for BizHawk is available."))
-                    .push(Text::new("Please close BizHawk to start the update.")) //TODO adjust message depending on which PIDs are still open?
+                    .push("An update for Mido's House Multiworld for BizHawk is available.")
+                    .push("Please close BizHawk to start the update.") //TODO adjust message depending on which PIDs are still open?
                     .spacing(8)
                     .padding(8)
                     .into(),
                 EmuArgs::Pj64 { .. } => Column::new()
-                    .push(Text::new("An update for Mido's House Multiworld for Project64 is available."))
-                    .push(Text::new("Waiting to make sure the old version has exited…"))
+                    .push("An update for Mido's House Multiworld for Project64 is available.")
+                    .push("Waiting to make sure the old version has exited…")
                     .spacing(8)
                     .padding(8)
                     .into(),
             },
-            State::GetMultiworldRelease => Text::new("Checking latest release…").into(),
-            State::DownloadMultiworld => Text::new("Starting download…").into(),
-            State::ExtractMultiworld => Text::new("Downloading and extracting multiworld…").into(),
-            State::GetBizHawkRelease => Text::new("Getting BizHawk download link…").into(),
-            State::StartDownloadBizHawk => Text::new("Starting BizHawk download…").into(),
-            State::DownloadBizHawk => Text::new("Downloading BizHawk…").into(),
-            State::ExtractBizHawk => Text::new("Extracting BizHawk…").into(),
-            State::Replace => Text::new("Downloading update…").into(),
-            State::WaitDownload => Text::new("Finishing download…").into(),
-            State::Launch => Text::new("Starting new version…").into(),
-            State::Done => Text::new("Closing updater…").into(),
+            State::GetMultiworldRelease => Column::new().push("Checking latest release…").spacing(8).padding(8).into(),
+            State::DownloadMultiworld => Column::new().push("Starting download…").spacing(8).padding(8).into(),
+            State::ExtractMultiworld => Column::new().push("Downloading and extracting multiworld…").spacing(8).padding(8).into(),
+            State::GetBizHawkRelease => Column::new().push("Getting BizHawk download link…").spacing(8).padding(8).into(),
+            State::StartDownloadBizHawk => Column::new().push("Starting BizHawk download…").spacing(8).padding(8).into(),
+            State::DownloadBizHawk => Column::new().push("Downloading BizHawk…").spacing(8).padding(8).into(),
+            State::ExtractBizHawk => Column::new().push("Extracting BizHawk…").spacing(8).padding(8).into(),
+            State::Replace => Column::new().push("Downloading update…").spacing(8).padding(8).into(),
+            State::WaitDownload => Column::new().push("Finishing download…").spacing(8).padding(8).into(),
+            State::Launch => Column::new().push("Starting new version…").spacing(8).padding(8).into(),
+            State::Done => Column::new().push("Closing updater…").spacing(8).padding(8).into(),
             State::Error(ref e, debug_info_copied) => Scrollable::new(Row::new()
                 .push(Column::new()
                     .push(Text::new("Error").size(24))
-                    .push(Text::new("An error occured while trying to update Mido's House Multiworld:"))
+                    .push("An error occured while trying to update Mido's House Multiworld:")
                     .push(Text::new(e.to_string()))
                     .push(Row::new()
-                        .push(Button::new(Text::new("Copy debug info")).on_press(Message::CopyDebugInfo))
-                        .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }))
+                        .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
+                        .push(if debug_info_copied { "Copied!" } else { "for pasting into Discord" })
                         .spacing(8)
                     )
                     .push(Text::new("Support").size(24))
-                    .push(Text::new("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @fenhl."))
+                    .push("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @fenhl.")
                     .push(Row::new()
-                        .push(Button::new(Text::new("invite link")).on_press(Message::DiscordInvite))
-                        .push(Button::new(Text::new("direct channel link")).on_press(Message::DiscordChannel))
+                        .push(Button::new("invite link").on_press(Message::DiscordInvite))
+                        .push(Button::new("direct channel link").on_press(Message::DiscordChannel))
                         .spacing(8)
                     )
-                    .push(Text::new("• Ask in #general on the OoTR MW Tournament Discord."))
+                    .push("• Ask in #general on the OoTR MW Tournament Discord.")
                     .push(Row::new()
-                        .push(Text::new("• Or "))
-                        .push(Button::new(Text::new("open an issue")).on_press(Message::NewIssue))
+                        .push("• Or ")
+                        .push(Button::new("open an issue").on_press(Message::NewIssue))
                         .spacing(8)
                     )
                     .spacing(8)
@@ -532,7 +538,7 @@ impl Application for App {
     }
 }
 
-fn pj64script(src: PathBuf, dst: PathBuf) -> io::Result<()> {
+fn pj64script(src: &Path, dst: &Path) -> wheel::Result {
     let is_same_drive = {
         #[cfg(windows)] {
             src.components().find_map(|component| if let std::path::Component::Prefix(prefix) = component { Some(prefix) } else { None })
@@ -541,10 +547,10 @@ fn pj64script(src: PathBuf, dst: PathBuf) -> io::Result<()> {
         #[cfg(not(windows))] { true }
     };
     if is_same_drive {
-        std::fs::rename(src, dst)?;
+        std::fs::rename(src, dst).at2(src, dst)?;
     } else {
-        std::fs::copy(&src, dst)?;
-        std::fs::remove_file(src)?;
+        std::fs::copy(src, dst).at2(src, dst)?;
+        std::fs::remove_file(src).at(src)?;
     }
     Ok(())
 }
@@ -579,7 +585,6 @@ enum Args {
 enum MainError {
     #[error(transparent)] Iced(#[from] iced::Error),
     #[error(transparent)] Icon(#[from] iced::window::icon::Error),
-    #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[cfg(windows)]
     #[error("user folder not found")]
@@ -597,7 +602,7 @@ fn main(args: Args) -> Result<(), MainError> {
             },
             ..Settings::with_flags(args)
         })?),
-        Args::Pj64Script { src, dst } => match pj64script(src, dst) {
+        Args::Pj64Script { src, dst } => match pj64script(&src, &dst) {
             Ok(()) => Ok(()),
             Err(e) => {
                 if CONFIG.log {
@@ -607,13 +612,13 @@ fn main(args: Args) -> Result<(), MainError> {
                         }
                         #[cfg(windows)] {
                             let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(MainError::MissingHomeDir)?;
-                            std::fs::create_dir_all(project_dirs.data_dir())?;
+                            std::fs::create_dir_all(project_dirs.data_dir()).at(project_dirs.data_dir())?;
                             project_dirs.data_dir().join("updater.log")
                         }
                     };
-                    write!(std::fs::File::create(path)?, "{} error in pj64script subcommand: {e}\ndebug info: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"))?;
+                    write!(std::fs::File::create(&path).at(&path)?, "{} error in pj64script subcommand: {e}\ndebug info: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")).at(path)?;
                 }
-                Err(e.into())
+                Err(MainError::Wheel(e))
             }
         },
     }

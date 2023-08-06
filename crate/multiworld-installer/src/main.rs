@@ -58,7 +58,10 @@ use {
         fs,
         traits::IoResultExt as _,
     },
-    multiworld::github::Repo,
+    multiworld::{
+        github::Repo,
+        io_error_from_reqwest,
+    },
 };
 #[cfg(target_os = "linux")] use std::io::Cursor;
 #[cfg(target_os = "windows")] use {
@@ -856,7 +859,7 @@ impl Application for State {
                     col = col.push(Text::new("Multiworld has been installed."));
                     match emulator {
                         Emulator::BizHawk => {
-                            col = col.push(Text::new("To play multiworld, in BizHawk, select Tools → External Tool → Mido's House Multiworld for BizHawk."));
+                            col = col.push(Text::new("To play multiworld, in BizHawk, select Tools → External Tool → Mido's House Multiworld."));
                             col = col.push(Checkbox::new("Open BizHawk now", self.open_emulator, Message::SetOpenEmulator));
                         }
                         #[cfg(target_os = "windows")] Emulator::Project64 => {
@@ -874,7 +877,7 @@ impl Application for State {
         if let Some((btn_content, enabled)) = next_btn {
             let mut bottom_row = Row::new();
             if matches!(self.page, Page::SelectEmulator { .. }) {
-                bottom_row = bottom_row.push(Text::new(concat!("v", env!("CARGO_PKG_VERSION"))));
+                bottom_row = bottom_row.push(Text::new(concat!("version ", env!("CARGO_PKG_VERSION"))));
             } else {
                 bottom_row = bottom_row.push(Button::new(Text::new("Back")).on_press(Message::Back));
             }
@@ -891,15 +894,6 @@ impl Application for State {
             .padding(8)
             .into()
     }
-}
-
-#[cfg(target_os = "windows")]
-fn io_error_from_reqwest(e: reqwest::Error) -> io::Error {
-    io::Error::new(if e.is_timeout() {
-        io::ErrorKind::TimedOut
-    } else {
-        io::ErrorKind::Other
-    }, e)
 }
 
 #[derive(clap::Parser)]

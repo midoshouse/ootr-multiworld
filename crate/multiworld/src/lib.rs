@@ -30,6 +30,7 @@ use {
     oottracker::websocket::MwItem as Item,
     semver::Version,
     tokio::{
+        io,
         net::{
             TcpStream,
             tcp::{
@@ -1316,4 +1317,12 @@ pub fn format_room_state(players: &[Player], num_unassigned_clients: u8, my_worl
             })
         }
     }
+}
+
+pub fn io_error_from_reqwest(e: reqwest::Error) -> io::Error {
+    io::Error::new(if e.is_timeout() {
+        io::ErrorKind::TimedOut
+    } else {
+        io::ErrorKind::Other
+    }, e)
 }
