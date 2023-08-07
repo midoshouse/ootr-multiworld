@@ -94,3 +94,6 @@ xdg = "2"
 
 [target.'cfg(windows)'.dependencies]
 directories = "5"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gio = "0.18"

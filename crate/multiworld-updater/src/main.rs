@@ -17,7 +17,10 @@ use {
     },
     bytes::Bytes,
     chrono::prelude::*,
-    dark_light::Mode::*,
+    dark_light::Mode::{
+        Dark,
+        Light,
+    },
     futures::{
         future::{
             self,
@@ -84,6 +87,7 @@ use {
     xdg::BaseDirectories,
 };
 #[cfg(windows)] use directories::ProjectDirs;
+#[cfg(target_os = "linux")] use gio::traits::SettingsExt as _;
 
 mod util;
 
@@ -227,10 +231,21 @@ impl Application for App {
 
     fn title(&self) -> String { format!("updating Mido's House Multiworld…") }
 
-    fn theme(&self) -> Self::Theme {
-        match dark_light::detect() { //TODO automatically update on system theme change
+    fn theme(&self) -> Theme {
+        //TODO automatically update on system theme change
+        #[cfg(target_os = "linux")] {
+            let settings = gio::Settings::new("org.gnome.desktop.interface");
+            if settings.settings_schema().map_or(false, |schema| schema.has_key("color-scheme")) {
+                match settings.string("color-scheme").as_str() {
+                    "prefer-light" => return Theme::Light,
+                    "prefer-dark" => return Theme::Dark,
+                    _ => {}
+                }
+            }
+        }
+        match dark_light::detect() {
             Dark => Theme::Dark,
-            Light | Default => Theme::Light,
+            Light | dark_light::Mode::Default => Theme::Light,
         }
     }
 

@@ -17,7 +17,10 @@ use {
         },
         sync::Arc,
     },
-    dark_light::Mode::*,
+    dark_light::Mode::{
+        Dark,
+        Light,
+    },
     directories::UserDirs,
     enum_iterator::{
         Sequence,
@@ -63,7 +66,10 @@ use {
         io_error_from_reqwest,
     },
 };
-#[cfg(target_os = "linux")] use std::io::Cursor;
+#[cfg(target_os = "linux")] use {
+    std::io::Cursor,
+    gio::traits::SettingsExt as _,
+};
 #[cfg(target_os = "windows")] use {
     std::cmp::Ordering::*,
     futures::stream::TryStreamExt as _,
@@ -302,10 +308,21 @@ impl Application for State {
         })
     }
 
-    fn theme(&self) -> Self::Theme {
-        match dark_light::detect() { //TODO automatically update on system theme change
+    fn theme(&self) -> Theme {
+        //TODO automatically update on system theme change
+        #[cfg(target_os = "linux")] {
+            let settings = gio::Settings::new("org.gnome.desktop.interface");
+            if settings.settings_schema().map_or(false, |schema| schema.has_key("color-scheme")) {
+                match settings.string("color-scheme").as_str() {
+                    "prefer-light" => return Theme::Light,
+                    "prefer-dark" => return Theme::Dark,
+                    _ => {}
+                }
+            }
+        }
+        match dark_light::detect() {
             Dark => Theme::Dark,
-            Light | Default => Theme::Light,
+            Light | dark_light::Mode::Default => Theme::Light,
         }
     }
 
