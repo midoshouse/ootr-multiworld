@@ -81,7 +81,7 @@ use {
         AsyncCommandOutputExt as _,
         SyncCommandOutputExt as _,
     },
-    multiworld::config::CONFIG,
+    multiworld::config::Config,
 };
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))] const BIZHAWK_PLATFORM_SUFFIX: &str = "-linux-x64.tar.gz";
@@ -686,9 +686,9 @@ impl Application for State {
                             let script_path = scripts_path.join("ootrmw.js");
                             //TODO download latest release instead of embedding in installer
                             fs::write(&script_path, include_bytes!("../../../assets/ootrmw-pj64.js")).await?;
-                            let mut new_mw_config = CONFIG.clone();
+                            let mut new_mw_config = Config::load().await?;
                             new_mw_config.pj64_script_path = Some(script_path);
-                            new_mw_config.save()?;
+                            new_mw_config.save().await?;
                             let config_path = emulator_dir.join("Config");
                             fs::create_dir(&config_path).await.exist_ok()?;
                             let config_path = config_path.join("Project64.cfg");

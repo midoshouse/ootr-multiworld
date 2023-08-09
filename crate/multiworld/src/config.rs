@@ -4,7 +4,6 @@ use {
         path::PathBuf,
     },
     if_chain::if_chain,
-    once_cell::sync::Lazy,
     serde::{
         Deserialize,
         Serialize,
@@ -30,6 +29,7 @@ pub struct Config {
 pub enum Error {
     #[error(transparent)] Io(#[from] std::io::Error),
     #[error(transparent)] Json(#[from] serde_json::Error),
+    #[error(transparent)] Wheel(#[from] wheel::Error),
     #[cfg(unix)] #[error(transparent)] Xdg(#[from] xdg::BaseDirectoriesError),
     #[cfg(windows)]
     #[error("failed to find project folder")]
@@ -37,7 +37,7 @@ pub enum Error {
 }
 
 impl Config {
-    fn load() -> Result<Self, Error> {
+    pub fn blocking_load() -> Result<Self, Error> {
         let path = {
             #[cfg(unix)] {
                 BaseDirectories::new()?.find_config_file("midos-house/multiworld.json")
@@ -57,18 +57,40 @@ impl Config {
         })
     }
 
-    pub fn save(&self) -> Result<(), Error> {
+    pub async fn load() -> Result<Self, Error> {
+        let path = {
+            #[cfg(unix)] {
+                BaseDirectories::new()?.find_config_file("midos-house/multiworld.json")
+            }
+            #[cfg(windows)] {
+                Some(ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::ProjectDirs)?.config_dir().join("config.json"))
+            }
+        };
+        Ok(if_chain! {
+            if let Some(path) = path;
+            if wheel::fs::exists(&path).await?;
+            then {
+                wheel::fs::read_json(path).await?
+            } else {
+                Self::default()
+            }
+        })
+    }
+
+    pub async fn save(&self) -> Result<(), Error> {
         let path = {
             #[cfg(unix)] {
                 BaseDirectories::new()?.place_config_file("midos-house/multiworld.json")?
             }
             #[cfg(windows)] {
                 let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::ProjectDirs)?;
-                fs::create_dir_all(project_dirs.config_dir())?;
+                wheel::fs::create_dir_all(project_dirs.config_dir()).await?;
                 project_dirs.config_dir().join("config.json")
             }
         };
-        fs::write(path, serde_json::to_vec_pretty(self)?)?;
+        let mut buf = serde_json::to_vec_pretty(self)?;
+        buf.push(b'\n');
+        wheel::fs::write(path, buf).await?;
         Ok(())
     }
 
@@ -86,13 +108,3 @@ impl Default for Config {
         }
     }
 }
-
-//TODO only use this where proper error reporting is infeasible
-pub static CONFIG: Lazy<Config> = Lazy::new(|| {
-    match Config::load() {
-        Ok(config) => return config,
-        #[cfg(debug_assertions)] Err(e) => eprintln!("{e:?}"),
-        #[cfg(not(debug_assertions))] Err(_) => {}
-    }
-    Config::default()
-});

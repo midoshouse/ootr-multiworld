@@ -83,7 +83,7 @@ use {
         RoomView,
         SessionState,
         SessionStateError,
-        config::CONFIG,
+        config::Config,
         format_room_state,
         frontend,
         github::Repo,
@@ -411,9 +411,9 @@ impl Application for State {
     type Executor = iced::executor::Default;
     type Message = Message;
     type Theme = Theme;
-    type Flags = FrontendFlags;
+    type Flags = (Config, FrontendFlags);
 
-    fn new(frontend: FrontendFlags) -> (Self, Command<Message>) {
+    fn new((config, frontend): Self::Flags) -> (Self, Command<Message>) {
         (Self {
             frontend: frontend.clone(),
             debug_info_copied: false,
@@ -422,9 +422,9 @@ impl Application for State {
             frontend_subscription_error: None,
             frontend_connection_id: 0,
             frontend_writer: None,
-            log: CONFIG.log,
+            log: config.log,
             last_login_url: None,
-            websocket_url: CONFIG.websocket_url().expect("failed to parse WebSocket URL"),
+            websocket_url: config.websocket_url().expect("failed to parse WebSocket URL"),
             server_connection: SessionState::Init,
             server_writer: None,
             retry: Instant::now(),
@@ -1225,6 +1225,7 @@ fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, debug_inf
 
 #[derive(Debug, thiserror::Error)]
 enum MainError {
+    #[error(transparent)] Config(#[from] multiworld::config::Error),
     #[error(transparent)] Iced(#[from] iced::Error),
     #[error(transparent)] Icon(#[from] iced::window::icon::Error),
     #[error(transparent)] Io(#[from] io::Error),
@@ -1260,11 +1261,14 @@ fn main(CliArgs { frontend }: CliArgs) -> Result<(), MainError> {
             icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
             ..window::Settings::default()
         },
-        ..Settings::with_flags(match frontend {
-            None => FrontendFlags::Pj64V3,
-            Some(FrontendArgs::Dummy) => FrontendFlags::Dummy,
-            Some(FrontendArgs::BizHawk { path, pid, local_bizhawk_version, port }) => FrontendFlags::BizHawk { path, pid, local_bizhawk_version, port },
-            Some(FrontendArgs::Pj64V4) => FrontendFlags::Pj64V4,
-        })
+        ..Settings::with_flags((
+            Config::blocking_load()?,
+            match frontend {
+                None => FrontendFlags::Pj64V3,
+                Some(FrontendArgs::Dummy) => FrontendFlags::Dummy,
+                Some(FrontendArgs::BizHawk { path, pid, local_bizhawk_version, port }) => FrontendFlags::BizHawk { path, pid, local_bizhawk_version, port },
+                Some(FrontendArgs::Pj64V4) => FrontendFlags::Pj64V4,
+            },
+        ))
     })?)
 }

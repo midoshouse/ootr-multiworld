@@ -41,7 +41,7 @@ use {
     },
     multiworld::{
         SessionState,
-        config::CONFIG,
+        config::Config,
         ws::latest::{
             ClientMessage,
             ServerMessage,
@@ -61,6 +61,7 @@ struct Args {
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error(transparent)] Client(#[from] multiworld::ClientError),
+    #[error(transparent)] Config(#[from] multiworld::config::Error),
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] Io(#[from] tokio::io::Error),
     #[error(transparent)] Json(#[from] serde_json::Error),
@@ -109,7 +110,8 @@ fn prompt(session_state: &SessionState<Never>) -> Cow<'static, str> {
 
 async fn cli(Args { api_key }: Args) -> Result<(), Error> {
     let mut cli_events = EventStream::default().fuse();
-    let (mut websocket, _) = tokio_tungstenite::connect_async(CONFIG.websocket_url()?).await?;
+    let config = Config::load().await?;
+    let (mut websocket, _) = tokio_tungstenite::connect_async(config.websocket_url()?).await?;
     if let Some(api_key) = api_key {
         ClientMessage::LoginApiKey { api_key }.write_ws(&mut websocket).await?;
     }

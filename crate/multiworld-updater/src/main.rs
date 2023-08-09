@@ -73,7 +73,7 @@ use {
         },
     },
     multiworld::{
-        config::CONFIG,
+        config::Config,
         github::{
             ReleaseAsset,
             Repo,
@@ -96,6 +96,7 @@ mod util;
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
+    #[error(transparent)] Config(#[from] multiworld::config::Error),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] SemVer(#[from] semver::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
@@ -292,7 +293,8 @@ impl Application for App {
                 self.state = State::DownloadMultiworld;
                 return cmd(async move {
                     if let Some(script) = script {
-                        let script_path = if let Some(ref script_path) = CONFIG.pj64_script_path {
+                        let config = Config::load().await?;
+                        let script_path = if let Some(ref script_path) = config.pj64_script_path {
                             script_path.clone()
                         } else {
                             let program_files = env::var_os("ProgramFiles(x86)").or_else(|| env::var_os("ProgramFiles")).ok_or(Error::ProgramFiles)?;
@@ -598,6 +600,7 @@ enum Args {
 
 #[derive(Debug, thiserror::Error)]
 enum MainError {
+    #[error(transparent)] Config(#[from] multiworld::config::Error),
     #[error(transparent)] Iced(#[from] iced::Error),
     #[error(transparent)] Icon(#[from] iced::window::icon::Error),
     #[error(transparent)] Wheel(#[from] wheel::Error),
@@ -620,7 +623,7 @@ fn main(args: Args) -> Result<(), MainError> {
         Args::Pj64Script { src, dst } => match pj64script(&src, &dst) {
             Ok(()) => Ok(()),
             Err(e) => {
-                if CONFIG.log {
+                if Config::blocking_load()?.log {
                     let path = {
                         #[cfg(unix)] {
                             BaseDirectories::new().expect("failed to determine XDG base directories").place_data_file("midos-house/multiworld-updater.log").expect("failed to create log dir")

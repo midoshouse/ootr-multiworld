@@ -3384,7 +3384,6 @@ dependencies = [
  "itertools 0.11.0",
  "log-lock",
  "multiworld-derive",
- "once_cell",
  "ootr-utils",
  "oottracker",
  "pyo3",

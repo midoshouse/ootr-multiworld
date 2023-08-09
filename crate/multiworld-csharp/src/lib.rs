@@ -39,7 +39,7 @@ use {
     wheel::traits::IoResultExt as _,
     multiworld_derive::csharp_ffi,
     multiworld::{
-        config::CONFIG,
+        config::Config,
         frontend::{
             ClientMessage,
             PROTOCOL_VERSION,
@@ -55,6 +55,15 @@ use {
     directories::ProjectDirs,
     semver::Version,
 };
+
+static CONFIG: Lazy<Config> = Lazy::new(|| {
+    match Config::blocking_load() {
+        Ok(config) => return config,
+        #[cfg(debug_assertions)] Err(e) => eprintln!("{e:?}"),
+        #[cfg(not(debug_assertions))] Err(_) => {}
+    }
+    Config::default()
+});
 
 static LOG: Lazy<File> = Lazy::new(|| {
     let path = {
