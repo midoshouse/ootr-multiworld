@@ -738,9 +738,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.3.19"
+version = "4.3.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fd304a20bff958a57f04c4e96a2e7594cc4490a0e809cbd48bb6437edaa452d"
+checksum = "c27cdf28c0f604ba3f512b0c9a409f8de8513e4816705deb0498b627e7c3a3fd"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -749,9 +749,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.3.19"
+version = "4.3.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01c6a3f08f1fe5662a35cfe393aec09c4df95f60ee93b7556505260f75eee9e1"
+checksum = "08a9f1ab5e9f01a9b81f202e8562eb9a10de70abf9eaeac1be465c28b75aa4aa"
 dependencies = [
  "anstream",
  "anstyle",
@@ -907,9 +907,9 @@ dependencies = [
 
 [[package]]
 name = "const-oid"
-version = "0.9.4"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "795bc6e66a8e340f075fcf6227e417a2dc976b92b91f3cdc778bb858778b6747"
+checksum = "28c122c3980598d243d63d9a704629a2d748d101f278052ff068be5a4423ab6f"
 
 [[package]]
 name = "constant_time_eq"
@@ -1216,9 +1216,9 @@ checksum = "7046468a81e6a002061c01e6a7c83139daf91b11c30e66795b13217c2d885c8b"
 
 [[package]]
 name = "der"
-version = "0.7.7"
+version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c7ed52955ce76b1554f509074bb357d3fb8ac9b51288a65a3fd480d1dfba946"
+checksum = "fffa369a668c8af7dbf8b5e56c9f744fbd399949ed171606040001947de40b1c"
 dependencies = [
  "const-oid",
  "pem-rfc7468",
@@ -2705,9 +2705,9 @@ checksum = "cb56e1aa765b4b4f3aadfab769793b7087bb03a4ea4920644a6d238e2df5b9ed"
 
 [[package]]
 name = "image"
-version = "0.24.6"
+version = "0.24.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "527909aa81e20ac3a44803521443a765550f09b5130c2c2fa1ea59c2f8f50a3a"
+checksum = "6f3dfdbdd72063086ff443e297b61695500514b1e41095b6fb9a5ab48a70a711"
 dependencies = [
  "bytemuck",
  "byteorder",
@@ -2950,36 +2950,13 @@ dependencies = [
 
 [[package]]
 name = "lazy-regex"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff63c423c68ea6814b7da9e88ce585f793c87ddd9e78f646970891769c8235d4"
-dependencies = [
- "lazy-regex-proc_macros 2.4.1",
- "once_cell",
- "regex",
-]
-
-[[package]]
-name = "lazy-regex"
 version = "3.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57451d19ad5e289ff6c3d69c2a2424652995c42b79dafa11e9c4d5508c913c01"
 dependencies = [
- "lazy-regex-proc_macros 3.0.1",
+ "lazy-regex-proc_macros",
  "once_cell",
  "regex",
-]
-
-[[package]]
-name = "lazy-regex-proc_macros"
-version = "2.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8edfc11b8f56ce85e207e62ea21557cfa09bb24a8f6b04ae181b086ff8611c22"
-dependencies = [
- "proc-macro2",
- "quote",
- "regex",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -3426,7 +3403,7 @@ dependencies = [
 name = "multiworld-bizhawk"
 version = "12.0.3"
 dependencies = [
- "lazy-regex 3.0.1",
+ "lazy-regex",
  "semver",
  "thiserror",
  "tokio",
@@ -3460,7 +3437,7 @@ name = "multiworld-derive"
 version = "12.0.3"
 dependencies = [
  "itertools 0.11.0",
- "lazy-regex 3.0.1",
+ "lazy-regex",
  "proc-macro2",
  "quote",
  "semver",
@@ -3527,7 +3504,7 @@ dependencies = [
  "itertools 0.10.5",
  "itertools 0.11.0",
  "kuchiki",
- "lazy-regex 3.0.1",
+ "lazy-regex",
  "multiworld",
  "multiworld-bizhawk",
  "open",
@@ -3991,15 +3968,15 @@ dependencies = [
 
 [[package]]
 name = "ootr-utils"
-version = "0.1.13"
-source = "git+https://github.com/midoshouse/rust-ootr-utils?branch=main#27388e959f6e1e9d2bfb6c646fb6f76e22eaf42a"
+version = "0.1.14"
+source = "git+https://github.com/midoshouse/rust-ootr-utils?branch=main#dd836ee13dab92c43b69c0029c4ef056a971bbc9"
 dependencies = [
  "async-proto",
  "directories 5.0.1",
  "enum-iterator",
  "git2",
  "itertools 0.11.0",
- "lazy-regex 2.5.0",
+ "lazy-regex",
  "pyo3",
  "semver",
  "serde",
@@ -5366,7 +5343,7 @@ checksum = "1d1feddffcfcc0b33f5c6ce9a29e341e4cd59c3f78e7ee45f4a40c038b1d6cbb"
 dependencies = [
  "log",
  "ring",
- "rustls-webpki 0.101.2",
+ "rustls-webpki 0.101.3",
  "sct",
 ]
 
@@ -5391,9 +5368,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.101.2"
+version = "0.101.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "513722fd73ad80a71f72b61009ea1b584bcfa1483ca93949c8f290298837fa59"
+checksum = "261e9e0888cba427c3316e6322805653c9425240b6fd96cee7cb671ab70ab8d0"
 dependencies = [
  "ring",
  "untrusted",
@@ -6342,9 +6319,9 @@ dependencies = [
 
 [[package]]
 name = "tiff"
-version = "0.8.1"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7449334f9ff2baf290d55d73983a7d6fa15e01198faef72af07e2a8db851e471"
+checksum = "6d172b0f4d3fba17ba89811858b9d3d97f928aece846475bbda076ca46736211"
 dependencies = [
  "flate2",
  "jpeg-decoder",
@@ -7278,7 +7255,7 @@ version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b291546d5d9d1eab74f069c77749f2cb8504a12caa20f0f2de93ddbf6f411888"
 dependencies = [
- "rustls-webpki 0.101.2",
+ "rustls-webpki 0.101.3",
 ]
 
 [[package]]
