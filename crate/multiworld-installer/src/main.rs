@@ -378,7 +378,12 @@ impl Application for State {
                             // Project64 installation and plugin installation both require admin permissions (UAC)
                             self.page = Page::Elevated;
                             return cmd(async move {
-                                tokio::task::spawn_blocking(|| Ok::<_, Error>(runas::Command::new(env::current_exe()?).arg("--emulator=pj64v3").gui(true).status().at_command("runas")?.check("runas")?)).await??;
+                                let arg = match emulator {
+                                    Emulator::Pj64V3 => "--emulator=pj64v3",
+                                    Emulator::Pj64V4 => "--emulator=pj64v4",
+                                    _ => unreachable!(),
+                                };
+                                tokio::task::spawn_blocking(move || Ok::<_, Error>(runas::Command::new(env::current_exe()?).arg(arg).gui(true).status().at_command("runas")?.check("runas")?)).await??;
                                 Ok(Message::Exit)
                             })
                         }
@@ -905,10 +910,14 @@ impl Application for State {
                     }
                     col.spacing(8).into()
                 },
-                Some((
-                    if install_emulator { Text::new(format!("Install {emulator}")) } else { Text::new("Continue") }.into(),
-                    !emulator_path.is_empty(),
-                )),
+                Some({
+                    let mut row = Row::new();
+                    #[cfg(target_os = "windows")] if emulator == Emulator::BizHawk && install_emulator && !is_elevated() {
+                        row = row.push(Image::new(image::Handle::from_memory(include_bytes!("../../../assets/uac.png").to_vec())).height(Length::Fixed(20.0)));
+                    }
+                    row = row.push(if install_emulator { Text::new(format!("Install {emulator}")) } else { Text::new("Continue") });
+                    (Into::<Element<'_, Message>>::into(row.spacing(8)), !emulator_path.is_empty())
+                }),
             ),
             Page::AskBizHawkUpdate { .. } => (
                 Column::new()
