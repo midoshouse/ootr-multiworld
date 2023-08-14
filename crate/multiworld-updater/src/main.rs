@@ -222,7 +222,7 @@ impl Application for App {
                         sleep(Duration::from_secs(1)).await;
                     }
                 }
-                EmuArgs::Pj64 { pid, .. } => {
+                EmuArgs::EverDrive { pid, .. } | EmuArgs::Pj64 { pid, .. } => {
                     while system.refresh_process_specifics(pid, ProcessRefreshKind::default()) {
                         sleep(Duration::from_secs(1)).await;
                     }
@@ -264,6 +264,10 @@ impl Application for App {
             Message::Exited => {
                 self.state = State::GetMultiworldRelease;
                 let (asset_name, script_name) = match self.args {
+                    EmuArgs::EverDrive { .. } => {
+                        #[cfg(target_os = "linux")] { ("multiworld-gui-linux", None) }
+                        #[cfg(target_os = "windows")] { ("multiworld-pj64.exe", None) }
+                    }
                     EmuArgs::BizHawk { .. } => {
                         #[cfg(target_os = "linux")] { ("multiworld-bizhawk-linux.zip", None) }
                         #[cfg(target_os = "windows")] { ("multiworld-bizhawk.zip", None) }
@@ -379,7 +383,7 @@ impl Application for App {
                         }
                     })
                 }
-                EmuArgs::Pj64 { ref path, .. } => {
+                EmuArgs::EverDrive { ref path, .. } | EmuArgs::Pj64 { ref path, .. } => {
                     self.state = State::Replace;
                     let path = path.clone();
                     return cmd(async move {
@@ -464,7 +468,7 @@ impl Application for App {
                         Ok(Message::Done)
                     })
                 }
-                EmuArgs::Pj64 { ref path, .. } => {
+                EmuArgs::EverDrive { ref path, .. } | EmuArgs::Pj64 { ref path, .. } => {
                     self.state = State::Launch;
                     let path = path.clone();
                     return cmd(async move {
@@ -505,13 +509,17 @@ impl Application for App {
             State::WaitExit => match self.args {
                 EmuArgs::BizHawk { .. } => Column::new()
                     .push("An update for Mido's House Multiworld for BizHawk is available.")
-                    .push("Please close BizHawk to start the update.") //TODO adjust message depending on which PIDs are still open?
+                    .push("Please close BizHawk to start the update.")
+                    .push(Space::with_height(Length::Fill))
+                    .push(concat!("old version: ", env!("CARGO_PKG_VERSION"))) //TODO also show new version
                     .spacing(8)
                     .padding(8)
                     .into(),
-                EmuArgs::Pj64 { .. } => Column::new()
-                    .push("An update for Mido's House Multiworld for Project64 is available.")
+                EmuArgs::EverDrive { .. } | EmuArgs::Pj64 { .. } => Column::new()
+                    .push("An update for Mido's House Multiworld is available.")
                     .push("Waiting to make sure the old version has exited…")
+                    .push(Space::with_height(Length::Fill))
+                    .push(concat!("old version: ", env!("CARGO_PKG_VERSION"))) //TODO also show new version
                     .spacing(8)
                     .padding(8)
                     .into(),
@@ -586,6 +594,10 @@ fn pj64script(src: &Path, dst: &Path) -> wheel::Result {
 #[derive(Clone, clap::Subcommand)]
 #[clap(rename_all = "lower")]
 enum EmuArgs {
+    EverDrive {
+        path: PathBuf,
+        pid: Pid,
+    },
     BizHawk {
         mw_pid: Pid,
         path: PathBuf,

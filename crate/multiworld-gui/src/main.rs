@@ -26,6 +26,7 @@ use {
         Dark,
         Light,
     },
+    enum_iterator::all,
     futures::{
         future,
         sink::SinkExt as _,
@@ -90,7 +91,10 @@ use {
         SessionStateError,
         config::Config,
         format_room_state,
-        frontend,
+        frontend::{
+            self,
+            Kind as Frontend,
+        },
         github::Repo,
         ws::{
             ServerError,
@@ -254,7 +258,7 @@ enum Error {
     MissingHomeDir,
     #[error("protocol version mismatch: {frontend} plugin is version {version} but we're version {}", frontend::PROTOCOL_VERSION)]
     VersionMismatch {
-        frontend: FrontendFlags,
+        frontend: Frontend,
         version: u8,
     },
 }
@@ -314,6 +318,7 @@ enum Message {
     SetAutoDeleteDelta(DurationFormatter),
     SetCreateNewRoom(bool),
     SetExistingRoomSelection(RoomFormatter),
+    SetFrontend(Frontend),
     SetLobbyView(LobbyView),
     SetNewRoomName(String),
     SetPassword(String),
@@ -334,7 +339,7 @@ fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) ->
 
 struct State {
     persistent_state: PersistentState,
-    frontend: FrontendFlags,
+    frontend: FrontendState,
     debug_info_copied: bool,
     icon_error: Option<Arc<iced::window::icon::Error>>,
     config_error: Option<Arc<multiworld::config::Error>>,
@@ -417,35 +422,39 @@ impl State {
 }
 
 #[derive(Debug, Clone)]
-enum FrontendFlags {
-    Dummy,
-    BizHawk {
-        path: PathBuf,
-        pid: Pid,
-        local_bizhawk_version: Version,
-        port: u16,
-    },
-    Pj64V3,
-    Pj64V4,
+struct BizHawkState {
+    path: PathBuf,
+    pid: Pid,
+    version: Version,
+    port: u16,
 }
 
-impl FrontendFlags {
+#[derive(Debug, Clone)]
+struct FrontendState {
+    kind: Frontend,
+    bizhawk: Option<BizHawkState>,
+}
+
+impl FrontendState {
     fn display_with_version(&self) -> Cow<'static, str> {
-        match self {
-            Self::Dummy => "(no frontend)".into(),
-            Self::BizHawk { local_bizhawk_version, .. } => format!("BizHawk {local_bizhawk_version}").into(),
-            Self::Pj64V3 => "Project64 3.x".into(),
-            Self::Pj64V4 => "Project64 4.x".into(),
+        match self.kind {
+            Frontend::Dummy => "(no frontend)".into(),
+            Frontend::EverDrive => "EverDrive".into(),
+            Frontend::BizHawk => if let Some(BizHawkState { ref version, .. }) = self.bizhawk {
+                format!("BizHawk {version}").into()
+            } else {
+                "BizHawk".into()
+            },
+            Frontend::Pj64V3 => "Project64 3.x".into(),
+            Frontend::Pj64V4 => "Project64 4.x".into(),
         }
     }
-}
 
-impl fmt::Display for FrontendFlags {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Dummy => write!(f, "(no frontend)"),
-            Self::BizHawk { .. } => write!(f, "BizHawk"),
-            Self::Pj64V3 | Self::Pj64V4 => write!(f, "Project64"),
+    fn is_locked(&self) -> bool {
+        match self.kind {
+            Frontend::Dummy | Frontend::EverDrive | Frontend::Pj64V3 => false,
+            Frontend::Pj64V4 => false, //TODO pass port from PJ64, consider locked if present
+            Frontend::BizHawk => self.bizhawk.is_some(),
         }
     }
 }
@@ -454,7 +463,7 @@ impl Application for State {
     type Executor = iced::executor::Default;
     type Message = Message;
     type Theme = Theme;
-    type Flags = (Option<iced::window::icon::Error>, Result<Config, multiworld::config::Error>, Result<PersistentState, persistent_state::Error>, FrontendFlags);
+    type Flags = (Option<iced::window::icon::Error>, Result<Config, multiworld::config::Error>, Result<PersistentState, persistent_state::Error>, Option<FrontendArgs>);
 
     fn new((icon_error, config, persistent_state, frontend): Self::Flags) -> (Self, Command<Message>) {
         let (config, config_error) = match config {
@@ -464,6 +473,21 @@ impl Application for State {
         let (persistent_state, persistent_state_error) = match persistent_state {
             Ok(persistent_state) => (persistent_state, None),
             Err(e) => (PersistentState::default(), Some(Arc::new(e))),
+        };
+        let frontend = FrontendState {
+            kind: match frontend {
+                None => config.default_frontend.unwrap_or(Frontend::Pj64V3),
+                Some(FrontendArgs::Dummy) => Frontend::Dummy,
+                Some(FrontendArgs::EverDrive) => Frontend::EverDrive,
+                Some(FrontendArgs::BizHawk { .. }) => Frontend::BizHawk,
+                Some(FrontendArgs::Pj64V3) => Frontend::Pj64V3,
+                Some(FrontendArgs::Pj64V4) => Frontend::Pj64V4,
+            },
+            bizhawk: if let Some(FrontendArgs::BizHawk { path, pid, version, port }) = frontend {
+                Some(BizHawkState { path, pid, version, port })
+            } else {
+                None
+            },
         };
         (Self {
             frontend: frontend.clone(),
@@ -519,16 +543,23 @@ impl Application for State {
                     fs::write(&updater_path, updater_data).await?;
                     #[cfg(unix)] fs::set_permissions(&updater_path, fs::Permissions::from_mode(0o755)).await?;
                     let mut cmd = std::process::Command::new(updater_path);
-                    match frontend {
-                        FrontendFlags::Dummy => return Ok(Message::UpToDate),
-                        FrontendFlags::BizHawk { path, pid, local_bizhawk_version, port: _ } => {
+                    match frontend.kind {
+                        Frontend::Dummy => return Ok(Message::UpToDate),
+                        Frontend::EverDrive => {
+                            cmd.arg("everdrive");
+                            cmd.arg(env::current_exe()?);
+                            cmd.arg(process::id().to_string());
+                        }
+                        Frontend::BizHawk => if let Some(BizHawkState { path, pid, version, port: _ }) = frontend.bizhawk {
                             cmd.arg("bizhawk");
                             cmd.arg(process::id().to_string());
                             cmd.arg(path);
                             cmd.arg(pid.to_string());
-                            cmd.arg(local_bizhawk_version.to_string());
-                        }
-                        FrontendFlags::Pj64V3 | FrontendFlags::Pj64V4 => {
+                            cmd.arg(version.to_string());
+                        } else {
+                            return Ok(Message::UpToDate)
+                        },
+                        Frontend::Pj64V3 | Frontend::Pj64V4 => {
                             cmd.arg("pj64");
                             cmd.arg(env::current_exe()?);
                             cmd.arg(process::id().to_string());
@@ -561,7 +592,11 @@ impl Application for State {
     }
 
     fn title(&self) -> String {
-        format!("Mido's House Multiworld for {}", self.frontend)
+        if self.frontend.is_locked() {
+            format!("Mido's House Multiworld for {}", self.frontend.kind)
+        } else {
+            format!("Mido's House Multiworld")
+        }
     }
 
     fn update(&mut self, msg: Message) -> Command<Message> {
@@ -639,9 +674,9 @@ impl Application for State {
             }
             Message::FrontendSubscriptionError(e) => {
                 if let Error::Read(async_proto::ReadError::Io(ref e)) = *e {
-                    match (&self.frontend, e.kind()) {
-                        (FrontendFlags::BizHawk { .. } | FrontendFlags::Pj64V4, io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof) => return window::close(), // BizHawk closed
-                        (FrontendFlags::Pj64V3, io::ErrorKind::ConnectionReset) => {
+                    match (self.frontend.kind, e.kind()) {
+                        (Frontend::BizHawk | Frontend::Pj64V4, io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof) => return window::close(), // frontend closed
+                        (Frontend::Pj64V3, io::ErrorKind::ConnectionReset) => {
                             self.frontend_writer = None;
                             return Command::none()
                         }
@@ -999,6 +1034,7 @@ impl Application for State {
             },
             Message::SetCreateNewRoom(new_val) => if let SessionState::Lobby { ref mut create_new_room, .. } = self.server_connection { *create_new_room = new_val },
             Message::SetExistingRoomSelection(name) => if let SessionState::Lobby { ref mut existing_room_selection, .. } = self.server_connection { *existing_room_selection = Some(name) },
+            Message::SetFrontend(new_frontend) => self.frontend.kind = new_frontend,
             Message::SetNewRoomName(name) => if let SessionState::Lobby { ref mut new_room_name, .. } = self.server_connection { *new_room_name = name },
             Message::SetPassword(new_password) => if let SessionState::Lobby { ref mut password, .. } = self.server_connection { *password = new_password },
             Message::SetSendAllPath(new_path) => self.send_all_path = new_path,
@@ -1024,16 +1060,16 @@ impl Application for State {
                 if e.kind() == io::ErrorKind::AddrInUse {
                     Column::new()
                         .push(Text::new("Connection Busy").size(24))
-                        .push(Text::new(format!("Could not connect to {} because the connection is already in use. Maybe you still have another instance of this app open?", self.frontend)))
+                        .push(Text::new(format!("Could not connect to {} because the connection is already in use. Maybe you still have another instance of this app open?", self.frontend.kind)))
                         .push(Button::new("Retry").on_press(Message::ReconnectFrontend))
                         .spacing(8)
                         .padding(8)
                         .into()
                 } else {
-                    error_view(format!("An error occurred during communication with {}:", self.frontend), e, self.debug_info_copied)
+                    error_view(format!("An error occurred during communication with {}:", self.frontend.kind), e, self.debug_info_copied)
                 }
             } else {
-                error_view(format!("An error occurred during communication with {}:", self.frontend), e, self.debug_info_copied)
+                error_view(format!("An error occurred during communication with {}:", self.frontend.kind), e, self.debug_info_copied)
             }
         } else if !self.updates_checked {
             Column::new()
@@ -1041,18 +1077,35 @@ impl Application for State {
                 .spacing(8)
                 .padding(8)
                 .into()
-        } else if self.frontend_writer.is_none() && !matches!(self.frontend, FrontendFlags::Dummy) {
-            Column::new()
-                .push(Text::new(format!("Waiting for {}…", self.frontend)))
-                .push(match &self.frontend {
-                    FrontendFlags::Dummy => unreachable!(),
-                    FrontendFlags::BizHawk { .. } => "Make sure your game is running and unpaused.",
-                    FrontendFlags::Pj64V3 => "1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.",
-                    FrontendFlags::Pj64V4 => "This should take less than 5 seconds.",
-                })
-                .spacing(8)
-                .padding(8)
-                .into()
+        } else if self.frontend_writer.is_none() && self.frontend.kind != Frontend::Dummy {
+            let mut col = Column::new();
+            if !self.frontend.is_locked() {
+                col = col.push(PickList::new(all::<Frontend>().filter(|&iter_frontend| self.frontend.kind == iter_frontend || iter_frontend.is_supported()).collect_vec(), Some(self.frontend.kind), Message::SetFrontend));
+            }
+            match self.frontend.kind {
+                Frontend::Dummy => unreachable!(),
+                Frontend::EverDrive => unimplemented!(), //TODO
+                Frontend::BizHawk => if self.frontend.bizhawk.is_some() {
+                    col = col
+                        .push("Waiting for BizHawk…")
+                        .push("Make sure your game is running and unpaused.");
+                } else {
+                    col = col
+                        .push("BizHawk not connected")
+                        .push("To use multiworld with BizHawk, start it from BizHawk's Tools → External Tools menu.");
+                },
+                Frontend::Pj64V3 => {
+                    col = col
+                        .push("Waiting for Project64…")
+                        .push("1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.");
+                }
+                Frontend::Pj64V4 => {
+                    col = col
+                        .push("Waiting for Project64…")
+                        .push("This should take less than 5 seconds.");
+                }
+            }
+            col.spacing(8).padding(8).into()
         } else {
             match self.server_connection {
                 SessionState::Error { auto_retry: false, ref e } => error_view("An error occurred during communication with the server:", e, self.debug_info_copied),
@@ -1305,11 +1358,14 @@ impl Application for State {
         let mut subscriptions = Vec::with_capacity(4);
         subscriptions.push(iced::subscription::events().map(Message::Event));
         if self.updates_checked {
-            match self.frontend {
-                FrontendFlags::Dummy => {}
-                FrontendFlags::BizHawk { port, .. } => subscriptions.push(Subscription::from_recipe(subscriptions::Connection { port, frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id })),
-                FrontendFlags::Pj64V4 => subscriptions.push(Subscription::from_recipe(subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id })),
-                FrontendFlags::Pj64V3 => subscriptions.push(Subscription::from_recipe(subscriptions::Listener { frontend: self.frontend.clone(), log: self.log, connection_id: self.frontend_connection_id })),
+            match self.frontend.kind {
+                Frontend::Dummy => {}
+                Frontend::EverDrive => unimplemented!(), //TODO
+                Frontend::BizHawk => if let Some(BizHawkState { port, .. }) = self.frontend.bizhawk {
+                    subscriptions.push(Subscription::from_recipe(subscriptions::Connection { port, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id }));
+                },
+                Frontend::Pj64V3 => subscriptions.push(Subscription::from_recipe(subscriptions::Listener { frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id })),
+                Frontend::Pj64V4 => subscriptions.push(Subscription::from_recipe(subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id })), //TODO allow Project64 to specify port via command-line arg
             }
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
                 subscriptions.push(Subscription::from_recipe(subscriptions::Client { log: self.log, websocket_url: self.websocket_url.clone() }));
@@ -1359,12 +1415,14 @@ fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, debug_inf
 enum FrontendArgs {
     #[clap(name = "dummy-frontend")]
     Dummy,
+    EverDrive,
     BizHawk {
         path: PathBuf,
         pid: Pid,
-        local_bizhawk_version: Version,
+        version: Version,
         port: u16,
     },
+    Pj64V3,
     Pj64V4,
 }
 
@@ -1392,12 +1450,7 @@ fn main(CliArgs { frontend }: CliArgs) -> iced::Result {
             icon_error,
             Config::blocking_load(),
             PersistentState::blocking_load(),
-            match frontend {
-                None => FrontendFlags::Pj64V3,
-                Some(FrontendArgs::Dummy) => FrontendFlags::Dummy,
-                Some(FrontendArgs::BizHawk { path, pid, local_bizhawk_version, port }) => FrontendFlags::BizHawk { path, pid, local_bizhawk_version, port },
-                Some(FrontendArgs::Pj64V4) => FrontendFlags::Pj64V4,
-            },
+            frontend,
         ))
     })
 }

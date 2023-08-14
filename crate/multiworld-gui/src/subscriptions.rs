@@ -47,12 +47,14 @@ use {
     tokio_tungstenite::tungstenite,
     url::Url,
     multiworld::{
-        frontend,
+        frontend::{
+            self,
+            Kind as Frontend,
+        },
         ws::latest as ws,
     },
     crate::{
         Error,
-        FrontendFlags,
         LoggingReader,
         LoggingStream,
         Message,
@@ -63,7 +65,7 @@ pub(crate) type WsSink = SplitSink<tokio_tungstenite::WebSocketStream<tokio_tung
 
 pub(crate) struct Connection {
     pub(crate) port: u16,
-    pub(crate) frontend: FrontendFlags,
+    pub(crate) frontend: Frontend,
     pub(crate) log: bool,
     pub(crate) connection_id: u8,
 }
@@ -77,26 +79,23 @@ impl Recipe for Connection {
     }
 
     fn stream(self: Box<Self>, _: EventStream) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
-        let frontend = self.frontend.clone();
+        let frontend = self.frontend;
         let log = self.log;
         stream::once(TcpStream::connect((Ipv4Addr::LOCALHOST, self.port)).map_err(Error::from))
-            .and_then(move |mut tcp_stream| {
-                let frontend = frontend.clone();
-                async move {
-                    frontend::PROTOCOL_VERSION.write(&mut tcp_stream).await?;
-                    let client_version = u8::read(&mut tcp_stream).await?;
-                    if client_version != frontend::PROTOCOL_VERSION {
-                        return Err(Error::VersionMismatch { version: client_version, frontend })
-                    }
-                    let (reader, writer) = tcp_stream.into_split();
-                    let reader = LoggingReader { context: "from frontend", inner: reader, log };
-                    Ok(
-                        stream::once(future::ok(Message::FrontendConnected(Arc::new(Mutex::new(writer)))))
-                            .chain(stream::try_unfold(reader, |mut reader| async move {
-                                Ok(Some((Message::Plugin(Box::new(reader.read::<frontend::ClientMessage>().await?)), reader)))
-                            }))
-                    )
+            .and_then(move |mut tcp_stream| async move {
+                frontend::PROTOCOL_VERSION.write(&mut tcp_stream).await?;
+                let client_version = u8::read(&mut tcp_stream).await?;
+                if client_version != frontend::PROTOCOL_VERSION {
+                    return Err(Error::VersionMismatch { version: client_version, frontend })
                 }
+                let (reader, writer) = tcp_stream.into_split();
+                let reader = LoggingReader { context: "from frontend", inner: reader, log };
+                Ok(
+                    stream::once(future::ok(Message::FrontendConnected(Arc::new(Mutex::new(writer)))))
+                        .chain(stream::try_unfold(reader, |mut reader| async move {
+                            Ok(Some((Message::Plugin(Box::new(reader.read::<frontend::ClientMessage>().await?)), reader)))
+                        }))
+                )
             })
             .try_flatten()
             .map(|res| match res {
@@ -109,7 +108,7 @@ impl Recipe for Connection {
 }
 
 pub(crate) struct Listener {
-    pub(crate) frontend: FrontendFlags,
+    pub(crate) frontend: Frontend,
     pub(crate) log: bool,
     pub(crate) connection_id: u8,
 }
@@ -123,32 +122,26 @@ impl Recipe for Listener {
     }
 
     fn stream(self: Box<Self>, _: EventStream) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
-        let frontend = self.frontend.clone();
+        let frontend = self.frontend;
         let log = self.log;
         stream::once(TcpListener::bind((Ipv4Addr::LOCALHOST, frontend::PORT)))
-            .and_then(move |listener| {
-                let frontend = frontend.clone();
-                future::ok(stream::try_unfold(listener, move |listener| {
-                    let frontend = frontend.clone();
-                    async move {
-                        let (mut tcp_stream, _) = listener.accept().await?;
-                        frontend::PROTOCOL_VERSION.write(&mut tcp_stream).await?;
-                        let client_version = u8::read(&mut tcp_stream).await?;
-                        if client_version != frontend::PROTOCOL_VERSION {
-                            return Err(Error::VersionMismatch { version: client_version, frontend })
-                        }
-                        let (reader, writer) = tcp_stream.into_split();
-                        let reader = LoggingReader { context: "from frontend", inner: reader, log };
-                        Ok(Some((
-                            stream::once(future::ok(Message::FrontendConnected(Arc::new(Mutex::new(writer)))))
-                            .chain(stream::try_unfold(reader, |mut reader| async move {
-                                Ok(Some((Message::Plugin(Box::new(reader.read::<frontend::ClientMessage>().await?)), reader)))
-                            })),
-                            listener,
-                        )))
-                    }
-                }))
-            })
+            .and_then(move |listener| future::ok(stream::try_unfold(listener, move |listener| async move {
+                let (mut tcp_stream, _) = listener.accept().await?;
+                frontend::PROTOCOL_VERSION.write(&mut tcp_stream).await?;
+                let client_version = u8::read(&mut tcp_stream).await?;
+                if client_version != frontend::PROTOCOL_VERSION {
+                    return Err(Error::VersionMismatch { version: client_version, frontend })
+                }
+                let (reader, writer) = tcp_stream.into_split();
+                let reader = LoggingReader { context: "from frontend", inner: reader, log };
+                Ok(Some((
+                    stream::once(future::ok(Message::FrontendConnected(Arc::new(Mutex::new(writer)))))
+                    .chain(stream::try_unfold(reader, |mut reader| async move {
+                        Ok(Some((Message::Plugin(Box::new(reader.read::<frontend::ClientMessage>().await?)), reader)))
+                    })),
+                    listener,
+                )))
+            })))
             .try_flatten()
             .try_flatten()
             .map(|res| match res {

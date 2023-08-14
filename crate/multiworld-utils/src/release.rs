@@ -49,6 +49,7 @@ use {
 };
 
 #[derive(Clone)] struct WindowsUpdaterNotification;
+#[derive(Clone)] struct LinuxGuiNotification;
 #[derive(Clone)] struct WindowsGuiNotification;
 #[derive(Clone)] struct LinuxBizHawkNotification;
 #[derive(Clone)] struct WindowsBizHawkNotification;
@@ -356,6 +357,88 @@ impl Task<Result<(), Error>> for BuildGui {
     }
 }
 
+enum BuildGuiLinux {
+    Sync(reqwest::Client, Repo, broadcast::Receiver<Release>, broadcast::Sender<LinuxGuiNotification>),
+    Updater(reqwest::Client, Repo, broadcast::Receiver<Release>, broadcast::Sender<LinuxGuiNotification>),
+    Gui(reqwest::Client, Repo, broadcast::Receiver<Release>, broadcast::Sender<LinuxGuiNotification>),
+    Copy(reqwest::Client, Repo, broadcast::Receiver<Release>),
+    Read(reqwest::Client, Repo, broadcast::Receiver<Release>),
+    WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
+    Upload(reqwest::Client, Repo, Release, Vec<u8>),
+}
+
+impl BuildGuiLinux {
+    fn new(client: reqwest::Client, repo: Repo, release_rx: broadcast::Receiver<Release>, gui_tx: broadcast::Sender<LinuxGuiNotification>) -> Self {
+        Self::Sync(client, repo, release_rx, gui_tx)
+    }
+}
+
+impl fmt::Display for BuildGuiLinux {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Sync(..) => write!(f, "syncing repo to Ubuntu"),
+            Self::Updater(..) => write!(f, "building multiworld-updater for Linux"),
+            Self::Gui(..) => write!(f, "building multiworld-gui for Linux"),
+            Self::Copy(..) => write!(f, "copying multiworld-gui for Linux to Windows"),
+            Self::Read(..) => write!(f, "reading multiworld-gui-linux"),
+            Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
+            Self::Upload(..) => write!(f, "uploading multiworld-gui-linux"),
+        }
+    }
+}
+
+impl Progress for BuildGuiLinux {
+    fn progress(&self) -> Percent {
+        Percent::fraction(match self {
+            Self::Sync(..) => 0,
+            Self::Updater(..) => 1,
+            Self::Gui(..) => 2,
+            Self::Copy(..) => 3,
+            Self::Read(..) => 4,
+            Self::WaitRelease(..) => 5,
+            Self::Upload(..) => 6,
+        }, 7)
+    }
+}
+
+#[async_trait]
+impl Task<Result<(), Error>> for BuildGuiLinux {
+    async fn run(self) -> Result<Result<(), Error>, Self> {
+        match self {
+            Self::Sync(client, repo, release_rx, gui_tx) => gres::transpose(async move {
+                Command::new("wsl").arg("rsync").arg("--delete").arg("-av").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/").arg("--exclude").arg(".cargo/config.toml").arg("--exclude").arg("target").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/BizHawk").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/bin").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/obj").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll").check("wsl rsync").await?;
+                Ok(Err(Self::Updater(client, repo, release_rx, gui_tx)))
+            }).await,
+            Self::Updater(client, repo, release_rx, gui_tx) => gres::transpose(async move {
+                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-updater").check("wsl cargo build --package=multiworld-updater").await?;
+                Ok(Err(Self::Gui(client, repo, release_rx, gui_tx)))
+            }).await,
+            Self::Gui(client, repo, release_rx, gui_tx) => gres::transpose(async move {
+                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-gui").check("wsl cargo build --package=multiworld-gui").await?;
+                let _ = gui_tx.send(LinuxGuiNotification);
+                Ok(Err(Self::Copy(client, repo, release_rx)))
+            }).await,
+            Self::Copy(client, repo, release_rx) => gres::transpose(async move {
+                fs::create_dir_all("target/wsl/release").await?;
+                Command::new("wsl").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/multiworld-gui").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/multiworld-gui").check("wsl cp").await?;
+                Ok(Err(Self::Read(client, repo, release_rx)))
+            }).await,
+            Self::Read(client, repo, release_rx) => gres::transpose(async move {
+                let data = fs::read("target/wsl/release/multiworld-gui").await?;
+                Ok(Err(Self::WaitRelease(client, repo, release_rx, data)))
+            }).await,
+            Self::WaitRelease(client, repo, mut release_rx, data) => gres::transpose(async move {
+                let release = release_rx.recv().await?;
+                Ok(Err(Self::Upload(client, repo, release, data)))
+            }).await,
+            Self::Upload(client, repo, release, data) => gres::transpose(async move {
+                repo.release_attach(&client, &release, "multiworld-gui-linux", "application/x-executable", data).await?;
+                Ok(Ok(()))
+            }).await,
+        }
+    }
+}
+
 enum BuildBizHawk {
     Gui(bool, reqwest::Client, Repo, broadcast::Receiver<WindowsGuiNotification>, broadcast::Receiver<Release>, Version, broadcast::Sender<WindowsBizHawkNotification>),
     CSharp(bool, reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<WindowsBizHawkNotification>),
@@ -374,7 +457,7 @@ impl BuildBizHawk {
 impl fmt::Display for BuildBizHawk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Gui(..) => write!(f, "waiting for GUI build to finish"),
+            Self::Gui(..) => write!(f, "waiting for Windows GUI build to finish"),
             Self::CSharp(false, ..) => write!(f, "building multiworld-csharp for Windows"),
             Self::CSharp(true, ..) => write!(f, "building multiworld-csharp (debug) for Windows"),
             Self::BizHawk(false, ..) => write!(f, "building multiworld-bizhawk for Windows"),
@@ -461,9 +544,7 @@ impl Task<Result<(), Error>> for BuildBizHawk {
 }
 
 enum BuildBizHawkLinux {
-    Sync(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
-    Updater(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
-    Gui(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
+    Gui(reqwest::Client, Repo, broadcast::Receiver<LinuxGuiNotification>, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
     CSharp(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
     BizHawk(reqwest::Client, Repo, broadcast::Receiver<Release>, Version, broadcast::Sender<LinuxBizHawkNotification>),
     Copy(reqwest::Client, Repo, broadcast::Receiver<Release>, Version),
@@ -473,17 +554,15 @@ enum BuildBizHawkLinux {
 }
 
 impl BuildBizHawkLinux {
-    fn new(client: reqwest::Client, repo: Repo, release_rx: broadcast::Receiver<Release>, version: Version, bizhawk_tx: broadcast::Sender<LinuxBizHawkNotification>) -> Self {
-        Self::Sync(client, repo, release_rx, version, bizhawk_tx)
+    fn new(client: reqwest::Client, repo: Repo, gui_rx: broadcast::Receiver<LinuxGuiNotification>, release_rx: broadcast::Receiver<Release>, version: Version, bizhawk_tx: broadcast::Sender<LinuxBizHawkNotification>) -> Self {
+        Self::Gui(client, repo, gui_rx, release_rx, version, bizhawk_tx)
     }
 }
 
 impl fmt::Display for BuildBizHawkLinux {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Sync(..) => write!(f, "syncing repo to Ubuntu"),
-            Self::Updater(..) => write!(f, "building multiworld-updater for Linux"),
-            Self::Gui(..) => write!(f, "building multiworld-gui for Linux"),
+            Self::Gui(..) => write!(f, "waiting for Linux GUI build to finish"),
             Self::CSharp(..) => write!(f, "building multiworld-csharp for Linux"),
             Self::BizHawk(..) => write!(f, "building multiworld-bizhawk for Linux"),
             Self::Copy(..) => write!(f, "copying multiworld-bizhawk for Linux to Windows"),
@@ -497,16 +576,14 @@ impl fmt::Display for BuildBizHawkLinux {
 impl Progress for BuildBizHawkLinux {
     fn progress(&self) -> Percent {
         Percent::fraction(match self {
-            Self::Sync(..) => 0,
-            Self::Updater(..) => 1,
-            Self::Gui(..) => 2,
-            Self::CSharp(..) => 3,
-            Self::BizHawk(..) => 4,
-            Self::Copy(..) => 5,
-            Self::Zip(..) => 6,
-            Self::WaitRelease(..) => 7,
-            Self::Upload(..) => 8,
-        }, 9)
+            Self::Gui(..) => 0,
+            Self::CSharp(..) => 1,
+            Self::BizHawk(..) => 2,
+            Self::Copy(..) => 3,
+            Self::Zip(..) => 4,
+            Self::WaitRelease(..) => 5,
+            Self::Upload(..) => 6,
+        }, 7)
     }
 }
 
@@ -514,16 +591,8 @@ impl Progress for BuildBizHawkLinux {
 impl Task<Result<(), Error>> for BuildBizHawkLinux {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
-            Self::Sync(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
-                Command::new("wsl").arg("rsync").arg("--delete").arg("-av").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/").arg("--exclude").arg(".cargo/config.toml").arg("--exclude").arg("target").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/BizHawk").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/bin").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/obj").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll").check("wsl rsync").await?;
-                Ok(Err(Self::Updater(client, repo, release_rx, version, bizhawk_tx)))
-            }).await,
-            Self::Updater(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
-                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-updater").check("wsl cargo build --package=multiworld-updater").await?;
-                Ok(Err(Self::Gui(client, repo, release_rx, version, bizhawk_tx)))
-            }).await,
-            Self::Gui(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
-                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-gui").check("wsl cargo build --package=multiworld-gui").await?;
+            Self::Gui(client, repo, mut gui_rx, release_rx, version, bizhawk_tx) => gres::transpose(async move {
+                let LinuxGuiNotification = gui_rx.recv().await?;
                 Ok(Err(Self::CSharp(client, repo, release_rx, version, bizhawk_tx)))
             }).await,
             Self::CSharp(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
@@ -1011,6 +1080,7 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
         let release_rx_installer_linux = release_tx.subscribe();
         let release_rx_gui_debug = release_tx.subscribe();
         let release_rx_gui = release_tx.subscribe();
+        let release_rx_gui_linux = release_tx.subscribe();
         let release_rx_bizhawk_debug = release_tx.subscribe();
         let release_rx_bizhawk = release_tx.subscribe();
         let release_rx_bizhawk_linux = release_tx.subscribe();
@@ -1024,6 +1094,7 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
         let debug_gui_rx_installer = debug_gui_tx.subscribe();
         let (gui_tx, gui_rx) = broadcast::channel(1);
         let gui_rx_installer = gui_tx.subscribe();
+        let (linux_gui_tx, linux_gui_rx) = broadcast::channel(1);
         let (debug_bizhawk_tx, debug_bizhawk_rx) = broadcast::channel(1);
         let (bizhawk_tx, bizhawk_rx) = broadcast::channel(1);
         let (linux_bizhawk_tx, linux_bizhawk_rx) = broadcast::channel(1);
@@ -1045,9 +1116,10 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
             async move { cli.run(BuildUpdater::new(false, updater_tx), "updater build done").await? },
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildGui::new(true, client, repo, debug_updater_rx, release_rx_gui_debug, debug_gui_tx), "Windows debug GUI build done").await? } },
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildGui::new(false, client, repo, updater_rx, release_rx_gui, gui_tx), "Windows GUI build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildGuiLinux::new(client, repo, release_rx_gui_linux, linux_gui_tx), "Linux GUI build done").await? } },
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildBizHawk::new(true, client, repo, debug_gui_rx, release_rx_bizhawk_debug, bizhawk_version_debug, debug_bizhawk_tx), "Windows debug BizHawk build done").await? } },
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildBizHawk::new(false, client, repo, gui_rx, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "Windows BizHawk build done").await? } },
-            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildBizHawkLinux::new(client, repo, release_rx_bizhawk_linux, bizhawk_version_linux, linux_bizhawk_tx), "Linux BizHawk build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildBizHawkLinux::new(client, repo, linux_gui_rx, release_rx_bizhawk_linux, bizhawk_version_linux, linux_bizhawk_tx), "Linux BizHawk build done").await? } },
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildPj64::new(client, repo, release_rx_pj64), "Project64 build done").await? } },
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstaller::new(true, client, repo, debug_bizhawk_rx, debug_gui_rx_installer, release_rx_installer_debug), "Windows debug installer build done").await? } },
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstaller::new(false, client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "Windows installer build done").await? } },

@@ -10,6 +10,7 @@ use {
         Serialize,
     },
     url::Url,
+    crate::frontend::Kind as Frontend,
 };
 #[cfg(unix)] use xdg::BaseDirectories;
 #[cfg(windows)] use directories::ProjectDirs;
@@ -18,6 +19,7 @@ fn default_websocket_hostname() -> String { format!("mw.midos.house") }
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Config {
+    pub default_frontend: Option<Frontend>,
     #[serde(default)]
     pub log: bool,
     #[serde(default)]
@@ -104,6 +106,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            default_frontend: None,
             log: false,
             login_tokens: BTreeMap::default(),
             pj64_script_path: None,
