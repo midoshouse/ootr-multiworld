@@ -424,14 +424,13 @@ impl Application for State {
                             } else {
                                 (true, String::default())
                             },
-                            Emulator::Pj64V3 => if let Some(pj64_install_path) = env::var_os("ProgramFiles(x86)").or_else(|| env::var_os("ProgramFiles")).map(|program_files| PathBuf::from(program_files).join("Project64 3.0")) {
+                            Emulator::Pj64V3 | Emulator::Pj64V4 => if let Some(pj64_install_path) = env::var_os("ProgramFiles(x86)").or_else(|| env::var_os("ProgramFiles")).map(|program_files| PathBuf::from(program_files).join("Project64 3.0")) {
                                 let exists = pj64_install_path.exists();
                                 let Ok(pj64_install_path) = pj64_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
                                 (!exists, pj64_install_path)
                             } else {
                                 (true, String::default())
                             },
-                            Emulator::Pj64V4 => unimplemented!(), //TODO
                         },
                     };
                     self.page = Page::LocateEmulator { emulator, install_emulator, emulator_path, multiworld_path: multiworld_path.clone() };
@@ -714,7 +713,6 @@ impl Application for State {
                         new_mw_config.save().await?;
                         let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Project64"));
                         fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
-                        //TODO download latest release instead of embedding in installer
                         #[cfg(all(target_os = "linux", debug_assertions))] fs::write(multiworld_path, include_bytes!("../../../target/debug/multiworld-gui")).await?;
                         #[cfg(all(target_os = "linux", not(debug_assertions)))] fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-gui")).await?;
                         #[cfg(all(target_os = "windows", debug_assertions))] fs::write(multiworld_path, include_bytes!("../../../target/debug/multiworld-gui.exe")).await?;
@@ -758,13 +756,11 @@ impl Application for State {
                             }
                             _ => unreachable!(),
                         };
-                        //TODO download latest release instead of embedding in installer
                         #[cfg(all(target_os = "windows", debug_assertions))] fs::write(multiworld_path, include_bytes!("../../../target/debug/multiworld-gui.exe")).await?;
                         #[cfg(all(target_os = "windows", not(debug_assertions)))] fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-gui.exe")).await?;
                         let scripts_path = emulator_dir.join("Scripts");
                         fs::create_dir(&scripts_path).await.exist_ok()?;
                         let script_path = scripts_path.join("ootrmw.js");
-                        //TODO download latest release instead of embedding in installer
                         fs::write(&script_path, include_bytes!("../../../assets/ootrmw-pj64.js")).await?;
                         let mut new_mw_config = Config::load().await?;
                         new_mw_config.default_frontend = Some(Emulator::Pj64V3);
