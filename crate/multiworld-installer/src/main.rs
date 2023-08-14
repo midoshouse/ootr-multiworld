@@ -20,7 +20,10 @@ use {
         Dark,
         Light,
     },
-    directories::UserDirs,
+    directories::{
+        ProjectDirs,
+        UserDirs,
+    },
     enum_iterator::all,
     futures::future::{
         self,
@@ -110,6 +113,8 @@ enum Error {
     ExactlyOneMultiple,
     #[error("latest release does not have a download for this platform")]
     MissingBizHawkAsset,
+    #[error("user folder not found")]
+    MissingHomeDir,
     #[error("no BizHawk releases found")]
     NoBizHawkReleases,
     #[error("non-UTF-8 paths are currently not supported")]
@@ -737,10 +742,22 @@ impl Application for State {
                         #[cfg(not(debug_assertions))] fs::write(external_tools_dir.join("OotrMultiworld.dll"), include_bytes!("../../multiworld-bizhawk/OotrMultiworld/src/bin/Release/net48/OotrMultiworld.dll")).await?;
                         Ok(Message::MultiworldInstalled)
                     }),
-                    Emulator::Pj64V3 => return cmd(async move {
+                    Emulator::Pj64V3 | Emulator::Pj64V4 => return cmd(async move {
                         let emulator_dir = PathBuf::from(emulator_path.expect("emulator path must be set for Project64"));
-                        let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Project64"));
-                        fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
+                        let multiworld_path = match emulator {
+                            Emulator::Pj64V3 => {
+                                let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Project64"));
+                                fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
+                                multiworld_path
+                            }
+                            Emulator::Pj64V4 => {
+                                let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::MissingHomeDir)?;
+                                let cache_dir = project_dirs.cache_dir();
+                                fs::create_dir_all(cache_dir).await?;
+                                cache_dir.join("gui.exe")
+                            }
+                            _ => unreachable!(),
+                        };
                         //TODO download latest release instead of embedding in installer
                         #[cfg(all(target_os = "windows", debug_assertions))] fs::write(multiworld_path, include_bytes!("../../../target/debug/multiworld-gui.exe")).await?;
                         #[cfg(all(target_os = "windows", not(debug_assertions)))] fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-gui.exe")).await?;
@@ -769,7 +786,6 @@ impl Application for State {
                             Err(e) => Err(e.into()),
                         }
                     }),
-                    Emulator::Pj64V4 => unimplemented!(), //TODO
                 }
             }
             Message::LocateMultiworld(new_emulator) => {
