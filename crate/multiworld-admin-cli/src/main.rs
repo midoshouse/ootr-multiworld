@@ -173,7 +173,6 @@ async fn cli(Args { api_key }: Args) -> Result<(), Error> {
             _ = interval.tick() => ClientMessage::Ping.write_ws(&mut writer).await?,
         }
     }
-    disable_raw_mode()?;
     Ok(())
 }
 

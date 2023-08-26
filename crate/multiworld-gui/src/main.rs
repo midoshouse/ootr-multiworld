@@ -1084,7 +1084,11 @@ impl Application for State {
             }
             match self.frontend.kind {
                 Frontend::Dummy => unreachable!(),
-                Frontend::EverDrive => unimplemented!(), //TODO
+                Frontend::EverDrive => {
+                    col = col
+                        .push("Looking for EverDrives…")
+                        .push("Make sure your console is turned on and connected, and your USB cable supports data.");
+                }
                 Frontend::BizHawk => if self.frontend.bizhawk.is_some() {
                     col = col
                         .push("Waiting for BizHawk…")

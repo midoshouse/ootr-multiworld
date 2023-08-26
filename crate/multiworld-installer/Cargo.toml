@@ -16,7 +16,7 @@ branch = "main"
 path = "../multiworld-bizhawk"
 
 [target.'cfg(unix)'.build-dependencies]
-itertools = "0.10"
+itertools = "0.11"
 
 [target.'cfg(unix)'.build-dependencies.multiworld]
 path = "../multiworld"
