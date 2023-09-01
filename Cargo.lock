@@ -1320,15 +1320,6 @@ dependencies = [
 
 [[package]]
 name = "directories"
-version = "4.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f51c5d4ddabd36886dd3e1438cb358cdcb0d7c499cb99cb4ac2e38e18b5cb210"
-dependencies = [
- "dirs-sys 0.3.7",
-]
-
-[[package]]
-name = "directories"
 version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a49173b84e034382284f27f1af4dcbbd231ffa358c0fe316541a7337f376a35"
@@ -3352,7 +3343,7 @@ dependencies = [
  "bitflags 2.4.0",
  "chrono",
  "derivative",
- "directories 5.0.1",
+ "directories",
  "either",
  "futures",
  "if_chain",
@@ -3415,7 +3406,7 @@ version = "12.0.3"
 dependencies = [
  "async-proto",
  "chrono",
- "directories 5.0.1",
+ "directories",
  "itertools 0.11.0",
  "libc",
  "multiworld",
@@ -3450,7 +3441,7 @@ dependencies = [
  "chrono",
  "clap",
  "dark-light",
- "directories 5.0.1",
+ "directories",
  "futures",
  "gio",
  "iced",
@@ -3491,7 +3482,7 @@ dependencies = [
  "async_zip",
  "clap",
  "dark-light",
- "directories 5.0.1",
+ "directories",
  "enum-iterator",
  "futures",
  "gio",
@@ -3534,7 +3525,7 @@ dependencies = [
  "chrono",
  "clap",
  "dark-light",
- "directories 5.0.1",
+ "directories",
  "futures",
  "gio",
  "iced",
@@ -3953,7 +3944,7 @@ checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 [[package]]
 name = "ootr"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#e63dc2441dd519b10858fea7eabd9e6758868bbb"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#dffed3de072f18434b82a56c74e7a490c2938ecd"
 dependencies = [
  "async-proto",
  "enum-iterator",
@@ -3969,7 +3960,7 @@ version = "0.1.14"
 source = "git+https://github.com/midoshouse/rust-ootr-utils?branch=main#338443d4668de428b62da682c40fa0ec2f92abec"
 dependencies = [
  "async-proto",
- "directories 5.0.1",
+ "directories",
  "enum-iterator",
  "git2",
  "itertools 0.11.0",
@@ -4016,20 +4007,20 @@ dependencies = [
 [[package]]
 name = "oottracker"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#e63dc2441dd519b10858fea7eabd9e6758868bbb"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#dffed3de072f18434b82a56c74e7a490c2938ecd"
 dependencies = [
  "async-proto",
  "async-stream",
- "bitflags 1.3.2",
+ "bitflags 2.4.0",
  "byteorder",
  "collect-mac",
  "derivative",
  "derive_more",
- "directories 4.0.1",
+ "directories",
  "enum-iterator",
  "futures",
  "image",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "ootr",
  "oottracker-derive",
  "reqwest",
@@ -4046,13 +4037,13 @@ dependencies = [
 [[package]]
 name = "oottracker-derive"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#e63dc2441dd519b10858fea7eabd9e6758868bbb"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#dffed3de072f18434b82a56c74e7a490c2938ecd"
 dependencies = [
  "convert_case 0.6.0",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.29",
 ]
 
 [[package]]
