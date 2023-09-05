@@ -269,6 +269,7 @@ enum Message {
     CopyDebugInfo,
     DiscordChannel,
     DiscordInvite,
+    DismissMaintenanceNotice,
     DismissWrongPassword,
     Exit,
     FrontendConnected(Arc<Mutex<OwnedWriteHalf>>),
@@ -331,6 +332,7 @@ struct State {
     last_save: Option<oottracker::Save>,
     pending_items_before_save: Vec<(u32, u16, NonZeroU8)>,
     pending_items_after_save: Vec<(u32, u16, NonZeroU8)>,
+    maintenance_notice: bool,
     updates_checked: bool,
     send_all_path: String,
     send_all_world: String,
@@ -435,6 +437,7 @@ impl Application for State {
             last_save: None,
             pending_items_before_save: Vec::default(),
             pending_items_after_save: Vec::default(),
+            maintenance_notice: Utc::now() < Utc.with_ymd_and_hms(2023, 9, 15, 0, 0, 0).single().expect("wrong hardcoded datetime"),
             updates_checked: false,
             send_all_path: String::default(),
             send_all_world: String::default(),
@@ -539,6 +542,7 @@ impl Application for State {
             Message::DiscordInvite => if let Err(e) = open("https://discord.gg/BGRrKKn") {
                 return cmd(future::err(e.into()))
             },
+            Message::DismissMaintenanceNotice => self.maintenance_notice = false,
             Message::DismissWrongPassword => if let SessionState::Lobby { ref mut wrong_password, .. } = self.server_connection {
                 *wrong_password = false;
             },
@@ -923,6 +927,19 @@ impl Application for State {
             } else {
                 error_view(format!("An error occurred during communication with {}:", self.frontend), e, self.debug_info_copied)
             }
+        } else if self.maintenance_notice {
+            Column::new()
+                .push(Text::new("Announcement").size(24))
+                .push(Text::new(format!(
+                    "Maintenance on the Mido's House server is scheduled from {} until {} (both times in your local timezone). Mido's House Multiworld may go offline for a while during that time.",
+                    Utc.with_ymd_and_hms(2023, 9, 11, 0, 0, 0).single().expect("wrong hardcoded datetime").with_timezone(&Local).format("%A, %B %e, %H:%M"),
+                    Utc.with_ymd_and_hms(2023, 9, 15, 0, 0, 0).single().expect("wrong hardcoded datetime").with_timezone(&Local).format("%A, %B %e, %H:%M"),
+                )))
+                .push(Space::with_height(Length::Fill))
+                .push(Button::new("OK").on_press(Message::DismissMaintenanceNotice))
+                .spacing(8)
+                .padding(8)
+                .into()
         } else if !self.updates_checked {
             Column::new()
                 .push("Checking for updates…")
