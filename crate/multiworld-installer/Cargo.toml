@@ -50,6 +50,7 @@ features = ["derive"]
 
 [dependencies.iced]
 version = "0.10"
+default-features = false
 features = ["image", "tokio"]
 
 [dependencies.image]
