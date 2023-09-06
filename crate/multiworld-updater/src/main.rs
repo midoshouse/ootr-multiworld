@@ -427,7 +427,7 @@ impl Application for App {
                 let path = path.clone();
                 #[cfg(target_os = "linux")] return cmd(async move {
                     let tar_file = async_compression::tokio::bufread::GzipDecoder::new(Cursor::new(Vec::from(response)));
-                    tokio_tar::Archive::new(tar_file).unpack(path).await?;
+                    tokio_tar::Archive::new(tar_file).unpack(&path).await.at(path)?;
                     Ok(Message::Launch)
                 });
                 #[cfg(target_os = "windows")] return cmd(async move {
