@@ -3,7 +3,10 @@
 
 use {
     std::{
-        collections::HashMap,
+        collections::hash_map::{
+            self,
+            HashMap,
+        },
         mem,
         num::NonZeroU32,
         pin::{
@@ -648,13 +651,15 @@ impl<C: ClientKind> Rooms<C> {
             (room.id, room.name.clone())
         };
         let mut lock = lock!(self.0);
-        let _ = lock.change_tx.send(RoomListChange::New(room.clone()));
         for existing_room in lock.list.values() {
             if lock!(@read existing_room).name == name {
                 return false
             }
         }
-        lock.list.insert(id, room).is_none()
+        let hash_map::Entry::Vacant(entry) = lock.list.entry(id) else { return false };
+        entry.insert(room.clone());
+        let _ = lock.change_tx.send(RoomListChange::New(room));
+        true
     }
 
     async fn remove(&self, id: u64) {
