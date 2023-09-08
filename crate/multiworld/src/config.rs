@@ -16,7 +16,6 @@ use {
 fn default_websocket_hostname() -> String { format!("mw.midos.house") }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
     pub log: bool,
