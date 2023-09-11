@@ -851,10 +851,10 @@ impl Task<Result<(), Error>> for BuildServer {
             }).await,
             Self::WaitRestart(is_major) => gres::transpose(async move {
                 if is_major {
-                    Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd wait-until-empty; fi").check("ssh midos.house ootrmwd wait-until-empty").await?;
+                    Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /opt/git/github.com/midoshouse/ootr-multiworld/main/target/release/ootrmwd wait-until-empty; fi").check("ssh midos.house ootrmwd wait-until-empty").await?;
                     //TODO continue normally if this fails because the server is stopped
                 } else {
-                    Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /opt/git/github.com/midoshouse/ootr-multiworld/master/target/release/ootrmwd wait-until-inactive; fi").check("ssh midos.house ootrmwd wait-until-empty").await?;
+                    Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /opt/git/github.com/midoshouse/ootr-multiworld/main/target/release/ootrmwd wait-until-inactive; fi").check("ssh midos.house ootrmwd wait-until-empty").await?;
                     //TODO show output
                     //TODO continue normally if this fails because the server is stopped
                 }
@@ -865,7 +865,7 @@ impl Task<Result<(), Error>> for BuildServer {
                 Ok(Err(Self::UpdateRepo))
             }).await,
             Self::UpdateRepo => gres::transpose(async move {
-                Command::new("ssh").arg("midos.house").arg("cd /opt/git/github.com/midoshouse/ootr-multiworld/master && git pull --ff-only").check("ssh midos.house git pull").await?;
+                Command::new("ssh").arg("midos.house").arg("cd /opt/git/github.com/midoshouse/ootr-multiworld/main && git pull --ff-only").check("ssh midos.house git pull").await?;
                 Ok(Err(Self::Replace))
             }).await,
             Self::Replace => gres::transpose(async move {

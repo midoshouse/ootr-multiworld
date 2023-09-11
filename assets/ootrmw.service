@@ -10,7 +10,7 @@ ExecStart=/home/fenhl/bin/ootrmwd
 ExecStop=/home/fenhl/bin/ootrmwd stop
 User=mido
 Group=nogroup
-WorkingDirectory=/opt/git/github.com/midoshouse/ootr-multiworld/master
+WorkingDirectory=/opt/git/github.com/midoshouse/ootr-multiworld/main
 
 [Install]
 WantedBy=multi-user.target
