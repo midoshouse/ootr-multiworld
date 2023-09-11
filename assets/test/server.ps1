@@ -26,8 +26,13 @@ ssh midos.house sudo killall -9 ootrmwd-debug
 scp target/wsl/debug/ootrmwd midos.house:bin/ootrmwd-debug
 ThrowOnNativeFailure
 
-ssh midos.house chmod +x bin/ootrmwd-debug
+ssh midos.house sudo chown mido:www-data bin/ootrmwd-debug
 ThrowOnNativeFailure
 
-ssh midos.house sudo -u mido bin/ootrmwd-debug --port=18824 --database=fados_house
+ssh midos.house sudo chmod +x bin/ootrmwd-debug
+ThrowOnNativeFailure
+
+ssh midos.house sudo mv bin/ootrmw-debug /usr/local/share/midos-house/bin/ootrmw-debug
+
+ssh midos.house sudo -u mido /usr/local/share/midos-house/bin/ootrmwd-debug --port=18824 --database=fados_house
 ThrowOnNativeFailure
