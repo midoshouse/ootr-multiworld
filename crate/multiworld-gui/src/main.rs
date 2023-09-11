@@ -251,13 +251,22 @@ enum Error {
 impl IsNetworkError for Error {
     fn is_network_error(&self) -> bool {
         match self {
-            Self::Client(e) => e.is_network_error(),
             Self::Elapsed(_) => true,
+            Self::Json(_) | Self::Semver(_) | Self::Url(_) | Self::CopyDebugInfo | Self::VersionMismatch { .. } => false,
+            Self::Client(e) => e.is_network_error(),
             Self::Io(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),
             Self::Reqwest(e) => e.is_network_error(),
+            Self::WebSocket(e) => match e { // manual copy of the impl from wheel to circumvent a dependency version difference
+                tungstenite::Error::Http(resp) => resp.status().is_server_error(),
+                tungstenite::Error::Io(e) => e.is_network_error(),
+                tungstenite::Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake) => true,
+                _ => false,
+            },
+            Self::Wheel(e) => e.is_network_error(),
             Self::Write(e) => e.is_network_error(),
-            _ => false,
+            #[cfg(unix)] Self::Xdg(_) => false,
+            #[cfg(windows)] Self::MissingHomeDir => false,
         }
     }
 }
