@@ -209,6 +209,9 @@ pub enum Error {
     CurrentExeAtRoot,
     #[error("{0}")]
     Ffi(String),
+    #[cfg(target_os = "linux")]
+    #[error("could not determine BizHawk location")]
+    NoCurrentExe,
     #[error("protocol version mismatch: multiworld app is version {0} but we're version {}", PROTOCOL_VERSION)]
     VersionMismatch(u8),
 }
@@ -318,7 +321,13 @@ impl Client {
         let (major, minor, patch) = version.split('.').map(u64::from_str).chain(iter::repeat(Ok(0))).next_tuple().expect("iter::repeat produces an infinite iterator");
         Command::new(&gui_path)
             .arg("bizhawk")
-            .arg(env::current_exe().at_unknown()?.canonicalize().at_unknown()?.parent().ok_or(Error::CurrentExeAtRoot)?)
+            .arg({
+                let emuhawk_path = {
+                    #[cfg(target_os = "windows")] { env::current_exe().at_unknown()? }
+                    #[cfg(target_os = "linux")] { env::current_dir().at_unknown()?.join(env::args_os().nth(1).ok_or(Error::NoCurrentExe)?) }
+                };
+                emuhawk_path.canonicalize().at_unknown()?.parent().ok_or(Error::CurrentExeAtRoot)?
+            })
             .arg(process::id().to_string())
             .arg(format!("{}.{}.{}", major?, minor?, patch?))
             .arg(tcp_listener.local_addr().at_unknown()?.port().to_string())
