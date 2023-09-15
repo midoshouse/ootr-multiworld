@@ -10,24 +10,30 @@ use {
     },
     winres::WindowsResource,
 };
-#[cfg(not(windows))] use {
+#[cfg(unix)] use {
     std::{
         iter,
+        os::unix::ffi::OsStrExt as _,
         str::FromStr as _,
     },
     itertools::Itertools as _,
+    reqwest::header::{
+        HeaderMap,
+        HeaderValue,
+    },
     multiworld::github::Repo,
 };
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
+    #[cfg(unix)] #[error(transparent)] InvalidHeaderValue(#[from] reqwest::header::InvalidHeaderValue),
     #[error(transparent)] Io(#[from] std::io::Error),
-    #[cfg(not(windows))] #[error(transparent)] ParseInt(#[from] std::num::ParseIntError),
-    #[cfg(not(windows))] #[error(transparent)] Reqwest(#[from] reqwest::Error),
-    #[cfg(not(windows))] #[error(transparent)] Wheel(#[from] wheel::Error),
+    #[cfg(unix)] #[error(transparent)] ParseInt(#[from] std::num::ParseIntError),
+    #[cfg(unix)] #[error(transparent)] Reqwest(#[from] reqwest::Error),
+    #[cfg(unix)] #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error("missing environment variable")]
     Env,
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     #[error("no BizHawk releases found")]
     NoBizHawkReleases,
 }
@@ -46,9 +52,14 @@ async fn main() -> Result<(), Error> {
             let [major, minor, patch, _] = multiworld_bizhawk::bizhawk_version();
             (major, minor, patch)
         }
-        #[cfg(not(windows))] {
+        #[cfg(unix)] {
+            let mut headers = HeaderMap::default();
+            if let Some(github_token) = env::var_os("GITHUB_TOKEN") {
+                headers.insert(reqwest::header::AUTHORIZATION, HeaderValue::from_bytes(github_token.as_bytes())?);
+            }
             let http_client = reqwest::Client::builder()
                 .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
+                .default_headers(headers)
                 .use_rustls_tls()
                 .https_only(true)
                 .http2_prior_knowledge()

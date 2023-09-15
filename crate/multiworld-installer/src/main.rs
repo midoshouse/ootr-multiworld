@@ -59,7 +59,10 @@ use {
     url::Url,
     wheel::{
         fs,
-        traits::IoResultExt as _,
+        traits::{
+            AsyncCommandOutputExt as _,
+            IoResultExt as _,
+        },
     },
     multiworld::{
         github::Repo,
@@ -69,6 +72,8 @@ use {
 #[cfg(target_os = "linux")] use {
     std::io::Cursor,
     gio::traits::SettingsExt as _,
+    which::which,
+    xdg::BaseDirectories,
 };
 #[cfg(target_os = "windows")] use {
     std::cmp::Ordering::*,
@@ -77,10 +82,7 @@ use {
     kuchiki::traits::TendrilSink as _,
     tokio::io::AsyncWriteExt as _,
     tokio_util::io::StreamReader,
-    wheel::traits::{
-        AsyncCommandOutputExt as _,
-        SyncCommandOutputExt as _,
-    },
+    wheel::traits::SyncCommandOutputExt as _,
     multiworld::config::Config,
 };
 
@@ -98,6 +100,7 @@ enum Error {
     #[error(transparent)] Url(#[from] url::ParseError),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[cfg(target_os = "windows")] #[error(transparent)] Winver(#[from] winver::Error),
+    #[cfg(target_os = "linux")] #[error(transparent)] Xdg(#[from] xdg::BaseDirectoriesError),
     #[error(transparent)] Zip(#[from] async_zip::error::ZipError),
     #[cfg(target_os = "windows")]
     #[error("The installer requires an older version of BizHawk. Install manually at your own risk, or ask Fenhl to release a new version.")]
@@ -441,7 +444,27 @@ impl Application for State {
                             return cmd(async move {
                                 fs::create_dir_all(&bizhawk_dir).await?;
                                 #[cfg(target_os = "linux")] {
-                                    //TODO check if apt-get exists and install prerequisite packages if it does? (mono-complete & libcanberra-gtk-module)
+                                    if which("apt").is_ok() && which("zenity").is_ok() {
+                                        let password_prompt = BaseDirectories::new()?.place_cache_file("midos-house/password-prompt.sh")?;
+                                        fs::write(&password_prompt, include_bytes!("../../../assets/password-prompt.sh")).await?;
+                                        tokio::process::Command::new("sudo")
+                                            .arg("--askpass")
+                                            .arg("apt")
+                                            .arg("update")
+                                            .arg("-y")
+                                            .env("SUDO_ASKPASS", &password_prompt)
+                                            .check("apt update").await?;
+                                        tokio::process::Command::new("sudo")
+                                            .arg("--askpass")
+                                            .arg("apt")
+                                            .arg("install")
+                                            .arg("-y")
+                                            .arg("mono-complete")
+                                            .env("SUDO_ASKPASS", password_prompt)
+                                            .check("apt install").await?;
+                                    } else {
+                                        //TODO instructions to install `mono-complete` dependency manually
+                                    }
                                 }
                                 #[cfg(target_os = "windows")] {
                                     // install BizHawk-Prereqs

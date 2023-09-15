@@ -15,13 +15,13 @@ branch = "main"
 [target.'cfg(windows)'.build-dependencies.multiworld-bizhawk]
 path = "../multiworld-bizhawk"
 
-[target.'cfg(not(windows))'.build-dependencies]
+[target.'cfg(unix)'.build-dependencies]
 itertools = "0.10"
 
-[target.'cfg(not(windows))'.build-dependencies.multiworld]
+[target.'cfg(unix)'.build-dependencies.multiworld]
 path = "../multiworld"
 
-[target.'cfg(not(windows))'.build-dependencies.reqwest]
+[target.'cfg(unix)'.build-dependencies.reqwest]
 version = "0.11"
 default-features = false
 features = ["rustls-tls"]
@@ -87,13 +87,15 @@ features = ["serde"]
 git = "https://github.com/fenhl/wheel"
 branch = "main"
 
-[target.'cfg(target_os = "linux")'.dependencies.async-compression]
-version = "0.4"
-features = ["gzip", "tokio"]
-
 [target.'cfg(target_os = "linux")'.dependencies]
 gio = "0.18"
 tokio-tar = "0.3"
+which = "4"
+xdg = "2"
+
+[target.'cfg(target_os = "linux")'.dependencies.async-compression]
+version = "0.4"
+features = ["gzip", "tokio"]
 
 [target.'cfg(target_os = "windows")'.dependencies]
 is_elevated = "0.1"

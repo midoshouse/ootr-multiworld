@@ -1,7 +1,8 @@
 HOW TO INSTALL/UPDATE
 
 1. You will need BizHawk with the exact version {}. If you have a newer version, please notify Fenhl about updating the plugin.
-2. Move the files OotrMultiworld.dll and libmultiworld.so into the ExternalTools subfolder within your BizHawk folder. (The BizHawk folder is the one with EmuHawkMono.sh in it. You may have to create the ExternalTools folder if it doesn't exist.)
+2. Move the file OotrMultiworld.dll into the ExternalTools subfolder within your BizHawk folder. (The BizHawk folder is the one with EmuHawkMono.sh in it. You may have to create the ExternalTools folder if it doesn't exist.)
+3. Move the file libmultiworld.so into the dll subfolder within your BizHawk folder.
 
 HOW TO USE
 
