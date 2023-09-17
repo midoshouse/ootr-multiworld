@@ -131,7 +131,7 @@ function handle_frame(write, error) {
                 if (coopContextVersion < 2) {
                     return error('randomizer version too old (version 5.1.4 or higher required)');
                 }
-                if (coopContextVersion > 5) {
+                if (coopContextVersion > 6) {
                     return error("randomizer version too new (version " + mem.u32[newCoopContextAddr] + "; please tell Fenhl that Mido's House Multiworld needs to be updated)");
                 }
                 if (coopContextVersion >= 3) {

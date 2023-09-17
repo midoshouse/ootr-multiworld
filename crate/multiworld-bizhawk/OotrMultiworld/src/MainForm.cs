@@ -475,7 +475,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                                 this.coopContextAddr = null;
                                 return;
                             }
-                            if (coopContextVersion > 5) {
+                            if (coopContextVersion > 6) {
                                 using (var error = Error.from_string("randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)")) {
                                     SetError(error);
                                 }

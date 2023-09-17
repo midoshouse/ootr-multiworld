@@ -423,6 +423,7 @@ pub enum SendAllError {
 bitflags! {
     #[derive(Default, PartialEq, Eq)]
     struct ProgressiveItems: u32 {
+        const BOMBCHU_BAG = 0x0040_0000;
         const OCARINA_OFTIME = 0x0020_0000;
         const OCARINA_FAIRY = 0x0010_0000;
         const MAGIC_DOUBLE = 0x0008_0000;
@@ -457,11 +458,15 @@ bitflags! {
 
 impl ProgressiveItems {
     fn new(save: &oottracker::Save) -> Self {
-        (match save.inv.ocarina {
+        (if save.inv.bombchus {
+            Self::BOMBCHU_BAG
+        } else {
+            Self::default()
+        }) | match save.inv.ocarina {
             oottracker::save::Ocarina::None => Self::default(),
             oottracker::save::Ocarina::FairyOcarina => Self::OCARINA_FAIRY,
             oottracker::save::Ocarina::OcarinaOfTime => Self::OCARINA_OFTIME,
-        }) | match save.magic {
+        } | match save.magic {
             oottracker::save::MagicCapacity::None => Self::default(),
             oottracker::save::MagicCapacity::Small => Self::MAGIC_SINGLE,
             oottracker::save::MagicCapacity::Large => Self::MAGIC_DOUBLE,
