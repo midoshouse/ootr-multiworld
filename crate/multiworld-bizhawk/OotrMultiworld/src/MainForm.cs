@@ -253,7 +253,6 @@ internal class OwnedStringHandle : SafeHandle {
 [ExternalToolEmbeddedIcon("MidosHouse.OotrMultiworld.Resources.icon.ico")]
 public sealed class MainForm : ToolFormBase, IExternalToolForm {
     private Client? client;
-    private uint? coopContextAddr;
     private List<byte> fileHash = new List<byte> { 0xff, 0xff, 0xff, 0xff, 0xff };
     private byte? playerID;
     private List<byte> playerName = new List<byte> { 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf };
@@ -325,23 +324,18 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
         }
         if (this.client != null) {
             ReceiveMessage(this.client);
-            if (this.playerID == null) {
-                ReadPlayerID();
-            } else {
-                SyncPlayerNames();
-                if (this.coopContextAddr != null) {
-                    if (Enumerable.SequenceEqual(APIs.Memory.ReadByteRange(0x11a5d0 + 0x1c, 6, "RDRAM"), new List<byte>(Encoding.UTF8.GetBytes("ZELDAZ")))) { // don't read save data while rom is loaded but not properly initialized
-                        var randoContextAddr = APIs.Memory.ReadU32(0x1c6e90 + 0x15d4, "RDRAM");
-                        if (randoContextAddr >= 0x8000_0000 && randoContextAddr != 0xffff_ffff) {
-                            var newCoopContextAddr = APIs.Memory.ReadU32(randoContextAddr, "System Bus");
-                            if (newCoopContextAddr >= 0x8000_0000 && newCoopContextAddr != 0xffff_ffff) {
-                                if (APIs.Memory.ReadU32(0x11a5d0 + 0x135c, "RDRAM") == 0) { // game mode == gameplay
-                                    if (!this.normalGameplay) {
-                                        this.client.SendSaveData(APIs.Memory.ReadByteRange(0x11a5d0, 0x1450, "RDRAM"));
-                                        this.normalGameplay = true;
-                                    }
-                                } else {
-                                    this.normalGameplay = false;
+            var coopContextAddr = ReadPlayerID();
+            SyncPlayerNames(coopContextAddr);
+            if (coopContextAddr != null) {
+                if (Enumerable.SequenceEqual(APIs.Memory.ReadByteRange(0x11a5d0 + 0x1c, 6, "RDRAM"), new List<byte>(Encoding.UTF8.GetBytes("ZELDAZ")))) { // don't read save data while rom is loaded but not properly initialized
+                    var randoContextAddr = APIs.Memory.ReadU32(0x1c6e90 + 0x15d4, "RDRAM");
+                    if (randoContextAddr >= 0x8000_0000 && randoContextAddr != 0xffff_ffff) {
+                        var newCoopContextAddr = APIs.Memory.ReadU32(randoContextAddr, "System Bus");
+                        if (newCoopContextAddr >= 0x8000_0000 && newCoopContextAddr != 0xffff_ffff) {
+                            if (APIs.Memory.ReadU32(0x11a5d0 + 0x135c, "RDRAM") == 0) { // game mode == gameplay
+                                if (!this.normalGameplay) {
+                                    this.client.SendSaveData(APIs.Memory.ReadByteRange(0x11a5d0, 0x1450, "RDRAM"));
+                                    this.normalGameplay = true;
                                 }
                             } else {
                                 this.normalGameplay = false;
@@ -352,12 +346,14 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                     } else {
                         this.normalGameplay = false;
                     }
-
-                    SendItem(this.client, this.coopContextAddr.Value);
-                    ReceiveItem(this.client, this.coopContextAddr.Value, this.playerID.Value);
                 } else {
                     this.normalGameplay = false;
                 }
+
+                SendItem(this.client, coopContextAddr.Value);
+                ReceiveItem(this.client, coopContextAddr.Value, this.playerID.Value);
+            } else {
+                this.normalGameplay = false;
             }
         } else {
             this.normalGameplay = false;
@@ -439,17 +435,17 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                 var externalCount = this.itemQueue.Count;
                 if (internalCount < externalCount) {
                     var item = this.itemQueue[internalCount];
-                    //Debug($"P{playerID}: Received an item {item} from another player");
+                    //Debug($"P{playerID}: Received an item {item} from player {playerID}");
                     APIs.Memory.WriteU16(coopContextAddr + 0x8, item, "System Bus");
                     APIs.Memory.WriteU16(coopContextAddr + 0x6, item == 0x00ca ? (playerID == 1 ? 2u : 1) : playerID, "System Bus");
                 } else if (internalCount > externalCount) {
-                    // warning: gap in received items
+                    //Debug($"warning: gap in received items: external count is {externalCount} but internal count is {internalCount}");
                 }
             }
         }
     }
 
-    private void ReadPlayerID() {
+    private uint? ReadPlayerID() {
         var oldPlayerID = this.playerID;
         if ((APIs.Emulation.GetGameInfo()?.Name ?? "Null") == "Null") {
             this.playerID = null;
@@ -461,7 +457,6 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                 //TODO send state to GUI? ($"Expected OoTR, found {APIs.Emulation.GetGameInfo()?.Name ?? "Null"}")
             } else {
                 //TODO also check OoTR version bytes and error on vanilla OoT
-                var newText = "Waiting for game…";
                 if (Enumerable.SequenceEqual(APIs.Memory.ReadByteRange(0x11a5d0 + 0x1c, 6, "RDRAM"), new List<byte>(Encoding.UTF8.GetBytes("ZELDAZ")))) { // don't set or reset player ID while rom is loaded but not properly initialized
                     var randoContextAddr = APIs.Memory.ReadU32(0x1c6e90 + 0x15d4, "RDRAM");
                     if (randoContextAddr >= 0x8000_0000 && randoContextAddr != 0xffff_ffff) {
@@ -472,15 +467,13 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                                 using (var error = Error.from_string("randomizer version too old (version 5.1.4 or higher required)")) {
                                     SetError(error);
                                 }
-                                this.coopContextAddr = null;
-                                return;
+                                return null;
                             }
                             if (coopContextVersion > 6) {
                                 using (var error = Error.from_string("randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)")) {
                                     SetError(error);
                                 }
-                                this.coopContextAddr = null;
-                                return;
+                                return null;
                             }
                             if (coopContextVersion >= 3) {
                                 APIs.Memory.WriteU8(newCoopContextAddr + 0x000a, 1, "System Bus"); // enable MW_SEND_OWN_ITEMS for server-side tracking
@@ -498,11 +491,11 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                             } else {
                                 this.progressiveItemsEnable = false;
                             }
-                            this.coopContextAddr = newCoopContextAddr;
                             this.playerID = (byte?) APIs.Memory.ReadU8(newCoopContextAddr + 0x4, "System Bus");
-                            newText = $"Connected as world {this.playerID}";
-                        } else {
-                            this.coopContextAddr = null;
+                            if (this.client != null && this.playerID != oldPlayerID) {
+                                this.client.SetPlayerID(this.playerID);
+                            }
+                            return newCoopContextAddr;
                         }
                     }
                 }
@@ -511,9 +504,10 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
         if (this.client != null && this.playerID != oldPlayerID) {
             this.client.SetPlayerID(this.playerID);
         }
+        return null;
     }
 
-    private void SyncPlayerNames() {
+    private void SyncPlayerNames(uint? coopContextAddr) {
         var oldPlayerName = this.playerName;
         if (this.playerID == null) {
             this.playerName = new List<byte> { 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf };
@@ -522,12 +516,12 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                 // get own player name from save file
                 this.playerName = new List<byte>(APIs.Memory.ReadByteRange(0x0020 + 0x0024, 8, "SRAM"));
                 // always fill player names in co-op context (some player names may go missing seemingly at random while others stay intact, so this has to run every frame)
-                if (this.coopContextAddr != null) {
+                if (coopContextAddr != null) {
                     for (var world = 0; world < 256; world++) {
-                        APIs.Memory.WriteByteRange(this.coopContextAddr.Value + 0x14 + world * 0x8, this.playerNames[world], "System Bus");
+                        APIs.Memory.WriteByteRange(coopContextAddr.Value + 0x14 + world * 0x8, this.playerNames[world], "System Bus");
                         // fill progressive items of other players
                         if (progressiveItemsEnable) {
-                            APIs.Memory.WriteU32(this.coopContextAddr.Value + 0x081c + world * 0x4, this.progressiveItems[world], "System Bus");
+                            APIs.Memory.WriteU32(coopContextAddr.Value + 0x081c + world * 0x4, this.progressiveItems[world], "System Bus");
                         }
                     }
                 }
