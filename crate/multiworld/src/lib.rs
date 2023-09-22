@@ -773,16 +773,16 @@ impl<C: ClientKind> Room<C> {
             let mut item_errors = Vec::default();
             if let Some(world_locations) = spoiler_log.locations.get(usize::from(source_world.get() - 1)) {
                 for (loc, ootr_utils::spoiler::Item { player, item, model: _ }) in world_locations {
-                    if *player != source_world {
-                        if let Some(key) = py_modules.override_key(loc, item)? {
-                            if let Some(kind) = py_modules.item_kind(item)? {
+                    if let Some(key) = py_modules.override_key(loc, item)? {
+                        if let Some(kind) = py_modules.item_kind(item)? {
+                            if kind == TRIFORCE_PIECE || *player != source_world {
                                 items_to_queue.push((source_world, key, kind, *player));
-                            } else {
-                                item_errors.push(SendItemError::Kind(item.clone()));
                             }
                         } else {
-                            item_errors.push(SendItemError::Key(loc.clone()));
+                            item_errors.push(SendItemError::Kind(item.clone()));
                         }
+                    } else {
+                        item_errors.push(SendItemError::Key(loc.clone()));
                     }
                 }
                 Ok(items_to_queue)
