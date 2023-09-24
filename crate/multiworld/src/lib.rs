@@ -729,7 +729,7 @@ impl<C: ClientKind> Room<C> {
         }
         #[cfg(feature = "sqlx")] {
             if let Err(e) = self.save(true).await {
-                eprintln!("failed to save room state: {e} ({e:?})");
+                eprintln!("failed to save room state while trying to queue item for room {} ({}): {e} ({e:?})", self.name, self.id);
                 let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
             }
         }
@@ -889,7 +889,7 @@ impl<C: ClientKind> Room<C> {
         #[cfg(feature = "sqlx")] {
             // saving also notifies the room deletion waiter
             if let Err(e) = self.save(true).await {
-                eprintln!("failed to save room state: {e} ({e:?})");
+                eprintln!("failed to save room state while trying to set autodelete delta for room {} ({}): {e} ({e:?})", self.name, self.id);
                 let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
             }
         }
