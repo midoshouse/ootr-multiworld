@@ -666,7 +666,7 @@ impl<C: ClientKind> Room<C> {
         }
     }
 
-    async fn queue_item_inner(&mut self, source_world: NonZeroU8, key: u32, kind: u16, target_world: NonZeroU8) -> Result<(), async_proto::WriteError> {
+    async fn queue_item_inner(&mut self, source_world: NonZeroU8, key: u32, kind: u16, target_world: NonZeroU8, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str) -> Result<(), async_proto::WriteError> {
         if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
             oottracker::websocket::ClientMessage::MwQueueItem {
                 room: tracker_room_name.clone(),
@@ -729,7 +729,7 @@ impl<C: ClientKind> Room<C> {
         }
         #[cfg(feature = "sqlx")] {
             if let Err(e) = self.save(true).await {
-                eprintln!("failed to save room state while trying to queue item for room {} ({}): {e} ({e:?})", self.name, self.id);
+                eprintln!("failed to save room state while trying to queue item for room {} {context} ({}): {e} ({e:?})", self.name, self.id);
                 let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
             }
         }
@@ -747,7 +747,7 @@ impl<C: ClientKind> Room<C> {
                     self.file_hash = Some(player_hash);
                 }
             }
-            self.queue_item_inner(source.world, key, kind, target_world).await?;
+            self.queue_item_inner(source.world, key, kind, target_world, "while queueing an item").await?;
             Ok(())
         } else {
             Err(QueueItemError::NoSourceWorld)
@@ -791,7 +791,7 @@ impl<C: ClientKind> Room<C> {
             }
         })?;
         for (source_world, key, kind, target_world) in items_to_queue {
-            self.queue_item_inner(source_world, key, kind, target_world).await?;
+            self.queue_item_inner(source_world, key, kind, target_world, "while sending all items").await?;
         }
         Ok(())
     }
