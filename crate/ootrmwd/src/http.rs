@@ -29,8 +29,10 @@ use {
         VersionedReader,
         VersionedWriter,
     },
+    tokio_tungstenite::tungstenite,
     crate::{
         Rooms,
+        SessionError,
         client_session,
     },
 };
@@ -53,6 +55,7 @@ macro_rules! supported_version {
                 let (sink, stream) = stream.split();
                 match client_session(&rng, db_pool, http_client, rooms, session_id, VersionedReader { inner: stream, version: Version::$variant }, Arc::new(Mutex::new(VersionedWriter { inner: sink, version: Version::$variant })), shutdown).await {
                     Ok(()) => {}
+                    Err(SessionError::Read(async_proto::ReadError::Tungstenite(tungstenite::Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake)))) => {} // this happens when a player force quits their multiworld app (or normally quits on macOS, see https://github.com/iced-rs/iced/issues/1941)
                     Err(e) => {
                         eprintln!("error in WebSocket handler ({}): {e}", stringify!($version));
                         eprintln!("debug info: {e:?}");
