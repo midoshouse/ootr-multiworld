@@ -27,6 +27,7 @@ use {
     },
     futures::{
         future,
+        sink::SinkExt as _,
         stream::Stream,
     },
     iced::{
@@ -59,7 +60,10 @@ use {
     serenity::utils::MessageBuilder,
     sysinfo::Pid,
     tokio::{
-        io,
+        io::{
+            self,
+            AsyncWriteExt as _,
+        },
         net::tcp::{
             OwnedReadHalf,
             OwnedWriteHalf,
@@ -279,6 +283,7 @@ enum Message {
     DiscordChannel,
     DiscordInvite,
     DismissWrongPassword,
+    Event(iced::Event),
     Exit,
     FrontendConnected(Arc<Mutex<OwnedWriteHalf>>),
     FrontendSubscriptionError(Arc<Error>),
@@ -551,6 +556,27 @@ impl Application for State {
             Message::DismissWrongPassword => if let SessionState::Lobby { ref mut wrong_password, .. } = self.server_connection {
                 *wrong_password = false;
             },
+            Message::Event(iced::Event::Window(iced::window::Event::CloseRequested)) => if self.command_error.is_some() || self.login_error.is_some() || self.frontend_subscription_error.is_some() {
+                return window::close()
+            } else {
+                let frontend_writer = self.frontend_writer.take();
+                let server_writer = self.server_writer.take();
+                return cmd(async move {
+                    if let Some(frontend_writer) = frontend_writer {
+                        lock!(frontend_writer.inner).shutdown().await?;
+                    }
+                    if let Some(server_writer) = server_writer {
+                        let mut server_writer = lock!(server_writer.inner);
+                        server_writer.send(tungstenite::Message::Close(Some(tungstenite::protocol::CloseFrame {
+                            code: tungstenite::protocol::frame::coding::CloseCode::Away,
+                            reason: "multiworld app exiting".into(),
+                        }))).await?;
+                        server_writer.close().await?;
+                    }
+                    Ok(Message::Exit)
+                })
+            },
+            Message::Event(_) => {}
             Message::Exit => return window::close(),
             Message::FrontendConnected(writer) => {
                 let writer = LoggingWriter { log: self.log, context: "to frontend", inner: Arc::clone(&writer) };
@@ -1181,7 +1207,8 @@ impl Application for State {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let mut subscriptions = Vec::with_capacity(3);
+        let mut subscriptions = Vec::with_capacity(4);
+        subscriptions.push(iced::subscription::events().map(Message::Event));
         if self.updates_checked {
             match self.frontend {
                 FrontendFlags::Dummy => {}
@@ -1265,6 +1292,7 @@ struct CliArgs {
 #[wheel::main(debug)]
 fn main(CliArgs { frontend }: CliArgs) -> Result<(), MainError> {
     Ok(State::run(Settings {
+        exit_on_close_request: false,
         window: window::Settings {
             size: (256, 256),
             icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
