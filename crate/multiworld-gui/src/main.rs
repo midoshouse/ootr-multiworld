@@ -1105,26 +1105,29 @@ impl Application for State {
                     .into(),
                 SessionState::Room { wrong_file_hash: Some([[server1, server2, server3, server4, server5], [client1, client2, client3, client4, client5]]), .. } => Column::new()
                     .push("This room is for a different seed.")
-                    .push(Row::new()
-                        .push("Room:")
-                        //TODO add gray background or drop shadow in light mode
-                        .push(hash_icon(server1))
-                        .push(hash_icon(server2))
-                        .push(hash_icon(server3))
-                        .push(hash_icon(server4))
-                        .push(hash_icon(server5))
+                    .push(Scrollable::new(Column::new()
+                        .push(Row::new()
+                            .push("Room:")
+                            //TODO add gray background or drop shadow in light mode
+                            .push(hash_icon(server1))
+                            .push(hash_icon(server2))
+                            .push(hash_icon(server3))
+                            .push(hash_icon(server4))
+                            .push(hash_icon(server5))
+                            .spacing(8)
+                        )
+                        .push(Row::new()
+                            .push("You:")
+                            //TODO add gray background or drop shadow in light mode
+                            .push(hash_icon(client1))
+                            .push(hash_icon(client2))
+                            .push(hash_icon(client3))
+                            .push(hash_icon(client4))
+                            .push(hash_icon(client5))
+                            .spacing(8)
+                        )
                         .spacing(8)
-                    )
-                    .push(Row::new()
-                        .push("You:")
-                        //TODO add gray background or drop shadow in light mode
-                        .push(hash_icon(client1))
-                        .push(hash_icon(client2))
-                        .push(hash_icon(client3))
-                        .push(hash_icon(client4))
-                        .push(hash_icon(client5))
-                        .spacing(8)
-                    )
+                    ).direction(scrollable::Direction::Horizontal(scrollable::Properties::default())))
                     .push({
                         let mut row = Row::new();
                         row = row.push(Button::new("Delete Room").on_press(Message::SetRoomView(RoomView::ConfirmDeletion)));
@@ -1308,7 +1311,7 @@ fn main(CliArgs { frontend }: CliArgs) -> Result<(), MainError> {
     Ok(State::run(Settings {
         exit_on_close_request: false,
         window: window::Settings {
-            size: (256, 256),
+            size: (360, 256),
             icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
             ..window::Settings::default()
         },
