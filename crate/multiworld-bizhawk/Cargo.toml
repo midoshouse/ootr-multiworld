@@ -10,7 +10,7 @@ thiserror = "1"
 
 [build-dependencies.tokio]
 version = "1"
-features = ["process"]
+features = ["parking_lot", "process"]
 
 [build-dependencies.wheel]
 git = "https://github.com/fenhl/wheel"

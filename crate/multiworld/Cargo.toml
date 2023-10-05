@@ -71,7 +71,7 @@ optional = true
 
 [dependencies.tokio]
 version = "1"
-features = ["net", "process", "sync", "time"]
+features = ["net", "parking_lot", "process", "sync", "time"]
 
 [dependencies.tokio-tungstenite]
 version = "0.19" # rocket-ws is still on tungstenite 0.19

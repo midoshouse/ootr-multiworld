@@ -77,7 +77,7 @@ features = ["utils"]
 
 [dependencies.tokio]
 version = "1"
-features = ["fs", "process", "rt-multi-thread"]
+features = ["fs", "parking_lot", "process", "rt-multi-thread"]
 
 [dependencies.url]
 version = "2"

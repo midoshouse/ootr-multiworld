@@ -12,6 +12,7 @@ async-proto = "=0.16.9" # rocket-ws is still on tungstenite 0.19
 dark-light = "1"
 futures = "0.3"
 iced_runtime = "0.1"
+if_chain = "1"
 itertools = "0.11"
 oauth2 = "4"
 once_cell = "1"
@@ -79,7 +80,7 @@ features = ["utils"]
 
 [dependencies.tokio]
 version = "1"
-features = ["fs", "io-util", "net", "sync", "time"]
+features = ["fs", "io-util", "net", "parking_lot", "sync", "time"]
 
 [dependencies.tokio-tungstenite]
 version = "0.19" # rocket-ws is still on tungstenite 0.19

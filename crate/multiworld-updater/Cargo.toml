@@ -59,7 +59,7 @@ features = ["utils"]
 
 [dependencies.tokio]
 version = "1"
-features = ["fs", "time"]
+features = ["fs", "parking_lot", "time"]
 
 [dependencies.tokio-util]
 version = "0.7"

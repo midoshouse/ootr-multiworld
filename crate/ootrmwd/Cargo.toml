@@ -75,7 +75,7 @@ features = ["chrono", "postgres", "runtime-tokio-rustls"]
 
 [dependencies.tokio]
 version = "1"
-features = ["macros", "net", "process", "rt-multi-thread", "sync", "time"]
+features = ["macros", "net", "parking_lot", "process", "rt-multi-thread", "sync", "time"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"

@@ -48,7 +48,7 @@ features = ["derive"]
 
 [dependencies.tokio]
 version = "1"
-features = ["process", "sync"]
+features = ["parking_lot", "process", "sync"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"

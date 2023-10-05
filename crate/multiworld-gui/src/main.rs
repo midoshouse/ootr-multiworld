@@ -99,7 +99,10 @@ use {
             },
         },
     },
-    crate::subscriptions::WsSink,
+    crate::{
+        persistent_state::PersistentState,
+        subscriptions::WsSink,
+    },
 };
 #[cfg(unix)] use {
     std::os::unix::fs::PermissionsExt as _,
@@ -109,6 +112,7 @@ use {
 #[cfg(target_os = "linux")] use gio::traits::SettingsExt as _;
 
 mod login;
+mod persistent_state;
 mod subscriptions;
 
 static LOG: Lazy<Mutex<std::fs::File>> = Lazy::new(|| {
@@ -232,6 +236,7 @@ enum Error {
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] Json(#[from] serde_json::Error),
+    #[error(transparent)] PersistentState(#[from] persistent_state::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Semver(#[from] semver::Error),
@@ -256,7 +261,7 @@ impl IsNetworkError for Error {
     fn is_network_error(&self) -> bool {
         match self {
             Self::Elapsed(_) => true,
-            Self::Json(_) | Self::Semver(_) | Self::Url(_) | Self::CopyDebugInfo | Self::VersionMismatch { .. } => false,
+            Self::Json(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::CopyDebugInfo | Self::VersionMismatch { .. } => false,
             Self::Client(e) => e.is_network_error(),
             Self::Io(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),
@@ -325,6 +330,7 @@ fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) ->
 }
 
 struct State {
+    persistent_state: PersistentState,
     frontend: FrontendFlags,
     debug_info_copied: bool,
     command_error: Option<Arc<Error>>,
@@ -343,8 +349,6 @@ struct State {
     last_name: Filename,
     last_hash: Option<[HashIcon; 5]>,
     last_save: Option<oottracker::Save>,
-    pending_items_before_save: Vec<(u32, u16, NonZeroU8)>,
-    pending_items_after_save: Vec<(u32, u16, NonZeroU8)>,
     updates_checked: bool,
     send_all_path: String,
     send_all_world: String,
@@ -425,9 +429,9 @@ impl Application for State {
     type Executor = iced::executor::Default;
     type Message = Message;
     type Theme = Theme;
-    type Flags = (Config, FrontendFlags);
+    type Flags = (Config, PersistentState, FrontendFlags);
 
-    fn new((config, frontend): Self::Flags) -> (Self, Command<Message>) {
+    fn new((config, persistent_state, frontend): Self::Flags) -> (Self, Command<Message>) {
         (Self {
             frontend: frontend.clone(),
             debug_info_copied: false,
@@ -447,11 +451,10 @@ impl Application for State {
             last_name: Filename::default(),
             last_hash: None,
             last_save: None,
-            pending_items_before_save: Vec::default(),
-            pending_items_after_save: Vec::default(),
             updates_checked: false,
             send_all_path: String::default(),
             send_all_world: String::default(),
+            persistent_state,
         }, cmd(async move {
             let http_client = reqwest::Client::builder()
                 .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
@@ -718,22 +721,29 @@ impl Application for State {
                             Ok(Message::Nop)
                         })
                     } else {
-                        self.pending_items_after_save.push((key, kind, target_world));
+                        let persistent_state = self.persistent_state.clone();
+                        return cmd(async move {
+                            persistent_state.edit(move |state| state.pending_items_after_save.push((key, kind, target_world))).await?;
+                            Ok(Message::Nop)
+                        })
                     }
                 }
                 frontend::ClientMessage::SaveData(save) => match oottracker::Save::from_save_data(&save) {
                     Ok(save) => {
                         self.last_save = Some(save.clone());
-                        self.pending_items_before_save.extend(self.pending_items_after_save.drain(..));
-                        if let Some(ref writer) = self.server_writer {
-                            if let SessionState::Room { .. } = self.server_connection {
-                                let writer = writer.clone();
-                                return cmd(async move {
-                                    writer.write(ClientMessage::SaveData(save)).await?; //TODO only send if room is marked as being tracked?
-                                    Ok(Message::Nop)
-                                })
+                        let persistent_state = self.persistent_state.clone();
+                        let writer = if let SessionState::Room { .. } = self.server_connection {
+                            self.server_writer.clone()
+                        } else {
+                            None
+                        };
+                        return cmd(async move {
+                            persistent_state.edit(|state| state.pending_items_before_save.extend(state.pending_items_after_save.drain(..))).await?;
+                            if let Some(writer) = writer {
+                                writer.write(ClientMessage::SaveData(save)).await?;
                             }
-                        }
+                            Ok(Message::Nop)
+                        })
                     }
                     Err(e) => if let Some(writer) = self.server_writer.clone() {
                         return cmd(async move {
@@ -820,15 +830,18 @@ impl Application for State {
                         })
                     }
                     ServerMessage::EnterRoom { players, .. } => {
+                        let persistent_state = self.persistent_state.clone();
                         let server_writer = self.server_writer.clone().expect("join room button only appears when connected to server");
                         let frontend_writer = self.frontend_writer.clone().expect("join room button only appears when connected to frontend");
                         let player_id = self.last_world;
                         let player_name = self.last_name;
                         let file_hash = self.last_hash;
                         let save = self.last_save.clone();
-                        let pending_items_before_save = mem::take(&mut self.pending_items_before_save);
-                        let pending_items_after_save = mem::take(&mut self.pending_items_after_save);
                         return cmd(async move {
+                            let (pending_items_before_save, pending_items_after_save) = persistent_state.edit(|state| (
+                                mem::take(&mut state.pending_items_before_save),
+                                mem::take(&mut state.pending_items_after_save),
+                            )).await?;
                             if let Some(player_id) = player_id {
                                 server_writer.write(ClientMessage::PlayerId(player_id)).await?;
                                 if player_name != Filename::default() {
@@ -842,7 +855,7 @@ impl Application for State {
                                 server_writer.write(ClientMessage::SendItem { key, kind, target_world }).await?;
                             }
                             if let Some(save) = save {
-                                server_writer.write(ClientMessage::SaveData(save)).await?; //TODO only send if room is marked as being tracked?
+                                server_writer.write(ClientMessage::SaveData(save)).await?;
                             }
                             for (key, kind, target_world) in pending_items_after_save {
                                 server_writer.write(ClientMessage::SendItem { key, kind, target_world }).await?;
@@ -1094,7 +1107,7 @@ impl Application for State {
                     .push("This room is for a different seed.")
                     .push(Row::new()
                         .push("Room:")
-                        //TODO add gray background in light mode
+                        //TODO add gray background or drop shadow in light mode
                         .push(hash_icon(server1))
                         .push(hash_icon(server2))
                         .push(hash_icon(server3))
@@ -1104,7 +1117,7 @@ impl Application for State {
                     )
                     .push(Row::new()
                         .push("You:")
-                        //TODO add gray background in light mode
+                        //TODO add gray background or drop shadow in light mode
                         .push(hash_icon(client1))
                         .push(hash_icon(client2))
                         .push(hash_icon(client3))
@@ -1265,6 +1278,7 @@ enum MainError {
     #[error(transparent)] Iced(#[from] iced::Error),
     #[error(transparent)] Icon(#[from] iced::window::icon::Error),
     #[error(transparent)] Io(#[from] io::Error),
+    #[error(transparent)] PersistentState(#[from] persistent_state::Error),
     #[error(transparent)] Wheel(#[from] wheel::Error),
 }
 
@@ -1300,6 +1314,7 @@ fn main(CliArgs { frontend }: CliArgs) -> Result<(), MainError> {
         },
         ..Settings::with_flags((
             Config::blocking_load()?,
+            PersistentState::blocking_load()?,
             match frontend {
                 None => FrontendFlags::Pj64V3,
                 Some(FrontendArgs::Dummy) => FrontendFlags::Dummy,
