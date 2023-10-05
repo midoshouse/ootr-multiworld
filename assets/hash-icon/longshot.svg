@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+<svg width="666.67" height="666.67" version="1.1" viewBox="0 0 666.67 666.67" xmlns="http://www.w3.org/2000/svg">
+ <defs>
+  <filter id="filter4624" x="-.19094" y="-.16008" width="1.3819" height="1.3202" color-interpolation-filters="sRGB">
+   <feGaussianBlur stdDeviation="13.687061"/>
+  </filter>
+ </defs>
+ <g>
+  <path d="m250.54 253 87.077-86.966 163.74 164.01-87.624 86.967z" fill="#627080" stroke="#000" stroke-width="2"/>
+  <path d="m337.62 166.04 49.121-49.058 164.33 163.73-49.709 49.336zm76.114 250.97-22.019 21.854-43.369 110.01-147.02-83.953-82.56-144.63 112-47.547 19.772-19.746z" fill="#5c3c5b" stroke="#000" stroke-width="2"/>
+  <g fill="#9cabbc" stroke="#000" stroke-width="2">
+   <path d="m486.18 216.06-35.24-35.112 24.168-24.057-25.556-96.667 215.56-58.889-58.444 215.78-96.222-25.556z"/>
+   <path d="m144.52 365.41-133.41 76.585 26.452 24.852 124.17-71.282-17.286-30.113z"/>
+   <path d="m299.6 521.04-76.929 134.52-24.76-26.72 71.506-125.03 30.173 17.256z"/>
+  </g>
+  <path d="m32.558 469.74 39.907-22.925 146.28 145.58-23.13 40.406z" fill="#5f3b00" stroke="#000" stroke-width="2"/>
+  <!-- <path d="m457.85 415.18v205.21h172.04v-82.915h-93.929v-122.29z" fill="#5c3c5b" filter="url(#filter4624)" stop-color="#000000" style="-inkscape-stroke:none"/> -->
+  <!-- <path d="m476.75 434.17v167.08h132.34v-43.781h-92.253v-123.3z" fill="#9cacbc" stop-color="#000000" stroke="#000" stroke-width="2" style="-inkscape-stroke:none"/> -->
+ </g>
+</svg>

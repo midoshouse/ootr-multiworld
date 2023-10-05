@@ -38,7 +38,7 @@ features = ["derive"]
 [dependencies.iced]
 version = "0.10"
 default-features = false
-features = ["advanced", "image", "tokio"]
+features = ["advanced", "image", "svg", "tokio"]
 
 [dependencies.image]
 version = "0.24"

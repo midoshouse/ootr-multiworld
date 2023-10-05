@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+<svg width="500pt" height="500pt" version="1.1" viewBox="0 0 666.67 666.67" xmlns="http://www.w3.org/2000/svg">
+ <g fill-rule="evenodd">
+  <g stroke-linecap="square">
+   <path d="m432.55 78.245s45.22-51.21 126.74-51.21c75.592 0 106.26 88.905 106.26 148.51 0 207.27-238.48 471.77-332.22 471.77-93.743 0-332.22-264.5-332.22-471.77 0-59.604 30.668-148.51 106.26-148.51 81.524 0 126.74 51.21 126.74 51.21 30.149-40.335 57.824-58.891 99.219-58.891 41.395 0 69.07 18.556 99.219 58.891z" fill="#fff" stop-color="#000000" stroke="#000" stroke-linejoin="round" stroke-width="2"/>
+   <path d="m96.488 327.25c51.502 89.204 188.79 115.86 236.85 115.86 48.052 0 185.34-26.658 236.85-115.86-39.835-149.88-187.42-172.19-236.85-172.19-49.424 0-197.01 22.314-236.85 172.19z" fill="#fff" stop-color="#000000" stroke="#fd2832" stroke-width="35"/>
+   <circle cx="333.33" cy="255.56" r="100.5" fill="#fffe28" stop-color="#000000" stroke="#fd2832" stroke-linejoin="round" stroke-width="35"/>
+  </g>
+  <circle cx="333.33" cy="255.56" r="40.968" fill="#fd2832" stop-color="#000000"/>
+ </g>
+</svg>
