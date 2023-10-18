@@ -64,6 +64,7 @@ use {
         },
     },
     multiworld::{
+        config::Config,
         frontend::Kind as Emulator, //TODO rename to Frontend?
         github::Repo,
         io_error_from_reqwest,
@@ -83,7 +84,6 @@ use {
     tokio::io::AsyncWriteExt as _,
     tokio_util::io::StreamReader,
     wheel::traits::SyncCommandOutputExt as _,
-    multiworld::config::Config,
 };
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))] const BIZHAWK_PLATFORM_SUFFIX: &str = "-linux-x64.tar.gz";
@@ -128,7 +128,6 @@ enum Error {
     #[cfg(target_os = "windows")]
     #[error("Project64 version too new, please tell Fenhl that Mido's House Multiworld needs to be updated")]
     Project64TooNew,
-    #[cfg(target_os = "windows")]
     #[error("can't install to the filesystem root")]
     Root,
 }
@@ -379,7 +378,8 @@ impl Application for State {
                     let emulator = emulator.expect("emulator must be selected to continue here");
                     match emulator {
                         Emulator::EverDrive => return cmd(future::ok(Message::LocateMultiworld(None))),
-                        Emulator::Pj64V3 | Emulator::Pj64V4 if !is_elevated() => {
+                        #[cfg(target_os = "linux")] Emulator::Pj64V3 | Emulator::Pj64V4 => unreachable!(),
+                        #[cfg(target_os = "windows")] Emulator::Pj64V3 | Emulator::Pj64V4 if !is_elevated() => {
                             // Project64 installation and plugin installation both require admin permissions (UAC)
                             self.page = Page::Elevated;
                             return cmd(async move {
@@ -518,7 +518,8 @@ impl Application for State {
                                 Ok(Message::LocateMultiworld(None))
                             })
                         }
-                        Emulator::Pj64V3 => {
+                        #[cfg(target_os = "linux")] Emulator::Pj64V3 => unreachable!(),
+                        #[cfg(target_os = "windows")] Emulator::Pj64V3 => {
                             //TODO indicate progress
                             let http_client = self.http_client.clone();
                             let emulator_path_arg = format!("/DIR={emulator_path}");
@@ -584,6 +585,7 @@ impl Application for State {
                             //TODO BizHawk version check on Linux
                             None
                         }
+                        #[cfg(target_os = "linux")] Emulator::Pj64V3 | Emulator::Pj64V4 => unreachable!(),
                         #[cfg(target_os = "windows")] Emulator::Pj64V3 | Emulator::Pj64V4 => {
                             let [major, minor, _, _] = match winver::get_file_version_info(PathBuf::from(emulator_path).join("Project64.exe")) {
                                 Ok(version) => version,
@@ -596,7 +598,6 @@ impl Application for State {
                                 (5.., _) => return cmd(future::err(Error::Project64TooNew)),
                             })
                         }
-                        #[cfg(target_os = "linux")] Emulator::Pj64V3 | Emulator::Pj64V4 => unreachable!(),
                     };
                     return cmd(future::ok(Message::LocateMultiworld(new_emulator)))
                 },
