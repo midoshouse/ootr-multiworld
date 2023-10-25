@@ -147,6 +147,7 @@ enum Message {
     MultiworldReleaseAssets(reqwest::Client, ReleaseAsset, Option<ReleaseAsset>),
     MultiworldResponse(reqwest::Client, reqwest::Response),
     WaitDownload(File),
+    AskBizHawkUpdate(reqwest::Client, Version),
     UpdateBizHawk(reqwest::Client, Version),
     BizHawkReleaseAsset(reqwest::Client, ReleaseAsset),
     BizHawkResponse(reqwest::Response),
@@ -186,6 +187,7 @@ enum State {
     GetMultiworldRelease,
     DownloadMultiworld,
     ExtractMultiworld,
+    AskBizHawkUpdate(reqwest::Client, Version),
     GetBizHawkRelease,
     StartDownloadBizHawk,
     DownloadBizHawk,
@@ -371,7 +373,7 @@ impl Application for App {
                         }
                         let required_bizhawk_version = required_bizhawk_version.ok_or(Error::MissingReadme)?;
                         match local_bizhawk_version.cmp(&required_bizhawk_version) {
-                            Less => Ok(Message::UpdateBizHawk(http_client, required_bizhawk_version)),
+                            Less => Ok(Message::AskBizHawkUpdate(http_client, required_bizhawk_version)),
                             Equal => Ok(Message::Launch),
                             Greater => Err(Error::BizHawkVersionRegression),
                         }
@@ -396,6 +398,9 @@ impl Application for App {
                     exe_file.sync_all().await?;
                     Ok(Message::Launch)
                 })
+            }
+            Message::AskBizHawkUpdate(client, required_version) => {
+                self.state = State::AskBizHawkUpdate(client, required_version);
             }
             Message::UpdateBizHawk(client, required_version) => {
                 self.state = State::GetBizHawkRelease;
@@ -514,6 +519,12 @@ impl Application for App {
             State::GetMultiworldRelease => Column::new().push("Checking latest release…").spacing(8).padding(8).into(),
             State::DownloadMultiworld => Column::new().push("Starting download…").spacing(8).padding(8).into(),
             State::ExtractMultiworld => Column::new().push("Downloading and extracting multiworld…").spacing(8).padding(8).into(),
+            State::AskBizHawkUpdate(ref client, ref required_version) => Column::new()
+                .push("Warning: The new version of Mido's House Multiworld requires a new version of BizHawk. Updating BizHawk can sometimes reset BizHawk's settings. If you see an error message saying “It appears your config file (config.ini) is corrupted”, DO NOT close or click OK; make a backup of the file “config.ini” in your BizHawk folder first.")
+                .push(Button::new("Update BizHawk").on_press(Message::UpdateBizHawk(client.clone(), required_version.clone())))
+                .spacing(8)
+                .padding(8)
+                .into(),
             State::GetBizHawkRelease => Column::new().push("Getting BizHawk download link…").spacing(8).padding(8).into(),
             State::StartDownloadBizHawk => Column::new().push("Starting BizHawk download…").spacing(8).padding(8).into(),
             State::DownloadBizHawk => Column::new().push("Downloading BizHawk…").spacing(8).padding(8).into(),

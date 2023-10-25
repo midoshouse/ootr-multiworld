@@ -871,7 +871,11 @@ impl Application for State {
                 )),
             ),
             Page::AskBizHawkUpdate { .. } => (
-                Text::new("The selected copy of BizHawk is too old to run Mido's House Multiworld. Do you want to update it to the latest version?").into(),
+                Column::new()
+                    .push("The selected copy of BizHawk is too old to run Mido's House Multiworld. Do you want to update it to the latest version?")
+                    .push("Warning: Updating BizHawk can sometimes reset BizHawk's settings. If you see an error message saying “It appears your config file (config.ini) is corrupted”, DO NOT close or click OK; make a backup of the file “config.ini” in your BizHawk folder first.")
+                    .spacing(8)
+                    .into(),
                 Some((Text::new("Update BizHawk").into(), true))
             ),
             Page::InstallEmulator { update: true, emulator, .. } => (Text::new(format!("Updating {emulator}, please wait…")).into(), None),
