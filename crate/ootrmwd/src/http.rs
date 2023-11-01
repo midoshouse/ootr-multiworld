@@ -43,9 +43,10 @@ fn index() -> Redirect {
 }
 
 macro_rules! supported_version {
-    ($endpoint:literal, $version:ident, $variant:ident) => {
+    ($endpoint:literal, $version:ident, $variant:ident, $number:literal) => {
         #[rocket::get($endpoint)]
-        fn $version(rng: &State<Arc<SystemRandom>>, db_pool: &State<PgPool>, http_client: &State<reqwest::Client>, rooms: &State<Rooms<WebSocket>>, next_session_id: &State<AtomicUsize>, ws: WebSocket, shutdown: rocket::Shutdown) -> rocket_ws::Channel<'static> {
+        async fn $version(rng: &State<Arc<SystemRandom>>, db_pool: &State<PgPool>, http_client: &State<reqwest::Client>, rooms: &State<Rooms<WebSocket>>, next_session_id: &State<AtomicUsize>, ws: WebSocket, shutdown: rocket::Shutdown) -> rocket_ws::Channel<'static> {
+            let _ = sqlx::query!("INSERT INTO mw_versions (version, last_used) VALUES ($1, NOW()) ON CONFLICT (version) DO UPDATE SET last_used = EXCLUDED.last_used", $number).execute(&**db_pool).await;
             let rng = (*rng).clone();
             let db_pool = (*db_pool).clone();
             let http_client = (*http_client).clone();
@@ -68,10 +69,10 @@ macro_rules! supported_version {
     };
 }
 
-supported_version!("/v10", v10, V10);
-supported_version!("/v11", v11, V11);
-supported_version!("/v12", v12, V12);
-supported_version!("/v13", v13, V13);
+supported_version!("/v10", v10, V10, 10);
+supported_version!("/v11", v11, V11, 11);
+supported_version!("/v12", v12, V12, 12);
+supported_version!("/v13", v13, V13, 13);
 
 #[rocket::catch(404)]
 async fn not_found() -> RawHtml<String> {
