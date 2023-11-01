@@ -8,7 +8,7 @@ edition.workspace = true
 winres = "0.1"
 
 [dependencies]
-async-proto = "=0.16.9" # rocket-ws is still on tungstenite 0.19
+async-proto = "0.16.10"
 dark-light = "1"
 futures = "0.3"
 iced_runtime = "0.1"
@@ -83,7 +83,7 @@ version = "1"
 features = ["fs", "io-util", "net", "parking_lot", "sync", "time"]
 
 [dependencies.tokio-tungstenite]
-version = "0.19" # rocket-ws is still on tungstenite 0.19
+version = "0.20"
 features = ["rustls-tls-webpki-roots"]
 
 [dependencies.wheel]

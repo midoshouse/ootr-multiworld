@@ -11,10 +11,10 @@ futures = "0.3"
 rand = "0.8"
 #rocket = "0.5.0-rc.3"
 thiserror = "1"
-tokio-tungstenite = "0.19" # rocket-ws is still on tungstenite 0.19
+tokio-tungstenite = "0.20"
 
 [dependencies.async-proto]
-version = "=0.16.9" # rocket-ws is still on tungstenite 0.19
+version = "0.16.10"
 features = ["chrono"]
 
 [dependencies.chrono]

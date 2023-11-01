@@ -179,6 +179,8 @@ impl From<unversioned::ServerMessage> for Option<ServerMessage> {
             unversioned::ServerMessage::WrongFileHash { server, client } => Some(ServerMessage::WrongFileHash { server, client }),
             unversioned::ServerMessage::ProgressiveItems { world, state } => Some(ServerMessage::ProgressiveItems { world, state }),
             unversioned::ServerMessage::LoginSuccess => Some(ServerMessage::LoginSuccess),
+            unversioned::ServerMessage::WorldTaken(world) => Some(ServerMessage::OtherError(format!("world {world} is already taken"))),
+            unversioned::ServerMessage::WorldFreed => None, // can only be sent after WorldTaken which is converted to a fatal error
         }
     }
 }

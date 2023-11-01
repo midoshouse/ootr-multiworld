@@ -85,6 +85,8 @@ pub enum ClientMessage {
     LoginRaceTime {
         bearer_token: String,
     },
+    /// Only works after [`ServerMessage::EnterRoom`].
+    LeaveRoom,
 }
 
 #[derive(Debug, Clone)]
@@ -162,4 +164,8 @@ pub enum ServerMessage {
     },
     /// You have successfully logged in.
     LoginSuccess,
+    /// This world is already taken.
+    WorldTaken(NonZeroU8),
+    /// This world is no longer taken.
+    WorldFreed,
 }

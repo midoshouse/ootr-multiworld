@@ -9,7 +9,7 @@ name = "multiworld"
 crate-type = ["cdylib"]
 
 [dependencies]
-async-proto = "=0.16.9" # rocket-ws is still on tungstenite 0.19
+async-proto = "0.16.10"
 itertools = "0.11"
 libc = "0.2"
 once_cell = "1"

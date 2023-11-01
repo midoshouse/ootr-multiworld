@@ -279,17 +279,19 @@ pub struct Client<C: ClientKind> {
     pub writer: Arc<Mutex<C::Writer>>,
     pub end_tx: oneshot::Sender<EndRoomSession>,
     pub player: Option<Player>,
+    pub pending_world: Option<NonZeroU8>,
     pub save_data: Option<oottracker::Save>,
     pub adjusted_save: oottracker::Save,
 }
 
 impl<C: ClientKind> fmt::Debug for Client<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { writer: _, end_tx, player, save_data, adjusted_save } = self;
+        let Self { writer: _, end_tx, player, pending_world, save_data, adjusted_save } = self;
         f.debug_struct("Client")
             .field("writer", &format_args!("_"))
             .field("end_tx", end_tx)
             .field("player", player)
+            .field("pending_world", pending_world)
             .field("save_data", save_data)
             .field("adjusted_save", adjusted_save)
             .finish()
@@ -376,6 +378,7 @@ pub enum QueueItemError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SetHashError {
+    #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("this room is for a different seed: server has {} but client has {}", natjoin(.server).unwrap(), natjoin(.client).unwrap())]
     FileHash {
         server: [HashIcon; 5],
@@ -518,39 +521,43 @@ impl ProgressiveItems {
 }
 
 impl<C: ClientKind> Room<C> {
-    async fn write(&mut self, client_id: C::SessionId, msg: unversioned::ServerMessage) {
+    async fn write(&mut self, client_id: C::SessionId, msg: unversioned::ServerMessage) -> Result<(), async_proto::WriteError> {
         if let Some(client) = self.clients.get(&client_id) {
             let mut writer = lock!(client.writer);
             if let Err(e) = writer.write(msg).await {
                 eprintln!("error sending message: {e} ({e:?})");
                 drop(writer);
-                self.remove_client(client_id, EndRoomSession::Disconnect).await;
+                self.remove_client(client_id, EndRoomSession::Disconnect).await?;
             }
         }
+        Ok(())
     }
 
-    async fn write_all(&mut self, msg: &unversioned::ServerMessage) {
+    async fn write_all(&mut self, msg: &unversioned::ServerMessage) -> Result<(), async_proto::WriteError> {
         let mut notified = HashSet::new();
         while let Some((&client_id, client)) = self.clients.iter().find(|&(client_id, _)| !notified.contains(client_id)) {
             let mut writer = lock!(client.writer);
             if let Err(e) = writer.write(msg.clone()).await {
                 eprintln!("error sending message: {e} ({e:?})");
                 drop(writer);
-                self.remove_client(client_id, EndRoomSession::Disconnect).await;
+                self.remove_client(client_id, EndRoomSession::Disconnect).await?;
             }
             notified.insert(client_id);
         }
+        Ok(())
     }
 
-    pub async fn add_client(&mut self, client_id: C::SessionId, writer: Arc<Mutex<C::Writer>>, end_tx: oneshot::Sender<EndRoomSession>) {
+    pub async fn add_client(&mut self, client_id: C::SessionId, writer: Arc<Mutex<C::Writer>>, end_tx: oneshot::Sender<EndRoomSession>) -> Result<(), async_proto::WriteError> {
         // the client doesn't need to be told that it has connected, so notify everyone *before* adding it
-        self.write_all(&unversioned::ServerMessage::ClientConnected).await;
+        self.write_all(&unversioned::ServerMessage::ClientConnected).await?;
         self.clients.insert(client_id, Client {
             player: None,
+            pending_world: None,
             save_data: None,
             adjusted_save: oottracker::Save::default(),
             writer, end_tx,
         });
+        Ok(())
     }
 
     pub fn has_client(&self, client_id: C::SessionId) -> bool {
@@ -558,21 +565,25 @@ impl<C: ClientKind> Room<C> {
     }
 
     #[async_recursion]
-    pub async fn remove_client(&mut self, client_id: C::SessionId, to: EndRoomSession) {
+    pub async fn remove_client(&mut self, client_id: C::SessionId, to: EndRoomSession) -> Result<(), async_proto::WriteError> {
         if let Some(client) = self.clients.remove(&client_id) {
             let _ = client.end_tx.send(to);
             let msg = if let Some(Player { world, .. }) = client.player {
+                if let Some((&client_id, _)) = self.clients.iter().find(|(_, iter_client)| iter_client.pending_world == Some(world)) {
+                    self.load_player(client_id, world).await?;
+                }
                 unversioned::ServerMessage::PlayerDisconnected(world)
             } else {
                 unversioned::ServerMessage::UnregisteredClientDisconnected
             };
-            self.write_all(&msg).await;
+            self.write_all(&msg).await?;
         }
+        Ok(())
     }
 
-    pub async fn delete(&mut self) {
+    pub async fn delete(&mut self) -> Result<(), async_proto::WriteError> {
         for client_id in self.clients.keys().copied().collect::<Vec<_>>() {
-            self.remove_client(client_id, EndRoomSession::ToLobby).await;
+            self.remove_client(client_id, EndRoomSession::ToLobby).await?;
         }
         #[cfg(feature = "sqlx")] {
             if let Err(e) = sqlx::query!("DELETE FROM mw_rooms WHERE id = $1", self.id as i64).execute(&self.db_pool).await {
@@ -583,11 +594,14 @@ impl<C: ClientKind> Room<C> {
         if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
             let _ = oottracker::websocket::ClientMessage::MwDeleteRoom { room: tracker_room_name.clone() }.write_ws(sock).await;
         }
+        Ok(())
     }
 
     /// Moves a player from unloaded (no world assigned) to the given `world`.
     pub async fn load_player(&mut self, client_id: C::SessionId, world: NonZeroU8) -> Result<bool, async_proto::WriteError> {
         if self.clients.iter().any(|(&iter_client_id, iter_client)| iter_client.player.as_ref().map_or(false, |p| p.world == world) && iter_client_id != client_id) {
+            let client = self.clients.get_mut(&client_id).expect("no such client");
+            client.pending_world = Some(world);
             return Ok(false)
         }
         let client = self.clients.get_mut(&client_id).expect("no such client");
@@ -596,11 +610,14 @@ impl<C: ClientKind> Room<C> {
         if let Some(player) = prev_player {
             let prev_world = mem::replace(&mut player.world, world);
             if prev_world == world { return Ok(true) }
-            self.write_all(&unversioned::ServerMessage::ResetPlayerId(prev_world)).await;
+            self.write_all(&unversioned::ServerMessage::ResetPlayerId(prev_world)).await?;
         } else {
             *prev_player = Some(Player::new(world));
+            if client.pending_world.take().is_some() {
+                self.write(client_id, unversioned::ServerMessage::WorldFreed).await?;
+            }
         }
-        self.write_all(&unversioned::ServerMessage::PlayerId(world)).await;
+        self.write_all(&unversioned::ServerMessage::PlayerId(world)).await?;
         let queue = self.player_queues.get(&world).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>();
         if let Some(save) = save {
             let mut adjusted_save = save.clone();
@@ -619,11 +636,11 @@ impl<C: ClientKind> Room<C> {
             let new_progressive_items = ProgressiveItems::new(&adjusted_save);
             client.adjusted_save = adjusted_save;
             if old_progressive_items != new_progressive_items {
-                self.write_all(&unversioned::ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await;
+                self.write_all(&unversioned::ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await?;
             }
         }
         if !queue.is_empty() {
-            self.write(client_id, unversioned::ServerMessage::ItemQueue(queue)).await;
+            self.write(client_id, unversioned::ServerMessage::ItemQueue(queue)).await?;
         }
         if let Some(save) = save {
             if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
@@ -633,21 +650,25 @@ impl<C: ClientKind> Room<C> {
         Ok(true)
     }
 
-    pub async fn unload_player(&mut self, client_id: C::SessionId) {
+    pub async fn unload_player(&mut self, client_id: C::SessionId) -> Result<(), async_proto::WriteError> {
         if let Some(prev_player) = self.clients.get_mut(&client_id).expect("no such client").player.take() {
-            self.write_all(&unversioned::ServerMessage::ResetPlayerId(prev_player.world)).await;
+            self.write_all(&unversioned::ServerMessage::ResetPlayerId(prev_player.world)).await?;
+            if let Some((&client_id, _)) = self.clients.iter().find(|(_, iter_client)| iter_client.pending_world == Some(prev_player.world)) {
+                self.load_player(client_id, prev_player.world).await?;
+            }
         }
+        Ok(())
     }
 
-    pub async fn set_player_name(&mut self, client_id: C::SessionId, name: Filename) -> bool {
-        if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").player {
+    pub async fn set_player_name(&mut self, client_id: C::SessionId, name: Filename) -> Result<bool, async_proto::WriteError> {
+        Ok(if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").player {
             let world = player.world;
             player.name = name;
-            self.write_all(&unversioned::ServerMessage::PlayerName(world, name)).await;
+            self.write_all(&unversioned::ServerMessage::PlayerName(world, name)).await?;
             true
         } else {
             false
-        }
+        })
     }
 
     pub async fn set_file_hash(&mut self, client_id: C::SessionId, hash: [HashIcon; 5]) -> Result<(), SetHashError> {
@@ -659,7 +680,7 @@ impl<C: ClientKind> Room<C> {
             }
             let world = player.world;
             player.file_hash = Some(hash);
-            self.write_all(&unversioned::ServerMessage::PlayerFileHash(world, hash)).await;
+            self.write_all(&unversioned::ServerMessage::PlayerFileHash(world, hash)).await?;
             Ok(())
         } else {
             Err(SetHashError::NoSourceWorld)
@@ -688,7 +709,7 @@ impl<C: ClientKind> Room<C> {
                     .filter_map(|(&target_client, c)| if c.player.map_or(false, |p| p.world != source_world) { Some(target_client) } else { None })
                     .collect::<Vec<_>>();
                 for target_client in player_clients {
-                    self.write(target_client, msg.clone()).await;
+                    self.write(target_client, msg.clone()).await?;
                 }
             }
         } else if source_world == target_world {
@@ -707,7 +728,7 @@ impl<C: ClientKind> Room<C> {
                 }
             }
             for (world, state) in changed_progressive_items {
-                self.write_all(&unversioned::ServerMessage::ProgressiveItems { world, state }).await;
+                self.write_all(&unversioned::ServerMessage::ProgressiveItems { world, state }).await?;
             }
             // don't send own item back to sender
         } else {
@@ -720,9 +741,9 @@ impl<C: ClientKind> Room<C> {
                         let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
                     }
                     let new_progressive_items = ProgressiveItems::new(&client.adjusted_save);
-                    self.write(target_client, unversioned::ServerMessage::GetItem(kind)).await;
+                    self.write(target_client, unversioned::ServerMessage::GetItem(kind)).await?;
                     if old_progressive_items != new_progressive_items {
-                        self.write_all(&unversioned::ServerMessage::ProgressiveItems { world: target_world, state: new_progressive_items.bits() }).await;
+                        self.write_all(&unversioned::ServerMessage::ProgressiveItems { world: target_world, state: new_progressive_items.bits() }).await?;
                     }
                 }
             }
@@ -816,7 +837,7 @@ impl<C: ClientKind> Room<C> {
             let new_progressive_items = ProgressiveItems::new(&adjusted_save);
             client.adjusted_save = adjusted_save;
             if old_progressive_items != new_progressive_items {
-                self.write_all(&unversioned::ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await;
+                self.write_all(&unversioned::ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await?;
             }
             if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
                 oottracker::websocket::ClientMessage::MwResetPlayer { room: tracker_room_name.clone(), world, save }.write_ws(sock).await?;
@@ -884,7 +905,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn set_autodelete_delta(&mut self, new_delta: Duration) {
+    pub async fn set_autodelete_delta(&mut self, new_delta: Duration) -> Result<(), async_proto::WriteError> {
         self.autodelete_delta = new_delta;
         #[cfg(feature = "sqlx")] {
             // saving also notifies the room deletion waiter
@@ -893,7 +914,8 @@ impl<C: ClientKind> Room<C> {
                 let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
             }
         }
-        self.write_all(&unversioned::ServerMessage::AutoDeleteDelta(new_delta)).await;
+        self.write_all(&unversioned::ServerMessage::AutoDeleteDelta(new_delta)).await?;
+        Ok(())
     }
 }
 
@@ -1004,6 +1026,7 @@ pub enum SessionState<E> {
         allow_send_all: bool,
         view: RoomView,
         wrong_file_hash: Option<[[HashIcon; 5]; 2]>,
+        world_taken: Option<NonZeroU8>,
     },
     Closed,
 }
@@ -1026,6 +1049,28 @@ impl<E> SessionState<E> {
             },
             latest::ServerMessage::WrongFileHash { server, client } => if let Self::Room { wrong_file_hash, .. } = self {
                 *wrong_file_hash = Some([server, client]);
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
+                    auto_retry: false,
+                };
+            },
+            latest::ServerMessage::WorldTaken(world) => if let Self::Room { world_taken, .. } = self {
+                *world_taken = Some(world);
+            } else {
+                *self = Self::Error {
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init)),
+                    },
+                    auto_retry: false,
+                };
+            },
+            latest::ServerMessage::WorldFreed => if let Self::Room { world_taken, .. } = self {
+                *world_taken = None;
             } else {
                 *self = Self::Error {
                     e: SessionStateError::Mismatch {
@@ -1125,6 +1170,7 @@ impl<E> SessionState<E> {
                     item_queue: Vec::default(),
                     view: RoomView::Normal,
                     wrong_file_hash: None,
+                    world_taken: None,
                     room_id, players, num_unassigned_clients, autodelete_delta, allow_send_all,
                 };
             } else {

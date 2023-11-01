@@ -265,7 +265,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                         if authorized {
                             if room.clients.len() >= usize::from(u8::MAX) { error!("this room is full") }
                             let (end_tx, end_rx) = oneshot::channel();
-                            room.add_client(socket_id, Arc::clone(&writer), end_tx).await;
+                            room.add_client(socket_id, Arc::clone(&writer), end_tx).await?;
                             let mut players = Vec::<Player>::default();
                             let mut num_unassigned_clients = 0;
                             for client in room.clients.values() {
@@ -313,6 +313,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                         let (end_tx, end_rx) = oneshot::channel();
                         clients.insert(socket_id, multiworld::Client {
                             player: None,
+                            pending_world: None,
                             writer: Arc::clone(&writer),
                             save_data: None,
                             adjusted_save: Default::default(),
@@ -445,6 +446,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                     ClientMessage::SaveDataError { .. } => error!("received a SaveDataError message, which only works in a room, but you're in the lobby"),
                     ClientMessage::FileHash(_) => error!("received a FileHash message, which only works in a room, but you're in the lobby"),
                     ClientMessage::AutoDeleteDelta(_) => error!("received an AutoDeleteDelta message, which only works in a room, but you're in the lobby"),
+                    ClientMessage::LeaveRoom => {}
                 }
                 read = next_message::<C>(reader);
             }
@@ -515,10 +517,10 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                     ClientMessage::Track { .. } => error!("received a Track message, which only works in the lobby, but you're in a room"),
                     ClientMessage::WaitUntilEmpty => error!("received a WaitUntilEmpty message, which only works in the lobby, but you're in a room"),
                     ClientMessage::PlayerId(id) => if !lock!(@write room).load_player(socket_id, id).await? {
-                        error!("world {id} is already taken")
+                        lock!(writer).write(ServerMessage::WorldTaken(id)).await?;
                     },
-                    ClientMessage::ResetPlayerId => lock!(@write room).unload_player(socket_id).await,
-                    ClientMessage::PlayerName(name) => if !lock!(@write room).set_player_name(socket_id, name).await {
+                    ClientMessage::ResetPlayerId => lock!(@write room).unload_player(socket_id).await?,
+                    ClientMessage::PlayerName(name) => if !lock!(@write room).set_player_name(socket_id, name).await? {
                         error!("please claim a world before setting your player name")
                     },
                     ClientMessage::SendItem { key, kind, target_world } => match lock!(@write room).queue_item(socket_id, key, kind, target_world).await {
@@ -534,7 +536,7 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                         for (&socket_id, client) in &room.clients {
                             if let Some(Player { world, .. }) = client.player {
                                 if world == id {
-                                    room.remove_client(socket_id, EndRoomSession::ToLobby).await;
+                                    room.remove_client(socket_id, EndRoomSession::ToLobby).await?;
                                     break
                                 }
                             }
@@ -543,7 +545,7 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                     ClientMessage::DeleteRoom => {
                         let id = {
                             let mut room = lock!(@write room);
-                            room.delete().await;
+                            room.delete().await?;
                             room.id
                         };
                         rooms.remove(id).await;
@@ -569,7 +571,11 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                             return Err(e.into())
                         }
                     },
-                    ClientMessage::AutoDeleteDelta(new_delta) => lock!(@write room).set_autodelete_delta(new_delta).await,
+                    ClientMessage::AutoDeleteDelta(new_delta) => lock!(@write room).set_autodelete_delta(new_delta).await?,
+                    ClientMessage::LeaveRoom => {
+                        let mut room = lock!(@write room);
+                        room.remove_client(socket_id, EndRoomSession::ToLobby).await?;
+                    }
                 }
                 read = next_message::<C>(reader);
             },
@@ -882,7 +888,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 } {
                     let id = {
                         let mut room = lock!(@write room);
-                        room.delete().await;
+                        room.delete().await?;
                         room.id
                     };
                     rooms.remove(id).await;

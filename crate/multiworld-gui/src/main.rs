@@ -294,6 +294,7 @@ enum Message {
     FrontendSubscriptionError(Arc<Error>),
     JoinRoom,
     Kick(NonZeroU8),
+    Leave,
     LoginError(Arc<login::Error>),
     LoginToken(String),
     NewIssue,
@@ -641,6 +642,12 @@ impl Application for State {
                     Ok(Message::Nop)
                 })
             },
+            Message::Leave => if let Some(writer) = self.server_writer.clone() {
+                return cmd(async move {
+                    writer.write(ClientMessage::LeaveRoom).await?;
+                    Ok(Message::Nop)
+                })
+            },
             Message::LoginError(e) => { self.login_error.get_or_insert(e); }
             Message::LoginToken(bearer_token) => if let SessionState::Lobby { view: LobbyView::Login(provider), .. } = self.server_connection {
                 if let Some(writer) = self.server_writer.clone() {
@@ -876,7 +883,7 @@ impl Application for State {
                             Ok(Message::Nop)
                         })
                     },
-                    ServerMessage::ItemQueue(queue) => if let SessionState::Room { wrong_file_hash: None, .. } = self.server_connection {
+                    ServerMessage::ItemQueue(queue) => if let SessionState::Room { wrong_file_hash: None, world_taken: None, .. } = self.server_connection {
                         if let Some(writer) = self.frontend_writer.clone() {
                             return cmd(async move {
                                 writer.write(frontend::ServerMessage::ItemQueue(queue)).await?;
@@ -884,7 +891,7 @@ impl Application for State {
                             })
                         }
                     },
-                    ServerMessage::GetItem(item) => if let SessionState::Room { wrong_file_hash: None, .. } = self.server_connection {
+                    ServerMessage::GetItem(item) => if let SessionState::Room { wrong_file_hash: None, world_taken: None, .. } = self.server_connection {
                         if let Some(writer) = self.frontend_writer.clone() {
                             return cmd(async move {
                                 writer.write(frontend::ServerMessage::GetItem(item)).await?;
@@ -892,7 +899,7 @@ impl Application for State {
                             })
                         }
                     },
-                    ServerMessage::ProgressiveItems { world, state } => if let SessionState::Room { wrong_file_hash: None, .. } = self.server_connection {
+                    ServerMessage::ProgressiveItems { world, state } => if let SessionState::Room { wrong_file_hash: None, world_taken: None, .. } = self.server_connection {
                         if let Some(writer) = self.frontend_writer.clone() {
                             return cmd(async move {
                                 writer.write(frontend::ServerMessage::ProgressiveItems(world, state)).await?;
@@ -1128,17 +1135,25 @@ impl Application for State {
                         )
                         .spacing(8)
                     ).direction(scrollable::Direction::Horizontal(scrollable::Properties::default())))
-                    .push({
-                        let mut row = Row::new();
-                        row = row.push(Button::new("Delete Room").on_press(Message::SetRoomView(RoomView::ConfirmDeletion)));
-                        if let Some(my_id) = self.last_world {
-                            row = row.push(Button::new("Leave Room").on_press(Message::Kick(my_id)));
-                        }
-                        row.spacing(8)
-                    })
+                    .push(Row::new()
+                        .push(Button::new("Delete Room").on_press(Message::SetRoomView(RoomView::ConfirmDeletion)))
+                        .push(Button::new("Leave Room").on_press(Message::Leave))
+                        .spacing(8)
+                    )
                     .spacing(8)
                     .padding(8)
                     .into(),
+                SessionState::Room { wrong_file_hash: None, world_taken: Some(world), .. } => Column::new()
+                    .push(Text::new(format!("World {world} is already taken.")))
+                    .push(Row::new()
+                        .push(Button::new("Kick").on_press(Message::Kick(world)))
+                        .push(Button::new("Leave").on_press(Message::Leave))
+                        .spacing(8)
+                    )
+                    .spacing(8)
+                    .padding(8)
+                    .into(),
+
                 SessionState::Room { view: RoomView::Options, wrong_file_hash: None, autodelete_delta, allow_send_all, .. } => {
                     let mut col = Column::new()
                         .push(Button::new("Back").on_press(Message::SetRoomView(RoomView::Normal)))
@@ -1198,7 +1213,11 @@ impl Application for State {
                         .push(Scrollable::new(Row::new()
                             .push(Column::with_children(players.into_iter().map(|(player_id, player)| Row::new()
                                 .push(Text::new(player))
-                                .push(Button::new(if self.last_world.map_or(false, |my_id| my_id == player_id) { "Leave" } else { "Kick" }).on_press(Message::Kick(player_id)))
+                                .push(if self.last_world.map_or(false, |my_id| my_id == player_id) {
+                                    Button::new("Leave").on_press(Message::Leave)
+                                } else {
+                                    Button::new("Kick").on_press(Message::Kick(player_id))
+                                })
                                 .into()
                             ).collect()))
                             .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
@@ -1206,6 +1225,9 @@ impl Application for State {
                         ));
                     if !other.is_empty() {
                         col = col.push(Text::new(other));
+                    }
+                    if self.last_world.is_none() {
+                        col = col.push(Button::new("Leave").on_press(Message::Leave));
                     }
                     col
                         .spacing(8)
