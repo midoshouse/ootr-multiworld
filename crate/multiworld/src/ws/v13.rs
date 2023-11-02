@@ -45,7 +45,7 @@ pub enum ClientMessage {
     ResetPlayerId,
     PlayerName(Filename),
     SendItem {
-        key: u32,
+        key: u64,
         kind: u16,
         target_world: NonZeroU8,
     },

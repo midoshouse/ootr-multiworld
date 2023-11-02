@@ -57,6 +57,7 @@ fn csharp_ffi_type_check(rust_type: &Type, csharp_type: &str, span: Span) -> std
         "byte" => vec![parse_quote!(u8)],
         "sbyte" => vec![parse_quote!(i8)],
         "uint" => vec![parse_quote!(u32)],
+        "ulong" => vec![parse_quote!(u64)],
         "ushort" => vec![parse_quote!(u16)],
         "void" => vec![parse_quote!(())],
         _ => return Err(quote_spanned! {span=>

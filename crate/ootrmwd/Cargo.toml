@@ -32,7 +32,7 @@ branch = "main"
 
 [dependencies.multiworld]
 path = "../multiworld"
-features = ["pyo3", "sqlx"]
+features = ["sqlx"]
 
 [dependencies.multiworld-derive]
 path = "../multiworld-derive"

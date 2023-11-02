@@ -1,5 +1,5 @@
 const TCP_PORT = 24818;
-const MW_FRONTEND_PROTO_VERSION = 3;
+const MW_FRONTEND_PROTO_VERSION = 4;
 const DEFAULT_PLAYER_NAME = [0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf];
 const SRAM_START = 0xA8000000;
 
@@ -45,6 +45,7 @@ var progressiveItems = [
 var itemQueue = [];
 var normalGameplay = false;
 var progressiveItemsEnable = false;
+var potsanity3 = false;
 
 function handle_data(sock, state, buf) {
     var newBuf = new Buffer(state.readBuf.length + buf.length);
@@ -131,8 +132,18 @@ function handle_frame(write, error) {
                 if (coopContextVersion < 2) {
                     return error('randomizer version too old (version 5.1.4 or higher required)');
                 }
-                if (coopContextVersion > 6) {
+                if (coopContextVersion > 7) {
                     return error("randomizer version too new (version " + mem.u32[newCoopContextAddr] + "; please tell Fenhl that Mido's House Multiworld needs to be updated)");
+                }
+                if (coopContextVersion == 7) {
+                    if (mem.u8[0xb000001c] == 0x45) {
+                        // on Dev-Rob, version 7 is https://github.com/OoTRandomizer/OoT-Randomizer/pull/2069
+                        potsanity3 = true;
+                    } else {
+                        return error("randomizer version too new (version " + mem.u32[newCoopContextAddr] + "; please tell Fenhl that Mido's House Multiworld needs to be updated)");
+                    }
+                } else {
+                    potsanity3 = false;
                 }
                 if (coopContextVersion >= 3) {
                     mem.u8[newCoopContextAddr + 0x000a] = 1; // enable MW_SEND_OWN_ITEMS for server-side tracking
@@ -239,20 +250,28 @@ function handle_frame(write, error) {
     }
     if (playerID !== null && coopContextAddr !== null) {
         // send item
-        var outgoingKey = mem.u32[coopContextAddr + 0xc];
-        if (outgoingKey != 0) {
+        var outgoingKeyHi = 0;
+        var outgoingKeyLo = 0;
+        if (potsanity3) {
+            outgoingKeyHi = mem.u32[coopContextAddr + 0x0c20];
+            outgoingKeyLo = mem.u32[coopContextAddr + 0x0c24];
+        } else {
+            outgoingKeyLo = mem.u32[coopContextAddr + 0xc];
+        }
+        if (outgoingKeyHi != 0 || outgoingKeyLo != 0) {
             var kind = mem.u16[coopContextAddr + 0x10];
             var player = mem.u8[coopContextAddr + 0x13];
-            if (outgoingKey == 0xff05ff) {
+            if (outgoingKeyHi = 0 && outgoingKeyLo == 0xff05ff) {
                 //Debug($"P{this.playerID}: Found an item {kind} for player {player} sent via network, ignoring");
             } else {
                 //Debug($"P{this.playerID}: Found {outgoingKey}, an item {kind} for player {player}");
-                const sendItemPacket = new ArrayBuffer(8);
+                const sendItemPacket = new ArrayBuffer(12);
                 var sendItemPacketView = new DataView(sendItemPacket);
                 sendItemPacketView.setUint8(0, 2); // message: send item
-                sendItemPacketView.setUint32(1, outgoingKey);
-                sendItemPacketView.setUint16(5, kind);
-                sendItemPacketView.setUint8(7, player);
+                sendItemPacketView.setUint32(1, outgoingKeyHi);
+                sendItemPacketView.setUint32(5, outgoingKeyLo);
+                sendItemPacketView.setUint16(9, kind);
+                sendItemPacketView.setUint8(11, player);
                 write(new Buffer(new Uint8Array(sendItemPacket)));
             }
             mem.u16[coopContextAddr + 0x10] = 0;

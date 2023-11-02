@@ -4,9 +4,6 @@ version.workspace = true
 authors.workspace = true
 edition.workspace = true
 
-[features]
-pyo3 = ["dep:pyo3", "ootr-utils/pyo3"]
-
 [dependencies]
 async-recursion = "1"
 async-trait = "0.1"
@@ -44,11 +41,6 @@ branch = "main"
 [dependencies.oottracker]
 git = "https://github.com/fenhl/oottracker"
 branch = "mw"
-
-[dependencies.pyo3]
-version = "0.19"
-features = ["auto-initialize"]
-optional = true
 
 [dependencies.reqwest]
 version = "0.11"

@@ -981,17 +981,6 @@ dependencies = [
 
 [[package]]
 name = "cookie"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7efb37c3e1ccb1ff97164ad95ac1606e8ccd35b3fa0a7d99a304c7f4a428cc24"
-dependencies = [
- "percent-encoding",
- "time",
- "version_check",
-]
-
-[[package]]
-name = "cookie"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cd91cf61412820176e137621345ee43b3f4423e589e7ae4e50d601d93e35ef8"
@@ -2806,7 +2795,6 @@ checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
 dependencies = [
  "autocfg",
  "hashbrown 0.12.3",
- "serde",
 ]
 
 [[package]]
@@ -2819,12 +2807,6 @@ dependencies = [
  "hashbrown 0.14.2",
  "serde",
 ]
-
-[[package]]
-name = "indoc"
-version = "1.0.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfa799dd5ed20a7e349f3b4639aa80d74549c81716d9ec4f994c9b5815598306"
 
 [[package]]
 name = "inlinable_string"
@@ -3441,7 +3423,6 @@ dependencies = [
  "multiworld-derive",
  "ootr-utils",
  "oottracker",
- "pyo3",
  "reqwest",
  "ring 0.16.20",
  "rocket_ws",
@@ -3548,7 +3529,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "rfd",
- "rocket 0.5.0-rc.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rocket 0.5.0-rc.4",
  "rocket-util 0.2.13 (git+https://github.com/fenhl/rocket-util?branch=main)",
  "semver",
  "serde_json",
@@ -4036,7 +4017,7 @@ checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 [[package]]
 name = "ootr"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#fcf6f41a5c28fafb6b0a0f0163993d29a7e72a2d"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#105b4c0e59a1eb1ff83bd4ba1bab60f578f1599b"
 dependencies = [
  "async-proto",
  "enum-iterator",
@@ -4049,7 +4030,7 @@ dependencies = [
 [[package]]
 name = "ootr-utils"
 version = "0.2.2"
-source = "git+https://github.com/midoshouse/rust-ootr-utils?branch=main#0cb98cd20ce7a24358637f8a782c8093b8f30afa"
+source = "git+https://github.com/midoshouse/rust-ootr-utils?branch=main#cde576192ca1f7d139e13dc48e6e8400fa2f6b39"
 dependencies = [
  "async-proto",
  "directories",
@@ -4057,7 +4038,6 @@ dependencies = [
  "git2",
  "itertools 0.11.0",
  "lazy-regex",
- "pyo3",
  "semver",
  "serde",
  "serde_json",
@@ -4085,7 +4065,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "ring 0.16.20",
- "rocket 0.5.0-rc.3 (git+https://github.com/SergioBenitez/Rocket?branch=master)",
+ "rocket 0.5.0-rc.3",
  "rocket-util 0.2.13 (git+https://github.com/fenhl/rocket-util?branch=rocket-master)",
  "rocket_ws",
  "serde",
@@ -4100,7 +4080,7 @@ dependencies = [
 [[package]]
 name = "oottracker"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#fcf6f41a5c28fafb6b0a0f0163993d29a7e72a2d"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#105b4c0e59a1eb1ff83bd4ba1bab60f578f1599b"
 dependencies = [
  "async-proto",
  "async-stream",
@@ -4130,7 +4110,7 @@ dependencies = [
 [[package]]
 name = "oottracker-derive"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#fcf6f41a5c28fafb6b0a0f0163993d29a7e72a2d"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#105b4c0e59a1eb1ff83bd4ba1bab60f578f1599b"
 dependencies = [
  "convert_case 0.6.0",
  "itertools 0.11.0",
@@ -4158,9 +4138,9 @@ checksum = "ff011a302c396a5197692431fc1948019154afc178baf7d8e37367442a4601cf"
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.93"
+version = "0.9.94"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db4d56a4c0478783083cfafcc42493dd4a981d41669da64b4572a2a089b51b1d"
+checksum = "2f55da20b29f956fb01f0add8683eb26ee13ebe3ebd935e49898717c6b4b2830"
 dependencies = [
  "cc",
  "libc",
@@ -4359,7 +4339,7 @@ checksum = "61a386cd715229d399604b50d1361683fe687066f42d56f54be995bc6868f71c"
 dependencies = [
  "inlinable_string",
  "pear_codegen",
- "yansi 1.0.0-rc.1",
+ "yansi",
 ]
 
 [[package]]
@@ -4700,7 +4680,7 @@ dependencies = [
  "quote",
  "syn 2.0.38",
  "version_check",
- "yansi 1.0.0-rc.1",
+ "yansi",
 ]
 
 [[package]]
@@ -4708,66 +4688,6 @@ name = "profiling"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f89dff0959d98c9758c88826cc002e2c3d0b9dfac4139711d1f30de442f1139b"
-
-[[package]]
-name = "pyo3"
-version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e681a6cfdc4adcc93b4d3cf993749a4552018ee0a9b65fc0ccfad74352c72a38"
-dependencies = [
- "cfg-if",
- "indoc",
- "libc",
- "memoffset 0.9.0",
- "parking_lot 0.12.1",
- "pyo3-build-config",
- "pyo3-ffi",
- "pyo3-macros",
- "unindent",
-]
-
-[[package]]
-name = "pyo3-build-config"
-version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "076c73d0bc438f7a4ef6fdd0c3bb4732149136abd952b110ac93e4edb13a6ba5"
-dependencies = [
- "once_cell",
- "target-lexicon",
-]
-
-[[package]]
-name = "pyo3-ffi"
-version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e53cee42e77ebe256066ba8aa77eff722b3bb91f3419177cf4cd0f304d3284d9"
-dependencies = [
- "libc",
- "pyo3-build-config",
-]
-
-[[package]]
-name = "pyo3-macros"
-version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfeb4c99597e136528c6dd7d5e3de5434d1ceaf487436a3f03b2d56b6fc9efd1"
-dependencies = [
- "proc-macro2",
- "pyo3-macros-backend",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "pyo3-macros-backend"
-version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "947dc12175c254889edc0c02e399476c2f652b4b9ebd123aa655c224de259536"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
 
 [[package]]
 name = "qoi"
@@ -5199,45 +5119,7 @@ dependencies = [
 [[package]]
 name = "rocket"
 version = "0.5.0-rc.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58734f7401ae5cfd129685b48f61182331745b357b96f2367f01aebaf1cc9cc9"
-dependencies = [
- "async-stream",
- "async-trait",
- "atomic 0.5.3",
- "binascii",
- "bytes",
- "either",
- "figment",
- "futures",
- "indexmap 1.9.3",
- "is-terminal",
- "log",
- "memchr",
- "multer",
- "num_cpus",
- "parking_lot 0.12.1",
- "pin-project-lite",
- "rand 0.8.5",
- "ref-cast",
- "rocket_codegen 0.5.0-rc.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "rocket_http 0.5.0-rc.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde",
- "state 0.5.3",
- "tempfile",
- "time",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "ubyte",
- "version_check",
- "yansi 0.5.1",
-]
-
-[[package]]
-name = "rocket"
-version = "0.5.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#48d1b82e840348842cc0d089428a02ba9b982bef"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#15637186bae98eb6b3a907d5bdade4fbacdc4e59"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -5256,10 +5138,10 @@ dependencies = [
  "pin-project-lite",
  "rand 0.8.5",
  "ref-cast",
- "rocket_codegen 0.5.0-rc.3 (git+https://github.com/SergioBenitez/Rocket?branch=master)",
- "rocket_http 0.5.0-rc.3 (git+https://github.com/SergioBenitez/Rocket?branch=master)",
+ "rocket_codegen 0.5.0-rc.3",
+ "rocket_http 0.5.0-rc.3",
  "serde",
- "state 0.6.0",
+ "state",
  "tempfile",
  "time",
  "tokio",
@@ -5267,7 +5149,44 @@ dependencies = [
  "tokio-util",
  "ubyte",
  "version_check",
- "yansi 1.0.0-rc.1",
+ "yansi",
+]
+
+[[package]]
+name = "rocket"
+version = "0.5.0-rc.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85ae34c956708013335f62150ff64e133be7f9e8ca60203852bc7b13d6044d01"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "atomic 0.5.3",
+ "binascii",
+ "bytes",
+ "either",
+ "figment",
+ "futures",
+ "indexmap 2.1.0",
+ "log",
+ "memchr",
+ "multer",
+ "num_cpus",
+ "parking_lot 0.12.1",
+ "pin-project-lite",
+ "rand 0.8.5",
+ "ref-cast",
+ "rocket_codegen 0.5.0-rc.4",
+ "rocket_http 0.5.0-rc.4",
+ "serde",
+ "state",
+ "tempfile",
+ "time",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "ubyte",
+ "version_check",
+ "yansi",
 ]
 
 [[package]]
@@ -5275,7 +5194,7 @@ name = "rocket-util"
 version = "0.2.13"
 source = "git+https://github.com/fenhl/rocket-util?branch=main#6296e07ef30b2c50026026b0cc5b7bcc12126c2e"
 dependencies = [
- "rocket 0.5.0-rc.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rocket 0.5.0-rc.4",
  "rocket-util-derive 0.2.13 (git+https://github.com/fenhl/rocket-util?branch=main)",
  "thiserror",
 ]
@@ -5285,7 +5204,7 @@ name = "rocket-util"
 version = "0.2.13"
 source = "git+https://github.com/fenhl/rocket-util?branch=rocket-master#b6a93862924ffb3d6988f6fe8bc1f2a1b31275b8"
 dependencies = [
- "rocket 0.5.0-rc.3 (git+https://github.com/SergioBenitez/Rocket?branch=master)",
+ "rocket 0.5.0-rc.3",
  "rocket-util-derive 0.2.13 (git+https://github.com/fenhl/rocket-util?branch=rocket-master)",
  "thiserror",
 ]
@@ -5313,30 +5232,31 @@ dependencies = [
 [[package]]
 name = "rocket_codegen"
 version = "0.5.0-rc.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7093353f14228c744982e409259fb54878ba9563d08214f2d880d59ff2fc508b"
-dependencies = [
- "devise",
- "glob",
- "indexmap 1.9.3",
- "proc-macro2",
- "quote",
- "rocket_http 0.5.0-rc.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "syn 2.0.38",
- "unicode-xid",
-]
-
-[[package]]
-name = "rocket_codegen"
-version = "0.5.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#48d1b82e840348842cc0d089428a02ba9b982bef"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#15637186bae98eb6b3a907d5bdade4fbacdc4e59"
 dependencies = [
  "devise",
  "glob",
  "indexmap 2.1.0",
  "proc-macro2",
  "quote",
- "rocket_http 0.5.0-rc.3 (git+https://github.com/SergioBenitez/Rocket?branch=master)",
+ "rocket_http 0.5.0-rc.3",
+ "syn 2.0.38",
+ "unicode-xid",
+ "version_check",
+]
+
+[[package]]
+name = "rocket_codegen"
+version = "0.5.0-rc.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "896efc56a554a4e1fd03df1d8186c955b803aa652bbe8725a731f64e20f9cee8"
+dependencies = [
+ "devise",
+ "glob",
+ "indexmap 2.1.0",
+ "proc-macro2",
+ "quote",
+ "rocket_http 0.5.0-rc.4",
  "syn 2.0.38",
  "unicode-xid",
  "version_check",
@@ -5345,36 +5265,9 @@ dependencies = [
 [[package]]
 name = "rocket_http"
 version = "0.5.0-rc.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "936012c99162a03a67f37f9836d5f938f662e26f2717809761a9ac46432090f4"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#15637186bae98eb6b3a907d5bdade4fbacdc4e59"
 dependencies = [
- "cookie 0.17.0",
- "either",
- "futures",
- "http",
- "hyper",
- "indexmap 1.9.3",
- "log",
- "memchr",
- "pear",
- "percent-encoding",
- "pin-project-lite",
- "ref-cast",
- "serde",
- "smallvec",
- "stable-pattern",
- "state 0.5.3",
- "time",
- "tokio",
- "uncased",
-]
-
-[[package]]
-name = "rocket_http"
-version = "0.5.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#48d1b82e840348842cc0d089428a02ba9b982bef"
-dependencies = [
- "cookie 0.18.0",
+ "cookie",
  "either",
  "futures",
  "http",
@@ -5389,7 +5282,34 @@ dependencies = [
  "serde",
  "smallvec",
  "stable-pattern",
- "state 0.6.0",
+ "state",
+ "time",
+ "tokio",
+ "uncased",
+]
+
+[[package]]
+name = "rocket_http"
+version = "0.5.0-rc.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1b9b7377bab513717a00ca4f91fe1378328b078e7705bfe5f6b69635e9f1719"
+dependencies = [
+ "cookie",
+ "either",
+ "futures",
+ "http",
+ "hyper",
+ "indexmap 2.1.0",
+ "log",
+ "memchr",
+ "pear",
+ "percent-encoding",
+ "pin-project-lite",
+ "ref-cast",
+ "serde",
+ "smallvec",
+ "stable-pattern",
+ "state",
  "time",
  "tokio",
  "uncased",
@@ -5398,9 +5318,9 @@ dependencies = [
 [[package]]
 name = "rocket_ws"
 version = "0.1.0-rc.3"
-source = "git+https://github.com/SergioBenitez/Rocket?branch=master#48d1b82e840348842cc0d089428a02ba9b982bef"
+source = "git+https://github.com/SergioBenitez/Rocket?branch=master#15637186bae98eb6b3a907d5bdade4fbacdc4e59"
 dependencies = [
- "rocket 0.5.0-rc.3 (git+https://github.com/SergioBenitez/Rocket?branch=master)",
+ "rocket 0.5.0-rc.3",
  "tokio-tungstenite",
 ]
 
@@ -5776,7 +5696,7 @@ dependencies = [
 [[package]]
 name = "serenity"
 version = "0.11.7"
-source = "git+https://github.com/serenity-rs/serenity?branch=next#2a81062598cfc999bcc0f2e9ccdfbc700f09f2a0"
+source = "git+https://github.com/serenity-rs/serenity?branch=next#794d4584cd87d62114dfb6f4cb3a576cc7191531"
 dependencies = [
  "arrayvec",
  "async-trait",
@@ -6262,15 +6182,6 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
-
-[[package]]
-name = "state"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbe866e1e51e8260c9eed836a042a5e7f6726bb2b411dffeaa712e19c388f23b"
-dependencies = [
- "loom",
-]
 
 [[package]]
 name = "state"
@@ -7083,12 +6994,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
 
 [[package]]
-name = "unindent"
-version = "0.1.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1766d682d402817b5ac4490b3c3002d91dfa0d22812f341609f97b08757359c"
-
-[[package]]
 name = "unreachable"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7616,7 +7521,7 @@ dependencies = [
  "futures",
  "itertools 0.11.0",
  "reqwest",
- "rocket 0.5.0-rc.3 (git+https://github.com/SergioBenitez/Rocket?branch=master)",
+ "rocket 0.5.0-rc.3",
  "serde",
  "serde_json",
  "thiserror",
@@ -8070,12 +7975,6 @@ checksum = "388c44dc09d76f1536602ead6d325eb532f5c122f17782bd57fb47baeeb767e2"
 dependencies = [
  "lzma-sys",
 ]
-
-[[package]]
-name = "yansi"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09041cd90cf85f7f8b2df60c646f853b7f535ce68f85244eb6731cf89fa498ec"
 
 [[package]]
 name = "yansi"

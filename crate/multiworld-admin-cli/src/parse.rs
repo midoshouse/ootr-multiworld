@@ -311,7 +311,7 @@ impl FromExpr for ClientMessage {
                         for FieldValue { member, expr, .. } in struct_lit.fields {
                             match member {
                                 Member::Named(member) => match &*member.to_string() {
-                                    "key" => if key.replace(u32::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
+                                    "key" => if key.replace(u64::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
                                     "kind" => if kind.replace(u16::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
                                     "target_world" => if target_world.replace(NonZeroU8::from_expr(expr)?).is_some() { return Err(Error::FromExpr) },
                                     _ => return Err(Error::FromExpr),

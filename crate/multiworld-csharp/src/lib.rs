@@ -506,7 +506,7 @@ impl Client {
     HandleOwned::new(opt_msg_res.into_box().unwrap_err())
 }
 
-#[csharp_ffi] pub unsafe extern "C" fn client_send_item(client: *mut Client, key: u32, kind: u16, target_world: u8) -> HandleOwned<Result<(), Error>> {
+#[csharp_ffi] pub unsafe extern "C" fn client_send_item(client: *mut Client, key: u64, kind: u16, target_world: u8) -> HandleOwned<Result<(), Error>> {
     let client = &mut *client;
     let target_world = NonZeroU8::new(target_world).expect("tried to send an item to world 0");
     HandleOwned::new(client.write(ClientMessage::SendItem { key, kind, target_world }))

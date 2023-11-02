@@ -89,7 +89,7 @@ impl TryFrom<ClientMessage> for unversioned::ClientMessage {
             ClientMessage::PlayerId(world) => unversioned::ClientMessage::PlayerId(world),
             ClientMessage::ResetPlayerId => unversioned::ClientMessage::ResetPlayerId,
             ClientMessage::PlayerName(filename) => unversioned::ClientMessage::PlayerName(filename),
-            ClientMessage::SendItem { key, kind, target_world } => unversioned::ClientMessage::SendItem { key, kind, target_world },
+            ClientMessage::SendItem { key, kind, target_world } => unversioned::ClientMessage::SendItem { key: key.into(), kind, target_world },
             ClientMessage::KickPlayer(world) => unversioned::ClientMessage::KickPlayer(world),
             ClientMessage::DeleteRoom => unversioned::ClientMessage::DeleteRoom,
             ClientMessage::Track { mw_room, tracker_room_name, world_count } => unversioned::ClientMessage::Track { mw_room: Either::Left(mw_room), tracker_room_name, world_count },

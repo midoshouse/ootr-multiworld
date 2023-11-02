@@ -14,8 +14,8 @@ const VERSION: u8 = 0;
 
 #[derive(Default, Protocol)]
 pub(crate) struct Data {
-    pub(crate) pending_items_before_save: Vec<(u32, u16, NonZeroU8)>,
-    pub(crate) pending_items_after_save: Vec<(u32, u16, NonZeroU8)>,
+    pub(crate) pending_items_before_save: Vec<(u64, u16, NonZeroU8)>,
+    pub(crate) pending_items_after_save: Vec<(u64, u16, NonZeroU8)>,
 }
 
 #[derive(Clone)]

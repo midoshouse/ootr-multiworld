@@ -26,7 +26,10 @@ use {
         Mutex,
         lock,
     },
-    ootr_utils::spoiler::HashIcon,
+    ootr_utils::spoiler::{
+        HashIcon,
+        SpoilerLog,
+    },
     oottracker::websocket::MwItem as Item,
     semver::Version,
     tokio::{
@@ -53,10 +56,6 @@ use {
 };
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
 #[cfg(windows)] use std::os::windows::io::AsRawSocket;
-#[cfg(feature = "pyo3")] use {
-    ootr_utils::spoiler::SpoilerLog,
-    pyo3::prelude::*,
-};
 #[cfg(feature = "sqlx")] use sqlx::PgPool;
 
 pub mod config;
@@ -388,7 +387,6 @@ pub enum SetHashError {
     NoSourceWorld,
 }
 
-#[cfg(feature = "pyo3")]
 #[derive(Debug, thiserror::Error)]
 pub enum SendItemError {
     #[error("unknown location: {0}")]
@@ -397,7 +395,6 @@ pub enum SendItemError {
     Kind(String),
 }
 
-#[cfg(feature = "pyo3")]
 fn display_send_item_errors(errors: &[SendItemError]) -> String {
     match errors {
         [] => format!("empty SendItemError list"),
@@ -406,11 +403,11 @@ fn display_send_item_errors(errors: &[SendItemError]) -> String {
     }
 }
 
-#[cfg(feature = "pyo3")]
 #[derive(Debug, thiserror::Error)]
 pub enum SendAllError {
     #[error(transparent)] Clone(#[from] ootr_utils::CloneError),
-    #[error(transparent)] Python(#[from] PyErr),
+    #[error(transparent)] Dir(#[from] ootr_utils::DirError),
+    #[error(transparent)] PyJson(#[from] ootr_utils::PyJsonError),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("the SendAll command is not allowed in tournament rooms")]
     Disallowed,
@@ -687,7 +684,7 @@ impl<C: ClientKind> Room<C> {
         }
     }
 
-    async fn queue_item_inner(&mut self, source_world: NonZeroU8, key: u32, kind: u16, target_world: NonZeroU8, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str) -> Result<(), async_proto::WriteError> {
+    async fn queue_item_inner(&mut self, source_world: NonZeroU8, key: u64, kind: u16, target_world: NonZeroU8, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str) -> Result<(), async_proto::WriteError> {
         if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
             oottracker::websocket::ClientMessage::MwQueueItem {
                 room: tracker_room_name.clone(),
@@ -757,7 +754,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn queue_item(&mut self, source_client: C::SessionId, key: u32, kind: u16, target_world: NonZeroU8) -> Result<(), QueueItemError> {
+    pub async fn queue_item(&mut self, source_client: C::SessionId, key: u64, kind: u16, target_world: NonZeroU8) -> Result<(), QueueItemError> {
         if let Some(source) = self.clients.get(&source_client).expect("no such client").player {
             if let Some(player_hash) = source.file_hash {
                 if let Some(room_hash) = self.file_hash {
@@ -775,7 +772,6 @@ impl<C: ClientKind> Room<C> {
         }
     }
 
-    #[cfg(feature = "pyo3")]
     pub async fn send_all(&mut self, source_world: NonZeroU8, spoiler_log: &SpoilerLog) -> Result<(), SendAllError> {
         if !self.allow_send_all {
             return Err(SendAllError::Disallowed)
@@ -788,29 +784,15 @@ impl<C: ClientKind> Room<C> {
             self.file_hash = Some(spoiler_log.file_hash);
         }
         spoiler_log.version.clone_repo().await?;
-        let items_to_queue = Python::with_gil(|py| {
-            let py_modules = spoiler_log.version.py_modules(py)?;
-            let mut items_to_queue = Vec::default();
-            let mut item_errors = Vec::default();
-            if let Some(world_locations) = spoiler_log.locations.get(usize::from(source_world.get() - 1)) {
-                for (loc, ootr_utils::spoiler::Item { player, item, model: _ }) in world_locations {
-                    if let Some(key) = py_modules.override_key(loc, item)? {
-                        if let Some(kind) = py_modules.item_kind(item)? {
-                            if kind == TRIFORCE_PIECE || *player != source_world {
-                                items_to_queue.push((source_world, key, kind, *player));
-                            }
-                        } else {
-                            item_errors.push(SendItemError::Kind(item.clone()));
-                        }
-                    } else {
-                        item_errors.push(SendItemError::Key(loc.clone()));
-                    }
-                }
-                Ok(items_to_queue)
-            } else {
-                Err(SendAllError::Items(item_errors))
+        let py_modules = spoiler_log.version.py_modules()?;
+        let mut items_to_queue = Vec::default();
+        let world_locations = spoiler_log.locations.get(usize::from(source_world.get() - 1)).ok_or(SendAllError::Items(Vec::default()))?;
+        for (loc, ootr_utils::spoiler::Item { player, item, model: _ }) in world_locations {
+            let (key, kind) = py_modules.override_entry(*player, loc, item).await?;
+            if kind == TRIFORCE_PIECE || *player != source_world {
+                items_to_queue.push((source_world, key, kind, *player));
             }
-        })?;
+        }
         for (source_world, key, kind, target_world) in items_to_queue {
             self.queue_item_inner(source_world, key, kind, target_world, "while sending all items").await?;
         }

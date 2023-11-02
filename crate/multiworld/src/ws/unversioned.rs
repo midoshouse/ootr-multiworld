@@ -45,7 +45,7 @@ pub enum ClientMessage {
     PlayerName(Filename),
     /// Only works after [`ServerMessage::EnterRoom`].
     SendItem {
-        key: u32,
+        key: u64,
         kind: u16,
         target_world: NonZeroU8,
     },

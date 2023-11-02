@@ -8,7 +8,7 @@ use {
 /// The default port used for connections between client and frontend.
 /// If possible, prefer having the OS select an unused port dynamically, to allow multiple instances of multiworld to run in parallel on the same computer.
 pub const PORT: u16 = 24818;
-pub const PROTOCOL_VERSION: u8 = 3; //TODO sync with JS code
+pub const PROTOCOL_VERSION: u8 = 4; //TODO sync with JS code
 
 #[derive(Debug, Protocol)]
 pub enum ServerMessage {
@@ -23,7 +23,7 @@ pub enum ClientMessage {
     PlayerId(NonZeroU8),
     PlayerName(Filename),
     SendItem {
-        key: u32,
+        key: u64,
         kind: u16,
         target_world: NonZeroU8,
     },

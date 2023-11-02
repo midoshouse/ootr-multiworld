@@ -41,7 +41,7 @@ internal class Native {
     [DllImport("multiworld")] internal static extern uint opt_message_result_progressive_items(OptMessageResult opt_msg_res);
     [DllImport("multiworld")] internal static extern IntPtr opt_message_result_filename(OptMessageResult opt_msg_res);
     [DllImport("multiworld")] internal static extern Error opt_message_result_unwrap_err(IntPtr opt_msg_res);
-    [DllImport("multiworld")] internal static extern UnitResult client_send_item(Client client, uint key, ushort kind, byte target_world);
+    [DllImport("multiworld")] internal static extern UnitResult client_send_item(Client client, ulong key, ushort kind, byte target_world);
 }
 
 internal class StringHandle : SafeHandle {
@@ -146,7 +146,7 @@ internal class Client : SafeHandle {
     }
 
     internal OptMessageResult TryRecv() => Native.client_try_recv_message(this);
-    internal void SendItem(uint key, ushort kind, byte targetWorld) => Native.client_send_item(this, key, kind, targetWorld);
+    internal void SendItem(ulong key, ushort kind, byte targetWorld) => Native.client_send_item(this, key, kind, targetWorld);
 }
 
 internal class Error : SafeHandle {
@@ -278,6 +278,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
     private List<uint> progressiveItems = new List<uint>(Enumerable.Repeat(0u, 256));
     private List<ushort> itemQueue = new List<ushort>();
     private bool normalGameplay = false;
+    private bool potsanity3 = false;
 
     public ApiContainer? _apiContainer { get; set; }
     private ApiContainer APIs => _apiContainer ?? throw new NullReferenceException();
@@ -403,7 +404,13 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
     }
 
     private void SendItem(Client client, uint coopContextAddr) {
-        var outgoingKey = APIs.Memory.ReadU32(coopContextAddr + 0xc, "System Bus");
+        ulong outgoingKey;
+        if (this.potsanity3) {
+            outgoingKey = APIs.Memory.ReadU32(coopContextAddr + 0x0c20, "System Bus") << 32;
+            outgoingKey |= APIs.Memory.ReadU32(coopContextAddr + 0x0c24, "System Bus");
+        } else {
+            outgoingKey = APIs.Memory.ReadU32(coopContextAddr + 0xc, "System Bus");
+        }
         if (outgoingKey != 0) {
             var kind = (ushort) APIs.Memory.ReadU16(coopContextAddr + 0x10, "System Bus");
             var player = (byte) APIs.Memory.ReadU16(coopContextAddr + 0x12, "System Bus");
@@ -469,11 +476,23 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                                 }
                                 return null;
                             }
-                            if (coopContextVersion > 6) {
+                            if (coopContextVersion > 7) {
                                 using (var error = Error.from_string("randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)")) {
                                     SetError(error);
                                 }
                                 return null;
+                            }
+                            if (coopContextVersion == 7) {
+                                if (APIs.Memory.ReadU8(0x1c, "ROM") == 0x45) {
+                                    // on Dev-Rob, version 7 is https://github.com/OoTRandomizer/OoT-Randomizer/pull/2069
+                                    this.potsanity3 = true;
+                                } else {
+                                    using (var error = Error.from_string("randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)")) {
+                                        SetError(error);
+                                    }
+                                }
+                            } else {
+                                this.potsanity3 = false;
                             }
                             if (coopContextVersion >= 3) {
                                 APIs.Memory.WriteU8(newCoopContextAddr + 0x000a, 1, "System Bus"); // enable MW_SEND_OWN_ITEMS for server-side tracking
