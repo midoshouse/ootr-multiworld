@@ -334,6 +334,9 @@ struct State {
     persistent_state: PersistentState,
     frontend: FrontendFlags,
     debug_info_copied: bool,
+    icon_error: Option<Arc<iced::window::icon::Error>>,
+    config_error: Option<Arc<multiworld::config::Error>>,
+    persistent_state_error: Option<Arc<persistent_state::Error>>,
     command_error: Option<Arc<Error>>,
     login_error: Option<Arc<login::Error>>,
     frontend_subscription_error: Option<Arc<Error>>,
@@ -357,7 +360,25 @@ struct State {
 
 impl State {
     fn error_to_markdown(&self) -> Option<String> {
-        Some(if let Some(ref e) = self.command_error {
+        Some(if let Some(ref e) = self.icon_error {
+            MessageBuilder::default()
+                .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), " while trying to load icon:"))
+                .push_line_safe(e)
+                .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                .build()
+        } else if let Some(ref e) = self.config_error {
+            MessageBuilder::default()
+                .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), " while trying to load config:"))
+                .push_line_safe(e)
+                .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                .build()
+        } else if let Some(ref e) = self.persistent_state_error {
+            MessageBuilder::default()
+                .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), " while trying to load persistent state:"))
+                .push_line_safe(e)
+                .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                .build()
+        } else if let Some(ref e) = self.command_error {
             MessageBuilder::default()
                 .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), ":"))
                 .push_line_safe(e)
@@ -430,12 +451,21 @@ impl Application for State {
     type Executor = iced::executor::Default;
     type Message = Message;
     type Theme = Theme;
-    type Flags = (Config, PersistentState, FrontendFlags);
+    type Flags = (Option<iced::window::icon::Error>, Result<Config, multiworld::config::Error>, Result<PersistentState, persistent_state::Error>, FrontendFlags);
 
-    fn new((config, persistent_state, frontend): Self::Flags) -> (Self, Command<Message>) {
+    fn new((icon_error, config, persistent_state, frontend): Self::Flags) -> (Self, Command<Message>) {
+        let (config, config_error) = match config {
+            Ok(config) => (config, None),
+            Err(e) => (Config::default(), Some(Arc::new(e))),
+        };
+        let (persistent_state, persistent_state_error) = match persistent_state {
+            Ok(persistent_state) => (persistent_state, None),
+            Err(e) => (PersistentState::default(), Some(Arc::new(e))),
+        };
         (Self {
             frontend: frontend.clone(),
             debug_info_copied: false,
+            icon_error: icon_error.map(Arc::new),
             command_error: None,
             login_error: None,
             frontend_subscription_error: None,
@@ -455,7 +485,7 @@ impl Application for State {
             updates_checked: false,
             send_all_path: String::default(),
             send_all_world: String::default(),
-            persistent_state,
+            config_error, persistent_state_error, persistent_state,
         }, cmd(async move {
             let http_client = reqwest::Client::builder()
                 .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
@@ -958,7 +988,13 @@ impl Application for State {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        if let Some(ref e) = self.command_error {
+        if let Some(ref e) = self.icon_error {
+            error_view("An error occurred:", e, self.debug_info_copied)
+        } else if let Some(ref e) = self.config_error {
+            error_view("An error occurred:", e, self.debug_info_copied)
+        } else if let Some(ref e) = self.persistent_state_error {
+            error_view("An error occurred:", e, self.debug_info_copied)
+        } else if let Some(ref e) = self.command_error {
             error_view("An error occurred:", e, self.debug_info_copied)
         } else if let Some(ref e) = self.login_error {
             error_view("An error occurred while trying to sign in:", e, self.debug_info_copied) //TODO button to reset error state
@@ -1297,16 +1333,6 @@ fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, debug_inf
     ).into()
 }
 
-#[derive(Debug, thiserror::Error)]
-enum MainError {
-    #[error(transparent)] Config(#[from] multiworld::config::Error),
-    #[error(transparent)] Iced(#[from] iced::Error),
-    #[error(transparent)] Icon(#[from] iced::window::icon::Error),
-    #[error(transparent)] Io(#[from] io::Error),
-    #[error(transparent)] PersistentState(#[from] persistent_state::Error),
-    #[error(transparent)] Wheel(#[from] wheel::Error),
-}
-
 #[derive(clap::Subcommand)]
 #[clap(rename_all = "lower")]
 enum FrontendArgs {
@@ -1329,17 +1355,22 @@ struct CliArgs {
 }
 
 #[wheel::main(debug)]
-fn main(CliArgs { frontend }: CliArgs) -> Result<(), MainError> {
-    Ok(State::run(Settings {
+fn main(CliArgs { frontend }: CliArgs) -> iced::Result {
+    let (icon, icon_error) = match icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico)) {
+        Ok(icon) => (Some(icon), None),
+        Err(e) => (None, Some(e)),
+    };
+    State::run(Settings {
         exit_on_close_request: false,
         window: window::Settings {
             size: (360, 256),
-            icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
+            icon,
             ..window::Settings::default()
         },
         ..Settings::with_flags((
-            Config::blocking_load()?,
-            PersistentState::blocking_load()?,
+            icon_error,
+            Config::blocking_load(),
+            PersistentState::blocking_load(),
             match frontend {
                 None => FrontendFlags::Pj64V3,
                 Some(FrontendArgs::Dummy) => FrontendFlags::Dummy,
@@ -1347,5 +1378,5 @@ fn main(CliArgs { frontend }: CliArgs) -> Result<(), MainError> {
                 Some(FrontendArgs::Pj64V4) => FrontendFlags::Pj64V4,
             },
         ))
-    })?)
+    })
 }

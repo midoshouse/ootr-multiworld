@@ -18,7 +18,7 @@ pub(crate) struct Data {
     pub(crate) pending_items_after_save: Vec<(u64, u16, NonZeroU8)>,
 }
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub(crate) struct PersistentState(ArcRwLock<Data>);
 
 #[derive(Debug, thiserror::Error)]

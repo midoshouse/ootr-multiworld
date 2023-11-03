@@ -56,9 +56,9 @@ use {
 enum Setup {
     CreateReqwestClient(bool),
     CheckVersion(bool, reqwest::Client),
-    CheckBizHawkVersion(reqwest::Client, Repo, bool),
-    LockRust(reqwest::Client, Repo, Version, bool),
-    UpdateRust(reqwest::Client, Repo, Version, DirLock, bool),
+    CheckBizHawkVersion(reqwest::Client, Repo),
+    LockRust(reqwest::Client, Repo, Version),
+    UpdateRust(reqwest::Client, Repo, Version, DirLock),
 }
 
 impl Setup {
@@ -92,8 +92,8 @@ impl Progress for Setup {
 }
 
 #[async_trait]
-impl Task<Result<(reqwest::Client, Repo, Version, bool), Error>> for Setup {
-    async fn run(self) -> Result<Result<(reqwest::Client, Repo, Version, bool), Error>, Self> {
+impl Task<Result<(reqwest::Client, Repo, Version), Error>> for Setup {
+    async fn run(self) -> Result<Result<(reqwest::Client, Repo, Version), Error>, Self> {
         match self {
             Self::CreateReqwestClient(server_only) => gres::transpose(async move {
                 let mut headers = reqwest::header::HeaderMap::new();
@@ -111,20 +111,18 @@ impl Task<Result<(reqwest::Client, Repo, Version, bool), Error>> for Setup {
             Self::CheckVersion(server_only, client) => gres::transpose(async move {
                 //TODO make sure working dir is clean and on default branch and up to date with remote and remote is up to date
                 let repo = Repo::new("midoshouse", "ootr-multiworld");
-                let is_major = if let Some(latest_release) = repo.latest_release(&client).await? {
+                if let Some(latest_release) = repo.latest_release(&client).await? {
                     let local_version = version::version().await;
                     let remote_version = latest_release.version()?;
                     match local_version.cmp(&remote_version) {
                         Less => return Err(Error::VersionRegression),
-                        Equal => if server_only { false } else { return Err(Error::SameVersion) },
-                        Greater => local_version.major > remote_version.major,
+                        Equal => if !server_only { return Err(Error::SameVersion) },
+                        Greater => {}
                     }
-                } else {
-                    true
-                };
-                Ok(Err(Self::CheckBizHawkVersion(client, repo, is_major)))
+                }
+                Ok(Err(Self::CheckBizHawkVersion(client, repo)))
             }).await,
-            Self::CheckBizHawkVersion(client, repo, is_major) => gres::transpose(async move {
+            Self::CheckBizHawkVersion(client, repo) => gres::transpose(async move {
                 let [major, minor, patch, _] = multiworld_bizhawk::bizhawk_version();
                 let local_version = Version::new(major.into(), minor.into(), patch.into());
                 let remote_version = version::bizhawk_latest(&client).await?;
@@ -133,17 +131,17 @@ impl Task<Result<(reqwest::Client, Repo, Version, bool), Error>> for Setup {
                     Equal => {}
                     Greater => return Err(Error::BizHawkVersionRegression),
                 }
-                Ok(Err(Self::LockRust(client, repo, local_version, is_major)))
+                Ok(Err(Self::LockRust(client, repo, local_version)))
             }).await,
-            Self::LockRust(client, repo, local_version, is_major) => gres::transpose(async move {
+            Self::LockRust(client, repo, local_version) => gres::transpose(async move {
                 let lock_dir = Path::new(&env::var_os("TEMP").ok_or(Error::MissingEnvar("TEMP"))?).join("syncbin-startup-rust.lock");
                 let lock = DirLock::new(&lock_dir).await?;
-                Ok(Err(Self::UpdateRust(client, repo, local_version, lock, is_major))) //TODO update rustup first?
+                Ok(Err(Self::UpdateRust(client, repo, local_version, lock))) //TODO update rustup first?
             }).await,
-            Self::UpdateRust(client, repo, local_version, lock, is_major) => gres::transpose(async move {
+            Self::UpdateRust(client, repo, local_version, lock) => gres::transpose(async move {
                 Command::new("rustup").arg("update").arg("stable").check("rustup").await?;
                 lock.drop_async().await?;
-                Ok(Ok((client, repo, local_version, is_major)))
+                Ok(Ok((client, repo, local_version)))
             }).await,
         }
     }
@@ -778,11 +776,11 @@ impl Task<Result<(), Error>> for BuildInstallerLinux {
 }
 
 enum BuildServer {
-    Sync(bool, bool),
-    Build(bool, bool),
-    Copy(bool, bool),
-    Upload(bool, bool),
-    WaitRestart(bool),
+    Sync(bool),
+    Build(bool),
+    Copy(bool),
+    Upload(bool),
+    WaitRestart,
     Stop,
     UpdateRepo,
     Replace,
@@ -790,8 +788,8 @@ enum BuildServer {
 }
 
 impl BuildServer {
-    fn new(wait_restart: bool, is_major: bool) -> Self {
-        Self::Sync(wait_restart, is_major)
+    fn new(wait_restart: bool) -> Self {
+        Self::Sync(wait_restart)
     }
 }
 
@@ -802,8 +800,7 @@ impl fmt::Display for BuildServer {
             Self::Build(..) => write!(f, "building ootrmwd"),
             Self::Copy(..) => write!(f, "copying ootrmwd to Windows"),
             Self::Upload(..) => write!(f, "uploading ootrmwd to Mido's House"),
-            Self::WaitRestart(false) => write!(f, "waiting for rooms to be inactive"),
-            Self::WaitRestart(true) => write!(f, "waiting for rooms to be empty"),
+            Self::WaitRestart => write!(f, "waiting for rooms to be inactive"),
             Self::Stop => write!(f, "stopping old ootrmwd"),
             Self::UpdateRepo => write!(f, "updating repo on Mido's House"),
             Self::Replace => write!(f, "replacing ootrmwd binary on Mido's House"),
@@ -819,7 +816,7 @@ impl Progress for BuildServer {
             Self::Build(..) => 10,
             Self::Copy(..) => 80,
             Self::Upload(..) => 85,
-            Self::WaitRestart(..) => 90,
+            Self::WaitRestart => 90,
             Self::Stop => 95,
             Self::UpdateRepo => 96,
             Self::Replace => 98,
@@ -832,32 +829,27 @@ impl Progress for BuildServer {
 impl Task<Result<(), Error>> for BuildServer {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
-            Self::Sync(wait_restart, is_major) => gres::transpose(async move {
+            Self::Sync(wait_restart) => gres::transpose(async move {
                 Command::new("debian").arg("run").arg("rsync").arg("--delete").arg("-av").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/").arg("--exclude").arg(".cargo/config.toml").arg("--exclude").arg("target").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/BizHawk").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/bin").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/obj").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll").check("debian run rsync").await?;
-                Ok(Err(Self::Build(wait_restart, is_major)))
+                Ok(Err(Self::Build(wait_restart)))
             }).await,
-            Self::Build(wait_restart, is_major) => gres::transpose(async move {
+            Self::Build(wait_restart) => gres::transpose(async move {
                 Command::new("debian").arg("run").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("/home/fenhl/.cargo/bin/cargo").arg("build").arg("--release").arg("--package=ootrmwd").check("debian run cargo build --package=ootrmwd").await?;
-                Ok(Err(Self::Copy(wait_restart, is_major)))
+                Ok(Err(Self::Copy(wait_restart)))
             }).await,
-            Self::Copy(wait_restart, is_major) => gres::transpose(async move {
+            Self::Copy(wait_restart) => gres::transpose(async move {
                 fs::create_dir_all("target/wsl/release").await?;
                 Command::new("debian").arg("run").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/ootrmwd").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/ootrmwd").check("debian run cp").await?;
-                Ok(Err(Self::Upload(wait_restart, is_major)))
+                Ok(Err(Self::Upload(wait_restart)))
             }).await,
-            Self::Upload(wait_restart, is_major) => gres::transpose(async move {
+            Self::Upload(wait_restart) => gres::transpose(async move {
                 Command::new("scp").arg("target/wsl/release/ootrmwd").arg("midos.house:bin/ootrmwd-next").check("scp").await?;
-                Ok(Err(if wait_restart { Self::WaitRestart(is_major) } else { Self::Stop }))
+                Ok(Err(if wait_restart { Self::WaitRestart } else { Self::Stop }))
             }).await,
-            Self::WaitRestart(is_major) => gres::transpose(async move {
-                if is_major {
-                    Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /usr/local/share/midos-house/bin/ootrmwd wait-until-empty; fi").check("ssh midos.house ootrmwd wait-until-empty").await?;
-                    //TODO continue normally if this fails because the server is stopped
-                } else {
-                    Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /usr/local/share/midos-house/bin/ootrmwd wait-until-inactive; fi").check("ssh midos.house ootrmwd wait-until-empty").await?;
-                    //TODO show output
-                    //TODO continue normally if this fails because the server is stopped
-                }
+            Self::WaitRestart => gres::transpose(async move {
+                Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /usr/local/share/midos-house/bin/ootrmwd wait-until-inactive; fi").check("ssh midos.house ootrmwd wait-until-inactive").await?;
+                //TODO show output
+                //TODO continue normally if this fails because the server is stopped
                 Ok(Err(Self::Stop))
             }).await,
             Self::Stop => gres::transpose(async move {
@@ -962,9 +954,9 @@ impl wheel::CustomExit for Error {
 
 /// Separate function to ensure CLI is dropped before exit
 async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
-    let (client, repo, bizhawk_version, is_major) = cli.run(Setup::new(args.server_only), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
+    let (client, repo, bizhawk_version) = cli.run(Setup::new(args.server_only), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
     if args.server_only {
-        cli.run(BuildServer::new(!args.force, is_major), "server build done").await??;
+        cli.run(BuildServer::new(!args.force), "server build done").await??;
     } else {
         let bizhawk_version_debug = bizhawk_version.clone();
         let bizhawk_version_linux = bizhawk_version.clone();
@@ -1014,7 +1006,7 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstaller::new(true, client, repo, debug_bizhawk_rx, debug_gui_rx_installer, release_rx_installer_debug), "Windows debug installer build done").await? } },
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstaller::new(false, client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "Windows installer build done").await? } },
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstallerLinux::new(client, repo, linux_bizhawk_rx, release_rx_installer_linux), "Linux installer build done").await? } },
-            if args.no_server { future::ok(()).boxed() } else { async move { cli.run(BuildServer::new(!args.force, is_major), "server build done").await? }.boxed() },
+            if args.no_server { future::ok(()).boxed() } else { async move { cli.run(BuildServer::new(!args.force), "server build done").await? }.boxed() },
         ]?;
         if !args.no_publish {
             let line = cli.new_line("[....] publishing release").await?;
