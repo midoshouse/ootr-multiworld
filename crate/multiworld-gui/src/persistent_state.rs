@@ -10,7 +10,7 @@ use {
 #[cfg(unix)] use xdg::BaseDirectories;
 #[cfg(windows)] use directories::ProjectDirs;
 
-const VERSION: u8 = 0;
+const VERSION: u8 = 1;
 
 #[derive(Default, Protocol)]
 pub(crate) struct Data {
