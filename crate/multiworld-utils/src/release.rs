@@ -874,24 +874,70 @@ impl Task<Result<(), Error>> for BuildServer {
     }
 }
 
-#[derive(Clone, clap::Parser)]
+#[derive(clap::Parser)]
 #[clap(version)]
-struct Args {
-    /// Don't wait for the server to be inactive before restarting it
-    #[clap(long, conflicts_with("no_server"))]
-    force: bool,
-    /// Create the GitHub release as a draft
-    #[clap(short = 'P', long)]
-    no_publish: bool,
-    /// Don't update the server
-    #[clap(short = 'S', long)]
-    no_server: bool,
-    /// Don't pass `--wait` to the release notes editor
-    #[clap(short = 'W', long)]
-    no_wait: bool,
+enum CliArgs {
+    /// Update both the server and the client
+    Both {
+        /// Don't wait for the server to be inactive before restarting it
+        #[clap(long, conflicts_with("no_server"))]
+        force: bool,
+        /// Create the GitHub release as a draft
+        #[clap(short = 'P', long)]
+        no_publish: bool,
+        /// Don't pass `--wait` to the release notes editor
+        #[clap(short = 'W', long)]
+        no_wait: bool,
+    },
+    /// Only update the client
+    Client {
+        /// Create the GitHub release as a draft
+        #[clap(short = 'P', long)]
+        no_publish: bool,
+        /// Don't pass `--wait` to the release notes editor
+        #[clap(short = 'W', long)]
+        no_wait: bool,
+    },
     /// Only update the server
-    #[clap(short, long, conflicts_with("no_publish"), conflicts_with("no_server"), conflicts_with("no_wait"), conflicts_with("release_notes_editor"))]
+    Server {
+        /// Don't wait for the server to be inactive before restarting it
+        #[clap(long, conflicts_with("no_server"))]
+        force: bool,
+    },
+}
+
+#[derive(Clone)]
+struct Args {
+    force: bool,
+    no_publish: bool,
+    no_server: bool,
+    no_wait: bool,
     server_only: bool,
+}
+
+impl From<CliArgs> for Args {
+    fn from(args: CliArgs) -> Self {
+        match args {
+            CliArgs::Both { force, no_publish, no_wait } => Self {
+                no_server: false,
+                server_only: false,
+                force, no_publish, no_wait,
+            },
+            CliArgs::Client { no_publish, no_wait } => Self {
+                force: false,
+                no_server: true,
+                server_only: false,
+                no_publish, no_wait,
+            },
+            CliArgs::Server { force } => Self {
+                no_publish: false,
+                no_server: false,
+                no_wait: false,
+                server_only: true,
+                force,
+            },
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1018,9 +1064,9 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
 }
 
 #[wheel::main(custom_exit)]
-async fn main(args: Args) -> Result<(), Error> {
+async fn main(args: CliArgs) -> Result<(), Error> {
     let cli = Cli::new()?;
-    let res = cli_main(&cli, args).await;
+    let res = cli_main(&cli, Args::from(args)).await;
     drop(cli);
     res
 }
