@@ -136,8 +136,9 @@ function handle_frame(write, error) {
                     return error("randomizer version too new (version " + mem.u32[newCoopContextAddr] + "; please tell Fenhl that Mido's House Multiworld needs to be updated)");
                 }
                 if (coopContextVersion == 7) {
-                    if (mem.u8[0xb000001c] == 0x45) {
-                        // on Dev-Rob, version 7 is https://github.com/OoTRandomizer/OoT-Randomizer/pull/2069
+                    var branchID = mem.u8[0xb000001c];
+                    if (branchID == 0x45 || branchID == 0xfe) {
+                        // on Dev-Rob and dev-fenhl, version 7 is https://github.com/OoTRandomizer/OoT-Randomizer/pull/2069
                         potsanity3 = true;
                     } else {
                         return error("randomizer version too new (version " + mem.u32[newCoopContextAddr] + "; please tell Fenhl that Mido's House Multiworld needs to be updated)");

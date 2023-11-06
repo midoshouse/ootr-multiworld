@@ -488,8 +488,9 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                                 return null;
                             }
                             if (coopContextVersion == 7) {
-                                if (APIs.Memory.ReadU8(0x1c, "ROM") == 0x45) {
-                                    // on Dev-Rob, version 7 is https://github.com/OoTRandomizer/OoT-Randomizer/pull/2069
+                                var branchID = APIs.Memory.ReadU8(0x1c, "ROM");
+                                if (branchID == 0x45 || branchID == 0xfe) {
+                                    // on Dev-Rob and dev-fenhl, version 7 is https://github.com/OoTRandomizer/OoT-Randomizer/pull/2069
                                     this.potsanity3 = true;
                                 } else {
                                     using (var error = Error.from_string("randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)")) {
