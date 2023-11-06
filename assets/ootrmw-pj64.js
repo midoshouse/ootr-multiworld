@@ -276,7 +276,12 @@ function handle_frame(write, error) {
             }
             mem.u16[coopContextAddr + 0x10] = 0;
             mem.u16[coopContextAddr + 0x12] = 0;
-            mem.u32[coopContextAddr + 0xc] = 0;
+            if (potsanity3) {
+                mem.u32[coopContextAddr + 0x0c1c] = 0;
+                mem.u32[coopContextAddr + 0x0c20] = 0;
+            } else {
+                mem.u32[coopContextAddr + 0xc] = 0;
+            }
         }
         // receive item
         var stateLogo = mem.u32[ADDR_ANY_RDRAM.start + 0x11f200];

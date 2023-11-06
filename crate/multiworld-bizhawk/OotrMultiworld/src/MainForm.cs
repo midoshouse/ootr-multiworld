@@ -422,7 +422,12 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
             }
             APIs.Memory.WriteU16(coopContextAddr + 0x10, 0, "System Bus");
             APIs.Memory.WriteU16(coopContextAddr + 0x12, 0, "System Bus");
-            APIs.Memory.WriteU32(coopContextAddr + 0xc, 0, "System Bus");
+            if (this.potsanity3) {
+                APIs.Memory.WriteU32(coopContextAddr + 0x0c1c, 0, "System Bus");
+                APIs.Memory.WriteU32(coopContextAddr + 0x0c20, 0, "System Bus");
+            } else {
+                APIs.Memory.WriteU32(coopContextAddr + 0xc, 0, "System Bus");
+            }
         }
     }
 
