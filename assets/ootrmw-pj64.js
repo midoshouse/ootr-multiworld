@@ -253,7 +253,7 @@ function handle_frame(write, error) {
         var outgoingKeyHi = 0;
         var outgoingKeyLo = 0;
         if (potsanity3) {
-            outgoingKeyHi = mem.u32[coopContextAddr + 0x0c20];
+            outgoingKeyHi = mem.u32[coopContextAddr + 0x0c1c];
             outgoingKeyLo = mem.u32[coopContextAddr + 0x0c24];
         } else {
             outgoingKeyLo = mem.u32[coopContextAddr + 0xc];
