@@ -8,6 +8,7 @@ use {
             CStr,
             CString,
         },
+        fmt,
         fs::{
             self,
             File,
@@ -186,6 +187,13 @@ impl<T: ?Sized> HandleOwned<T> {
     unsafe fn into_box(self) -> Box<T> {
         assert!(!self.0.is_null());
         Box::from_raw(self.0)
+    }
+}
+
+impl<T: fmt::Debug + ?Sized> fmt::Debug for HandleOwned<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        assert!(!self.0.is_null());
+        unsafe { (&*self.0).fmt(f) }
     }
 }
 

@@ -91,10 +91,21 @@ pub fn csharp_ffi(_: TokenStream, item: TokenStream) -> TokenStream {
             compile_error!("not used in the C# code");
         }.into()
     }
+    let num_args = sig.inputs.len();
+    let format_args = sig.inputs.iter()
+        .map(|arg| {
+            let FnArg::Typed(arg) = arg else { panic!("FFI function with receiver arg") };
+            let Pat::Ident(PatIdent { ref ident, .. }) = *arg.pat else { panic!("FFI function with non-ident arg") };
+            quote!(args.push(format!("{:?}", #ident));)
+        });
     TokenStream::from(quote! {
         #[no_mangle] #(#attrs)* #vis #sig {
             if CONFIG.log {
-                writeln!(&*LOG, concat!("{} called ", stringify!(#fn_name)), Utc::now().format("%Y-%m-%d %H:%M:%S")).expect("failed to write log entry");
+                let mut args = Vec::with_capacity(#num_args);
+                #(
+                    #format_args
+                )*
+                writeln!(&*LOG, "{} called {}({})", Utc::now().format("%Y-%m-%d %H:%M:%S"), stringify!(#fn_name), args.into_iter().format(", ")).expect("failed to write log entry");
             }
             #block
         }
