@@ -407,7 +407,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
         ulong outgoingKey;
         if (this.potsanity3) {
             outgoingKey = APIs.Memory.ReadU32(coopContextAddr + 0x0c1c, "System Bus") << 32;
-            outgoingKey |= APIs.Memory.ReadU32(coopContextAddr + 0x0c24, "System Bus");
+            outgoingKey |= APIs.Memory.ReadU32(coopContextAddr + 0x0c20, "System Bus");
         } else {
             outgoingKey = APIs.Memory.ReadU32(coopContextAddr + 0xc, "System Bus");
         }
