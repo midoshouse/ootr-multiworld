@@ -116,6 +116,7 @@ use {
 #[cfg(windows)] use directories::ProjectDirs;
 #[cfg(target_os = "linux")] use gio::traits::SettingsExt as _;
 
+mod everdrive;
 mod login;
 mod persistent_state;
 mod subscriptions;
@@ -1364,7 +1365,7 @@ impl Application for State {
         if self.updates_checked {
             match self.frontend.kind {
                 Frontend::Dummy => {}
-                Frontend::EverDrive => unimplemented!(), //TODO
+                Frontend::EverDrive => subscriptions.push(Subscription::from_recipe(everdrive::Subscription)),
                 Frontend::BizHawk => if let Some(BizHawkState { port, .. }) = self.frontend.bizhawk {
                     subscriptions.push(Subscription::from_recipe(subscriptions::Connection { port, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id }));
                 },
