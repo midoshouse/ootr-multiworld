@@ -314,6 +314,8 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                         clients.insert(socket_id, multiworld::Client {
                             player: None,
                             pending_world: None,
+                            pending_name: None,
+                            pending_hash: None,
                             writer: Arc::clone(&writer),
                             save_data: None,
                             adjusted_save: Default::default(),
@@ -520,9 +522,7 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                         lock!(writer).write(ServerMessage::WorldTaken(id)).await?;
                     },
                     ClientMessage::ResetPlayerId => lock!(@write room).unload_player(socket_id).await?,
-                    ClientMessage::PlayerName(name) => if !lock!(@write room).set_player_name(socket_id, name).await? {
-                        error!("please claim a world before setting your player name")
-                    },
+                    ClientMessage::PlayerName(name) => lock!(@write room).set_player_name(socket_id, name).await?,
                     ClientMessage::SendItem { key, kind, target_world } => match lock!(@write room).queue_item(socket_id, key, kind, target_world).await {
                         Ok(()) => {}
                         Err(multiworld::QueueItemError::FileHash { server, client }) => lock!(writer).write(ServerMessage::WrongFileHash { server, client }).await?,

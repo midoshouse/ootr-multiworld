@@ -279,18 +279,22 @@ pub struct Client<C: ClientKind> {
     pub end_tx: oneshot::Sender<EndRoomSession>,
     pub player: Option<Player>,
     pub pending_world: Option<NonZeroU8>,
+    pub pending_name: Option<Filename>,
+    pub pending_hash: Option<[HashIcon; 5]>,
     pub save_data: Option<oottracker::Save>,
     pub adjusted_save: oottracker::Save,
 }
 
 impl<C: ClientKind> fmt::Debug for Client<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { writer: _, end_tx, player, pending_world, save_data, adjusted_save } = self;
+        let Self { writer: _, end_tx, player, pending_world, pending_name, pending_hash, save_data, adjusted_save } = self;
         f.debug_struct("Client")
             .field("writer", &format_args!("_"))
             .field("end_tx", end_tx)
             .field("player", player)
             .field("pending_world", pending_world)
+            .field("pending_name", pending_name)
+            .field("pending_hash", pending_hash)
             .field("save_data", save_data)
             .field("adjusted_save", adjusted_save)
             .finish()
@@ -383,8 +387,6 @@ pub enum SetHashError {
         server: [HashIcon; 5],
         client: [HashIcon; 5],
     },
-    #[error("please claim a world before reporting your file hash")]
-    NoSourceWorld,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -550,6 +552,8 @@ impl<C: ClientKind> Room<C> {
         self.clients.insert(client_id, Client {
             player: None,
             pending_world: None,
+            pending_name: None,
+            pending_hash: None,
             save_data: None,
             adjusted_save: oottracker::Save::default(),
             writer, end_tx,
@@ -608,13 +612,26 @@ impl<C: ClientKind> Room<C> {
             let prev_world = mem::replace(&mut player.world, world);
             if prev_world == world { return Ok(true) }
             self.write_all(&unversioned::ServerMessage::ResetPlayerId(prev_world)).await?;
+            self.write_all(&unversioned::ServerMessage::PlayerId(world)).await?;
         } else {
-            *prev_player = Some(Player::new(world));
+            let mut new_player = Player::new(world);
+            let mut broadcasts = vec![unversioned::ServerMessage::PlayerId(world)];
+            if let Some(name) = client.pending_name.take() {
+                new_player.name = name;
+                broadcasts.push(unversioned::ServerMessage::PlayerName(world, name));
+            }
+            if let Some(hash) = client.pending_hash.take() {
+                new_player.file_hash = Some(hash);
+                broadcasts.push(unversioned::ServerMessage::PlayerFileHash(world, hash));
+            }
+            *prev_player = Some(new_player);
             if client.pending_world.take().is_some() {
                 self.write(client_id, unversioned::ServerMessage::WorldFreed).await?;
             }
+            for broadcast in broadcasts {
+                self.write_all(&broadcast).await?;
+            }
         }
-        self.write_all(&unversioned::ServerMessage::PlayerId(world)).await?;
         let queue = self.player_queues.get(&world).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>();
         if let Some(save) = save {
             let mut adjusted_save = save.clone();
@@ -657,31 +674,33 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn set_player_name(&mut self, client_id: C::SessionId, name: Filename) -> Result<bool, async_proto::WriteError> {
-        Ok(if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").player {
+    pub async fn set_player_name(&mut self, client_id: C::SessionId, name: Filename) -> Result<(), async_proto::WriteError> {
+        let client = self.clients.get_mut(&client_id).expect("no such client");
+        if let Some(ref mut player) = client.player {
             let world = player.world;
             player.name = name;
             self.write_all(&unversioned::ServerMessage::PlayerName(world, name)).await?;
-            true
         } else {
-            false
-        })
+            client.pending_name = Some(name);
+        }
+        Ok(())
     }
 
     pub async fn set_file_hash(&mut self, client_id: C::SessionId, hash: [HashIcon; 5]) -> Result<(), SetHashError> {
-        if let Some(ref mut player) = self.clients.get_mut(&client_id).expect("no such client").player {
-            if let Some(room_hash) = self.file_hash {
-                if room_hash != hash {
-                    return Err(SetHashError::FileHash { server: room_hash, client: hash })
-                }
+        if let Some(room_hash) = self.file_hash {
+            if room_hash != hash {
+                return Err(SetHashError::FileHash { server: room_hash, client: hash })
             }
+        }
+        let client = self.clients.get_mut(&client_id).expect("no such client");
+        if let Some(ref mut player) = client.player {
             let world = player.world;
             player.file_hash = Some(hash);
             self.write_all(&unversioned::ServerMessage::PlayerFileHash(world, hash)).await?;
-            Ok(())
         } else {
-            Err(SetHashError::NoSourceWorld)
+            client.pending_hash = Some(hash);
         }
+        Ok(())
     }
 
     async fn queue_item_inner(&mut self, source_world: NonZeroU8, key: u64, kind: u16, target_world: NonZeroU8, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str) -> Result<(), async_proto::WriteError> {
