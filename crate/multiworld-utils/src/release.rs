@@ -830,16 +830,16 @@ impl Task<Result<(), Error>> for BuildServer {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
             Self::Sync(wait_restart) => gres::transpose(async move {
-                Command::new("debian").arg("run").arg("rsync").arg("--delete").arg("-av").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/").arg("--exclude").arg(".cargo/config.toml").arg("--exclude").arg("target").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/BizHawk").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/bin").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/obj").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll").check("debian run rsync").await?;
+                Command::new("wsl").arg("--distribution").arg("debian-m2").arg("rsync").arg("--delete").arg("-av").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/").arg("--exclude").arg(".cargo/config.toml").arg("--exclude").arg("target").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/BizHawk").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/bin").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/obj").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll").check("debian run rsync").await?;
                 Ok(Err(Self::Build(wait_restart)))
             }).await,
             Self::Build(wait_restart) => gres::transpose(async move {
-                Command::new("debian").arg("run").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("/home/fenhl/.cargo/bin/cargo").arg("build").arg("--release").arg("--package=ootrmwd").check("debian run cargo build --package=ootrmwd").await?;
+                Command::new("wsl").arg("--distribution").arg("debian-m2").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("/home/fenhl/.cargo/bin/cargo").arg("build").arg("--release").arg("--package=ootrmwd").check("debian run cargo build --package=ootrmwd").await?;
                 Ok(Err(Self::Copy(wait_restart)))
             }).await,
             Self::Copy(wait_restart) => gres::transpose(async move {
                 fs::create_dir_all("target/wsl/release").await?;
-                Command::new("debian").arg("run").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/ootrmwd").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/ootrmwd").check("debian run cp").await?;
+                Command::new("wsl").arg("--distribution").arg("debian-m2").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/ootrmwd").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/ootrmwd").check("debian run cp").await?;
                 Ok(Err(Self::Upload(wait_restart)))
             }).await,
             Self::Upload(wait_restart) => gres::transpose(async move {
