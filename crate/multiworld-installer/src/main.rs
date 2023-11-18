@@ -1005,7 +1005,6 @@ impl Application for State {
             if enabled { next_btn = next_btn.on_press(Message::Continue) }
             bottom_row = bottom_row.push(next_btn);
             view = view
-                //.push(Space::with_height(Length::Fill))
                 .push(bottom_row.spacing(8));
         }
         view

@@ -1,5 +1,6 @@
 use {
     std::{
+        env,
         fmt,
         num::NonZeroU8,
     },
@@ -32,7 +33,7 @@ impl Kind {
     pub fn is_supported(&self) -> bool {
         match self {
             Self::Dummy => false,
-            Self::EverDrive => true,
+            Self::EverDrive => env::var_os("MHMW_EVERDRIVE").is_some_and(|envar| !envar.is_empty()), //TODO finish implementing, then enable by default
             Self::BizHawk => cfg!(any(target_os = "linux", target_os = "windows")),
             Self::Pj64V3 => cfg!(target_os = "windows"),
             Self::Pj64V4 => false, // hide until Project64 version 4 is released
