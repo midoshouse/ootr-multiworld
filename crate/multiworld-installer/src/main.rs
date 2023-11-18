@@ -1,7 +1,4 @@
-#![deny(rust_2018_idioms, unused_crate_dependencies, unused_import_braces, unused_lifetimes, unused_qualifications, warnings)]
-#![cfg_attr(target_os = "windows", deny(unused))]
 #![cfg_attr(not(target_os = "windows"), allow(unused))]
-#![forbid(unsafe_code)]
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 

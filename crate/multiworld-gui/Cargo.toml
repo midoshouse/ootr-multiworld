@@ -4,6 +4,15 @@ version.workspace = true
 authors.workspace = true
 edition.workspace = true
 
+[lints.rust]
+rust_2018_idioms = "deny"
+unused = "deny"
+unused_crate_dependencies = "deny"
+unused_import_braces = "deny"
+unused_lifetimes = "deny"
+unused_qualifications = "deny"
+warnings = "deny"
+
 [build-dependencies]
 winres = "0.1"
 

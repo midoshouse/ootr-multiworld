@@ -4,6 +4,9 @@ version.workspace = true
 authors.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [build-dependencies]
 thiserror = "1"
 winres = "0.1"

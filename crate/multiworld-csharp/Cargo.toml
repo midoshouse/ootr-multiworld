@@ -8,6 +8,15 @@ edition.workspace = true
 name = "multiworld"
 crate-type = ["cdylib"]
 
+[lints.rust]
+rust_2018_idioms = "deny"
+unused = "deny"
+unused_crate_dependencies = "deny"
+unused_import_braces = "deny"
+unused_lifetimes = "deny"
+unused_qualifications = "deny"
+warnings = "deny"
+
 [dependencies]
 async-proto = "0.16.10"
 itertools = "0.11"

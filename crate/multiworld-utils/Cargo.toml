@@ -4,6 +4,15 @@ version.workspace = true
 authors.workspace = true
 edition.workspace = true
 
+[lints.rust]
+rust_2018_idioms = "deny"
+unsafe_code = "forbid"
+unused = "deny"
+unused_import_braces = "deny"
+unused_lifetimes = "deny"
+unused_qualifications = "deny"
+warnings = "deny"
+
 [[bin]]
 name = "multiworld-release"
 path = "src/release.rs"
