@@ -32,6 +32,10 @@ use {
     },
     oottracker::websocket::MwItem as Item,
     semver::Version,
+    serde::{
+        Deserialize,
+        Serialize,
+    },
     tokio::{
         io,
         net::{
@@ -965,7 +969,8 @@ pub struct LoginState {
     pub admin: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum IdentityProvider {
     RaceTime,
     Discord,

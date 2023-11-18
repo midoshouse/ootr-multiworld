@@ -5,6 +5,7 @@
 use {
     std::{
         borrow::Cow,
+        collections::BTreeMap,
         env,
         fmt,
         future::Future,
@@ -233,6 +234,7 @@ fn hash_icon(icon: HashIcon) -> Element<'static, Message> {
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error(transparent)] Client(#[from] multiworld::ClientError),
+    #[error(transparent)] Config(#[from] multiworld::config::Error),
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] Json(#[from] serde_json::Error),
@@ -261,7 +263,7 @@ impl IsNetworkError for Error {
     fn is_network_error(&self) -> bool {
         match self {
             Self::Elapsed(_) => true,
-            Self::Json(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::CopyDebugInfo | Self::VersionMismatch { .. } => false,
+            Self::Config(_) | Self::Json(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::CopyDebugInfo | Self::VersionMismatch { .. } => false,
             Self::Client(e) => e.is_network_error(),
             Self::Io(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),
@@ -343,6 +345,7 @@ struct State {
     frontend_connection_id: u8,
     frontend_writer: Option<LoggingWriter>,
     log: bool,
+    login_tokens: BTreeMap<login::Provider, String>,
     last_login_url: Option<Url>,
     websocket_url: Url,
     server_connection: SessionState<Arc<Error>>,
@@ -471,9 +474,10 @@ impl Application for State {
             frontend_subscription_error: None,
             frontend_connection_id: 0,
             frontend_writer: None,
-            log: config.log,
-            last_login_url: None,
             websocket_url: config.websocket_url().expect("failed to parse WebSocket URL"),
+            log: config.log,
+            login_tokens: config.login_tokens,
+            last_login_url: None,
             server_connection: SessionState::Init,
             server_writer: None,
             retry: Instant::now(),
@@ -680,8 +684,12 @@ impl Application for State {
             },
             Message::LoginError(e) => { self.login_error.get_or_insert(e); }
             Message::LoginToken(bearer_token) => if let SessionState::Lobby { view: LobbyView::Login(provider), .. } = self.server_connection {
+                self.login_tokens.insert(provider, bearer_token.clone());
                 if let Some(writer) = self.server_writer.clone() {
                     return cmd(async move {
+                        let mut config = Config::load().await?;
+                        config.login_tokens.insert(provider, bearer_token.clone());
+                        config.save().await?;
                         writer.write(match provider {
                             login::Provider::RaceTime => ClientMessage::LoginRaceTime { bearer_token },
                             login::Provider::Discord => ClientMessage::LoginDiscord { bearer_token },
@@ -858,8 +866,21 @@ impl Application for State {
                         return cmd(future::ok(Message::JoinRoom))
                     },
                     ServerMessage::EnterLobby { .. } => {
+                        let login_token = self.login_tokens.iter()
+                            .next()
+                            .filter(|_| matches!(self.server_connection, SessionState::Lobby { login_state: None, .. }))
+                            .map(|(&provider, bearer_token)| (provider, bearer_token.clone()));
+                        let server_writer = self.server_writer.clone();
                         let frontend_writer = self.frontend_writer.clone();
                         return cmd(async move {
+                            if let Some(server_writer) = server_writer {
+                                if let Some((provider, bearer_token)) = login_token {
+                                    server_writer.write(match provider {
+                                        login::Provider::RaceTime => ClientMessage::LoginRaceTime { bearer_token },
+                                        login::Provider::Discord => ClientMessage::LoginDiscord { bearer_token },
+                                    }).await?;
+                                }
+                            }
                             if let Some(frontend_writer) = frontend_writer {
                                 frontend_writer.write(frontend::ServerMessage::ItemQueue(Vec::default())).await?;
                             }
