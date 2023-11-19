@@ -9,7 +9,8 @@ derivative = "2"
 either = "1"
 futures = "0.3"
 rand = "0.8"
-#rocket = "0.5.0-rc.3"
+rocket = "0.5"
+rocket_ws = "0.1"
 thiserror = "1"
 tokio-tungstenite = "0.20"
 
@@ -43,20 +44,12 @@ default-features = false
 features = ["rustls-tls", "trust-dns"]
 
 [dependencies.ring]
-version = "0.16"
+version = "0.17"
 features = ["std"]
-
-[dependencies.rocket] # required for WebSocket support
-git = "https://github.com/SergioBenitez/Rocket"
-branch = "master"
 
 [dependencies.rocket-util]
 git = "https://github.com/fenhl/rocket-util"
-branch = "rocket-master"
-
-[dependencies.rocket_ws]
-git = "https://github.com/SergioBenitez/Rocket"
-branch = "master"
+branch = "main"
 
 [dependencies.serde]
 version = "1"
@@ -80,7 +73,7 @@ features = ["macros", "net", "parking_lot", "process", "rt-multi-thread", "sync"
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
 branch = "main"
-features = ["reqwest", "rocket-master", "serde", "serde_json"]
+features = ["reqwest", "rocket", "serde", "serde_json"]
 
 [target.'cfg(unix)'.dependencies.ootr-utils]
 git = "https://github.com/midoshouse/rust-ootr-utils"

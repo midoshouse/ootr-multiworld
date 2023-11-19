@@ -21,7 +21,7 @@ bytes = "1"
 dark-light = "1"
 futures = "0.3"
 iced_runtime = "0.1"
-itertools = "0.11"
+itertools = "0.12"
 open = "5"
 runas = "=1.0.0" # https://github.com/mitsuhiko/rust-runas/issues/13
 semver = "1"
@@ -85,7 +85,7 @@ xdg = "2"
 directories = "5"
 
 [target.'cfg(windows)'.dependencies.windows]
-version = "0.51"
+version = "0.52"
 features = ["Win32_Storage_FileSystem"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
