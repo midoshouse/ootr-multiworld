@@ -22,7 +22,6 @@ use {
         Percent,
         Progress,
         Task,
-        cli::Cli,
     },
     semver::Version,
     tempfile::NamedTempFile,
@@ -42,8 +41,11 @@ use {
         Release,
         Repo,
     },
-    multiworld_utils::version,
+    crate::cli::Cli,
 };
+
+mod cli;
+mod version;
 
 #[derive(Clone)] struct WindowsUpdaterNotification;
 #[derive(Clone)] struct LinuxGuiNotification;
@@ -1126,7 +1128,7 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
         if !args.no_publish {
             let line = cli.new_line("[....] publishing release").await?;
             repo.publish_release(&client, release).await?;
-            line.replace("[done] release published")?;
+            line.replace("[done] release published").await?;
         }
     }
     Ok(())

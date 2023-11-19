@@ -1,24 +1,15 @@
 [package]
-name = "multiworld-utils"
+name = "multiworld-release"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
 
-[lints.rust]
-rust_2018_idioms = "deny"
-unsafe_code = "forbid"
-unused = "deny"
-unused_import_braces = "deny"
-unused_lifetimes = "deny"
-unused_qualifications = "deny"
-warnings = "deny"
-
-[[bin]]
-name = "multiworld-release"
-path = "src/release.rs"
+[lints]
+workspace = true
 
 [dependencies]
 async-trait = "0.1"
+crossterm = "0.27"
 futures = "0.3"
 graphql_client = "0.13"
 itertools = "0.11"
@@ -38,7 +29,10 @@ branch = "main"
 [dependencies.gres]
 git = "https://github.com/fenhl/gres"
 branch = "main"
-features = ["cli"]
+
+[dependencies.log-lock]
+git = "https://github.com/fenhl/log-lock"
+branch = "main"
 
 [dependencies.multiworld]
 path = "../multiworld"

@@ -3639,6 +3639,27 @@ dependencies = [
 [[package]]
 name = "multiworld-release"
 version = "13.2.0"
+dependencies = [
+ "async-trait",
+ "clap",
+ "crossterm 0.27.0",
+ "dir-lock",
+ "futures",
+ "graphql_client",
+ "gres",
+ "itertools",
+ "log-lock",
+ "multiworld",
+ "multiworld-bizhawk",
+ "reqwest",
+ "semver",
+ "serde",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "wheel",
+ "zip",
+]
 
 [[package]]
 name = "multiworld-updater"

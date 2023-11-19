@@ -9,7 +9,7 @@ use {
 };
 
 #[derive(Debug, thiserror::Error)]
-pub enum BizHawkError {
+pub(crate) enum BizHawkError {
     #[error(transparent)] ParseInt(#[from] std::num::ParseIntError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error("no info returned in BizHawk version query response")]
@@ -30,7 +30,7 @@ pub enum BizHawkError {
 )]
 struct BizHawkVersionQuery;
 
-pub async fn bizhawk_latest(client: &reqwest::Client) -> Result<Version, BizHawkError> {
+pub(crate) async fn bizhawk_latest(client: &reqwest::Client) -> Result<Version, BizHawkError> {
     let remote_version_string = client.post("https://api.github.com/graphql")
         .bearer_auth(include_str!("../../../assets/release-token"))
         .json(&BizHawkVersionQuery::build_query(biz_hawk_version_query::Variables {}))
@@ -45,6 +45,6 @@ pub async fn bizhawk_latest(client: &reqwest::Client) -> Result<Version, BizHawk
     Ok(Version::new(major?, minor?, patch?))
 }
 
-pub async fn version() -> Version {
+pub(crate) async fn version() -> Version {
     Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse current version")
 }
