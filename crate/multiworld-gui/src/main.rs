@@ -1203,7 +1203,12 @@ impl Application for State {
                         .push(Row::new()
                             .push({
                                 let mut btn = Button::new("Connect");
-                                if if create_new_room { !new_room_name.is_empty() } else { existing_room_selection.is_some() } && !password.is_empty() { btn = btn.on_press(Message::JoinRoom) }
+                                let enabled = if create_new_room {
+                                    !new_room_name.is_empty() && !password.is_empty()
+                                } else {
+                                    existing_room_selection.as_ref().is_some_and(|existing_room_selection| !existing_room_selection.password_required || !password.is_empty())
+                                };
+                                if enabled { btn = btn.on_press(Message::JoinRoom) }
                                 btn
                             })
                             .push(Space::with_width(Length::Fill))
