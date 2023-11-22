@@ -685,7 +685,7 @@ impl Application for State {
                 self.frontend_subscription_error.get_or_insert(e);
             }
             Message::JoinRoom => if let SessionState::Lobby { create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } = self.server_connection {
-                if !password.is_empty() {
+                if !password.is_empty() || existing_room_selection.as_ref().is_some_and(|room| !room.password_required) {
                     let existing_room_selection = existing_room_selection.clone();
                     let new_room_name = new_room_name.clone();
                     let password = password.clone();
