@@ -149,8 +149,10 @@ async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http
         }
     });
     let mut read = next_message::<C>(reader);
+    let mut logged_in_as_admin = false;
+    let mut midos_house_user_id = None;
     loop {
-        let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, writer.clone(), shutdown.clone()).await?;
+        let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, writer.clone(), shutdown.clone(), &mut logged_in_as_admin, &mut midos_house_user_id).await?;
         let _ = lock!(rooms.0).change_tx.send(RoomListChange::Join);
         let (lobby_reader, end) = room_session(rooms.clone(), room, socket_id, room_reader, writer.clone(), end_rx, shutdown.clone()).await?;
         let _ = lock!(rooms.0).change_tx.send(RoomListChange::Leave);
@@ -172,7 +174,7 @@ fn next_message<C: ClientKind>(reader: C::Reader) -> NextMessage<C> {
     Box::pin(timeout(Duration::from_secs(60), reader.read_owned()))
 }
 
-async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, mut read: NextMessage<C>, writer: Arc<Mutex<C::Writer>>, mut shutdown: rocket::Shutdown) -> Result<(C::Reader, ArcRwLock<Room<C>>, oneshot::Receiver<EndRoomSession>), SessionError> {
+async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, mut read: NextMessage<C>, writer: Arc<Mutex<C::Writer>>, mut shutdown: rocket::Shutdown, logged_in_as_admin: &mut bool, midos_house_user_id: &mut Option<u64>) -> Result<(C::Reader, ArcRwLock<Room<C>>, oneshot::Receiver<EndRoomSession>), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             let msg = format!($($msg)*);
@@ -181,12 +183,12 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
         }};
     }
 
-    let mut logged_in_as_admin = false;
-    let mut midos_house_user_id = None;
     let mut waiting_until_empty = false;
     let mut room_stream = {
         let lock = lock!(rooms.0);
         let stream = lock.change_tx.subscribe();
+        let logged_in_as_admin = *logged_in_as_admin;
+        let midos_house_user_id = *midos_house_user_id;
         lock!(writer).write(ServerMessage::EnterLobby {
             rooms: stream::iter(lock.list.iter()).filter_map(|(id, room)| async move {
                 let room = lock!(@read room);
@@ -207,7 +209,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                 match room_list_change {
                     Ok(RoomListChange::New(room)) => {
                         let room = lock!(@read room);
-                        let password_required = match room.auth.availability(logged_in_as_admin, midos_house_user_id) {
+                        let password_required = match room.auth.availability(*logged_in_as_admin, *midos_house_user_id) {
                             RoomAvailability::Open => Some(false),
                             RoomAvailability::PasswordRequired => Some(true),
                             RoomAvailability::Invisible => None, // don't announce the room to the client
@@ -221,7 +223,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                         }
                     }
                     Ok(RoomListChange::Delete { id, name, auth }) => {
-                        let visible = match auth.availability(logged_in_as_admin, midos_house_user_id) {
+                        let visible = match auth.availability(*logged_in_as_admin, *midos_house_user_id) {
                             RoomAvailability::Open | RoomAvailability::PasswordRequired => true,
                             RoomAvailability::Invisible => false,
                         };
@@ -252,7 +254,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                     ClientMessage::Ping => {}
                     ClientMessage::JoinRoom { ref room, password } => if let Some(room_arc) = rooms.get_arc(room).await {
                         let mut room = lock!(@write room_arc);
-                        let authorized = logged_in_as_admin || match &room.auth {
+                        let authorized = *logged_in_as_admin || match &room.auth {
                             RoomAuth::Password { hash, salt } => password.map_or(false, |password| pbkdf2::verify(
                                 pbkdf2::PBKDF2_HMAC_SHA512,
                                 NonZeroU32::new(100_000).expect("no hashing iterations specified"),
@@ -359,9 +361,9 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                     }
                     ClientMessage::LoginApiKey { api_key } => if let Some(row) = sqlx::query!("SELECT user_id, mw_admin FROM api_keys WHERE key = $1", api_key).fetch_optional(&db_pool).await? {
                         lock!(writer).write(ServerMessage::LoginSuccess).await?;
-                        let was_admin = mem::replace(&mut logged_in_as_admin, row.mw_admin);
+                        let was_admin = mem::replace(logged_in_as_admin, row.mw_admin);
                         let old_mhid = midos_house_user_id.replace(row.user_id as u64);
-                        update_room_list(rooms.clone(), Arc::clone(&writer), was_admin, old_mhid, logged_in_as_admin, midos_house_user_id).await?;
+                        update_room_list(rooms.clone(), Arc::clone(&writer), was_admin, old_mhid, *logged_in_as_admin, *midos_house_user_id).await?;
                     } else {
                         error!("invalid API key")
                     },
@@ -379,7 +381,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                         if let Some(mhid) = sqlx::query_scalar!("SELECT id FROM users WHERE discord_id = $1", i64::from(id)).fetch_optional(&db_pool).await? {
                             lock!(writer).write(ServerMessage::LoginSuccess).await?;
                             let old_mhid = midos_house_user_id.replace(mhid as u64);
-                            update_room_list(rooms.clone(), Arc::clone(&writer), logged_in_as_admin, old_mhid, logged_in_as_admin, midos_house_user_id).await?;
+                            update_room_list(rooms.clone(), Arc::clone(&writer), *logged_in_as_admin, old_mhid, *logged_in_as_admin, *midos_house_user_id).await?;
                         } else {
                             error!("no Mido's House user associated with this Discord account") //TODO automatically create
                         }
@@ -398,12 +400,12 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                         if let Some(mhid) = sqlx::query_scalar!("SELECT id FROM users WHERE racetime_id = $1", id).fetch_optional(&db_pool).await? {
                             lock!(writer).write(ServerMessage::LoginSuccess).await?;
                             let old_mhid = midos_house_user_id.replace(mhid as u64);
-                            update_room_list(rooms.clone(), Arc::clone(&writer), logged_in_as_admin, old_mhid, logged_in_as_admin, midos_house_user_id).await?;
+                            update_room_list(rooms.clone(), Arc::clone(&writer), *logged_in_as_admin, old_mhid, *logged_in_as_admin, *midos_house_user_id).await?;
                         } else {
                             error!("no Mido's House user associated with this racetime.gg account") //TODO automatically create
                         }
                     }
-                    ClientMessage::Stop => if logged_in_as_admin {
+                    ClientMessage::Stop => if *logged_in_as_admin {
                         //TODO close TCP connections and listener
                         for room in lock!(rooms.0).list.values() {
                             lock!(@write room).save(false).await?;
@@ -413,7 +415,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                     } else {
                         error!("Stop command requires admin login")
                     },
-                    ClientMessage::Track { mw_room, tracker_room_name, world_count } => if logged_in_as_admin {
+                    ClientMessage::Track { mw_room, tracker_room_name, world_count } => if *logged_in_as_admin {
                         if let Some(mut room) = rooms.write(&mw_room).await {
                             room.init_tracker(tracker_room_name, world_count).await?;
                         } else {
@@ -422,7 +424,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                     } else {
                         error!("Track command requires admin login")
                     },
-                    ClientMessage::WaitUntilEmpty => if logged_in_as_admin {
+                    ClientMessage::WaitUntilEmpty => if *logged_in_as_admin {
                         waiting_until_empty = true;
                         let mut any_players = false;
                         for room in lock!(rooms.0).list.values() {
