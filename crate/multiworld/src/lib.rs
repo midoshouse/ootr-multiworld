@@ -602,11 +602,11 @@ impl<C: ClientKind> Room<C> {
     /// Moves a player from unloaded (no world assigned) to the given `world`.
     pub async fn load_player(&mut self, client_id: C::SessionId, world: NonZeroU8) -> Result<bool, async_proto::WriteError> {
         if self.clients.iter().any(|(&iter_client_id, iter_client)| iter_client.player.as_ref().map_or(false, |p| p.world == world) && iter_client_id != client_id) {
-            let client = self.clients.get_mut(&client_id).expect("no such client");
+            let client = self.clients.get_mut(&client_id).expect("tried to set pending world for nonexistent client");
             client.pending_world = Some(world);
             return Ok(false)
         }
-        let client = self.clients.get_mut(&client_id).expect("no such client");
+        let client = self.clients.get_mut(&client_id).expect("tried to set world for nonexistent client");
         let save = client.save_data.clone();
         let prev_player = &mut client.player;
         if let Some(player) = prev_player {
@@ -646,12 +646,13 @@ impl<C: ClientKind> Room<C> {
             } else {
                 eprintln!("save data from client has more received items than are in their queue");
             }
-            let client = self.clients.get_mut(&client_id).expect("no such client");
-            let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
-            let new_progressive_items = ProgressiveItems::new(&adjusted_save);
-            client.adjusted_save = adjusted_save;
-            if old_progressive_items != new_progressive_items {
-                self.write_all(&unversioned::ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await?;
+            if let Some(client) = self.clients.get_mut(&client_id) {
+                let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
+                let new_progressive_items = ProgressiveItems::new(&adjusted_save);
+                client.adjusted_save = adjusted_save;
+                if old_progressive_items != new_progressive_items {
+                    self.write_all(&unversioned::ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await?;
+                }
             }
         }
         if !queue.is_empty() {
@@ -666,7 +667,7 @@ impl<C: ClientKind> Room<C> {
     }
 
     pub async fn unload_player(&mut self, client_id: C::SessionId) -> Result<(), async_proto::WriteError> {
-        if let Some(prev_player) = self.clients.get_mut(&client_id).expect("no such client").player.take() {
+        if let Some(prev_player) = self.clients.get_mut(&client_id).expect("tried to unset world for nonexistent client").player.take() {
             self.write_all(&unversioned::ServerMessage::ResetPlayerId(prev_player.world)).await?;
             if let Some((&client_id, _)) = self.clients.iter().find(|(_, iter_client)| iter_client.pending_world == Some(prev_player.world)) {
                 self.load_player(client_id, prev_player.world).await?;
@@ -676,7 +677,7 @@ impl<C: ClientKind> Room<C> {
     }
 
     pub async fn set_player_name(&mut self, client_id: C::SessionId, name: Filename) -> Result<(), async_proto::WriteError> {
-        let client = self.clients.get_mut(&client_id).expect("no such client");
+        let client = self.clients.get_mut(&client_id).expect("tried to set filename for nonexsitent client");
         if let Some(ref mut player) = client.player {
             let world = player.world;
             player.name = name;
@@ -693,7 +694,7 @@ impl<C: ClientKind> Room<C> {
                 return Err(SetHashError::FileHash { server: room_hash, client: hash })
             }
         }
-        let client = self.clients.get_mut(&client_id).expect("no such client");
+        let client = self.clients.get_mut(&client_id).expect("tried to set file hash for nonexistent client");
         if let Some(ref mut player) = client.player {
             let world = player.world;
             player.file_hash = Some(hash);
@@ -775,7 +776,7 @@ impl<C: ClientKind> Room<C> {
     }
 
     pub async fn queue_item(&mut self, source_client: C::SessionId, key: u64, kind: u16, target_world: NonZeroU8) -> Result<(), QueueItemError> {
-        if let Some(source) = self.clients.get(&source_client).expect("no such client").player {
+        if let Some(source) = self.clients.get(&source_client).expect("tried to queue item from nonexistent client").player {
             if let Some(player_hash) = source.file_hash {
                 if let Some(room_hash) = self.file_hash {
                     if player_hash != room_hash {
@@ -821,7 +822,7 @@ impl<C: ClientKind> Room<C> {
     }
 
     pub async fn set_save_data(&mut self, client_id: C::SessionId, save: oottracker::Save) -> Result<(), async_proto::WriteError> {
-        let client = self.clients.get_mut(&client_id).expect("no such client");
+        let client = self.clients.get_mut(&client_id).expect("tried to set save data for nonexistent client");
         client.save_data = Some(save.clone());
         if let Some(Player { world, .. }) = client.player {
             let queue = self.player_queues.get(&world).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>();
@@ -881,30 +882,36 @@ impl<C: ClientKind> Room<C> {
             self.last_saved = Utc::now();
             let _ = self.autodelete_tx.send((self.id, self.autodelete_at()));
         }
-        let (password_hash, password_salt) = match self.auth {
-            RoomAuth::Password { ref hash, ref salt } => (Some(&hash[..]), Some(&salt[..])),
-            RoomAuth::Invitational(_) => (None, None),
+        let (password_hash, password_salt, invites) = match self.auth {
+            RoomAuth::Password { ref hash, ref salt } => (Some(&hash[..]), Some(&salt[..]), Vec::default()),
+            RoomAuth::Invitational(ref invites) => {
+                let mut buf = Vec::default();
+                invites.write_sync(&mut buf).expect("failed to write invites to buffer");
+                (None, None, buf)
+            },
         };
         sqlx::query!("INSERT INTO mw_rooms (
             id,
             name,
             password_hash,
             password_salt,
+            invites,
             base_queue,
             player_queues,
             last_saved,
             autodelete_delta,
             allow_send_all
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (id) DO UPDATE SET
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO UPDATE SET
             name = EXCLUDED.name,
             password_hash = EXCLUDED.password_hash,
             password_salt = EXCLUDED.password_salt,
+            invites = EXCLUDED.invites,
             base_queue = EXCLUDED.base_queue,
             player_queues = EXCLUDED.player_queues,
             last_saved = EXCLUDED.last_saved,
             autodelete_delta = EXCLUDED.autodelete_delta,
             allow_send_all = EXCLUDED.allow_send_all
-        ", self.id as i64, &self.name, password_hash, password_salt, base_queue, player_queues, self.last_saved, self.autodelete_delta as _, self.allow_send_all).execute(&self.db_pool).await?;
+        ", self.id as i64, &self.name, password_hash, password_salt, invites, base_queue, player_queues, self.last_saved, self.autodelete_delta as _, self.allow_send_all).execute(&self.db_pool).await?;
         Ok(())
     }
 
