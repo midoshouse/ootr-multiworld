@@ -5,8 +5,8 @@ If you are asked to enable logging to help with debugging, please follow these s
 1. Press <kbd>Windows</kbd><kbd>R</kbd>, enter `%APPDATA%`, and click OK.
 2. In the File Explorer window that opens, navigate to the following nested subfolder, creating any folders that don't exist:
     * `Fenhl`
-    * `OoTR Multiworld`
-    * `config`
+        * `OoTR Multiworld`
+            * `config`
 3. Make sure “View → Show → File name extensions” is checked.
 4. In the `config` folder, check if there is a file named `config.json`. If there is not, create a new text document and rename it to `config.json`, confirming if warned about changing the file extension.
 5. Open `config.json` with Notepad and enter the following text:
