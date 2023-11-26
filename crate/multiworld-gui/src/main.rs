@@ -45,6 +45,7 @@ use {
             icon,
         },
     },
+    if_chain::if_chain,
     ::image::ImageFormat,
     itertools::Itertools as _,
     log_lock::{
@@ -271,12 +272,7 @@ impl IsNetworkError for Error {
             Self::Io(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),
             Self::Reqwest(e) => e.is_network_error(),
-            Self::WebSocket(e) => match e { // manual copy of the impl from wheel to circumvent a dependency version difference
-                tungstenite::Error::Http(resp) => resp.status().is_server_error(),
-                tungstenite::Error::Io(e) => e.is_network_error(),
-                tungstenite::Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake) => true,
-                _ => false,
-            },
+            Self::WebSocket(e) => e.is_network_error(),
             Self::Wheel(e) => e.is_network_error(),
             Self::Write(e) => e.is_network_error(),
             #[cfg(unix)] Self::Xdg(_) => false,
@@ -410,7 +406,15 @@ impl State {
                 .build()
         } else if let SessionState::Error { ref e, .. } = self.server_connection {
             MessageBuilder::default()
-                .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), " during communication with the server:"))
+                .push_line(if_chain! {
+                    if let SessionStateError::Connection(e) = e;
+                    if e.is_network_error();
+                    then {
+                        concat!("network error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), ":")
+                    } else {
+                        concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), " during communication with the server:")
+                    }
+                })
                 .push_line_safe(e)
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()

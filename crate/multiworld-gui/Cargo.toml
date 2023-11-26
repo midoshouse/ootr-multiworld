@@ -99,7 +99,7 @@ features = ["rustls-tls-webpki-roots"]
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
 branch = "main"
-features = ["reqwest"]
+features = ["reqwest", "tungstenite"]
 
 [target.'cfg(unix)'.dependencies]
 xdg = "2"
