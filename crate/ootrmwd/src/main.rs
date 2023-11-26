@@ -839,6 +839,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 name,
                 password_hash AS "password_hash: [u8; CREDENTIAL_LEN]",
                 password_salt AS "password_salt: [u8; CREDENTIAL_LEN]",
+                invites,
                 base_queue,
                 player_queues,
                 last_saved,
@@ -851,7 +852,8 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     name: row.name.clone(),
                     auth: match (row.password_hash, row.password_salt) {
                         (Some(hash), Some(salt)) => RoomAuth::Password { hash, salt },
-                        (_, _) => unimplemented!(), //TODO invitational rooms
+                        (None, None) => RoomAuth::Invitational(Vec::read_sync(&mut &*row.invites)?),
+                        (_, _) => unimplemented!(), //TODO add constraint to table
                     },
                     clients: HashMap::default(),
                     file_hash: None, //TODO store in database
