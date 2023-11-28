@@ -366,25 +366,25 @@ impl State {
         Some(if let Some(ref e) = self.icon_error {
             MessageBuilder::default()
                 .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), " while trying to load icon:"))
-                .push_line_safe(e)
+                .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
         } else if let Some(ref e) = self.config_error {
             MessageBuilder::default()
                 .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), " while trying to load config:"))
-                .push_line_safe(e)
+                .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
         } else if let Some(ref e) = self.persistent_state_error {
             MessageBuilder::default()
                 .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), " while trying to load persistent state:"))
-                .push_line_safe(e)
+                .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
         } else if let Some(ref e) = self.command_error {
             MessageBuilder::default()
                 .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), ":"))
-                .push_line_safe(e)
+                .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
         } else if let Some(ref e) = self.login_error {
@@ -395,13 +395,13 @@ impl State {
             };
             MessageBuilder::default()
                 .push_line(format!("error in Mido's House Multiworld version {} while trying to sign in{with_provider}:", env!("CARGO_PKG_VERSION")))
-                .push_line_safe(e)
+                .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
         } else if let Some(ref e) = self.frontend_subscription_error {
             MessageBuilder::default()
                 .push_line(format!("error in Mido's House Multiworld version {} during communication with {}:", env!("CARGO_PKG_VERSION"), self.frontend.display_with_version()))
-                .push_line_safe(e)
+                .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
         } else if let SessionState::Error { ref e, .. } = self.server_connection {
@@ -415,7 +415,7 @@ impl State {
                         concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), " during communication with the server:")
                     }
                 })
-                .push_line_safe(e)
+                .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
         } else {

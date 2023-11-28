@@ -56,8 +56,7 @@ version = "1"
 features = ["derive"]
 
 [dependencies.serenity]
-git = "https://github.com/serenity-rs/serenity"
-branch = "next"
+version = "0.12"
 default-features = false
 features = ["model", "rustls_backend"]
 

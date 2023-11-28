@@ -131,7 +131,7 @@ impl Error {
     fn to_markdown(&self) -> String {
         MessageBuilder::default()
             .push_line(concat!("error while trying to update Mido's House Multiworld from version ", env!("CARGO_PKG_VERSION"), ":")) //TODO also show new version
-            .push_line_safe(self)
+            .push_line_safe(self.to_string())
             .push_codeblock_safe(format!("{self:?}"), Some("rust"))
             .build()
     }
