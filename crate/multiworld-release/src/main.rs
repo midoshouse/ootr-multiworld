@@ -1068,9 +1068,9 @@ impl wheel::CustomExit for Error {
 
 /// Separate function to ensure CLI is dropped before exit
 async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
-    let (client, repo, bizhawk_version) = cli.run(Setup::new(args.server_only), "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
+    let (client, repo, bizhawk_version) = cli.run(Setup::new(args.server_only), "pre-release checks", "pre-release checks passed").await??; // don't show release notes editor if version check could still fail
     if args.server_only {
-        cli.run(BuildServer::new(!args.force), "server build done").await??;
+        cli.run(BuildServer::new(!args.force), "server", "server build done").await??;
     } else {
         let bizhawk_version_debug = bizhawk_version.clone();
         let bizhawk_version_linux = bizhawk_version.clone();
@@ -1110,20 +1110,20 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
         }
 
         let release = build_tasks![
-            release = cli.run(CreateRelease::new(create_release_repo, create_release_client, release_tx, create_release_args), "release created").map_err(Error::Io),
-            async move { cli.run(BuildUpdater::new(true, debug_updater_tx), "debug updater build done").await? },
-            async move { cli.run(BuildUpdater::new(false, updater_tx), "updater build done").await? },
-            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildGui::new(true, client, repo, debug_updater_rx, release_rx_gui_debug, debug_gui_tx), "Windows debug GUI build done").await? } },
-            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildGui::new(false, client, repo, updater_rx, release_rx_gui, gui_tx), "Windows GUI build done").await? } },
-            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildGuiLinux::new(client, repo, release_rx_gui_linux, linux_gui_tx), "Linux GUI build done").await? } },
-            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildBizHawk::new(true, client, repo, debug_gui_rx, release_rx_bizhawk_debug, bizhawk_version_debug, debug_bizhawk_tx), "Windows debug BizHawk build done").await? } },
-            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildBizHawk::new(false, client, repo, gui_rx, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "Windows BizHawk build done").await? } },
-            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildBizHawkLinux::new(client, repo, linux_gui_rx, release_rx_bizhawk_linux, bizhawk_version_linux, linux_bizhawk_tx), "Linux BizHawk build done").await? } },
-            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildPj64::new(client, repo, release_rx_pj64), "Project64 build done").await? } },
-            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstaller::new(true, client, repo, debug_bizhawk_rx, debug_gui_rx_installer, release_rx_installer_debug), "Windows debug installer build done").await? } },
-            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstaller::new(false, client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "Windows installer build done").await? } },
-            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstallerLinux::new(client, repo, linux_bizhawk_rx, release_rx_installer_linux), "Linux installer build done").await? } },
-            if args.no_server { future::ok(()).boxed() } else { async move { cli.run(BuildServer::new(!args.force), "server build done").await? }.boxed() },
+            release = cli.run(CreateRelease::new(create_release_repo, create_release_client, release_tx, create_release_args), "creating release", "release created").map_err(Error::Io),
+            async move { cli.run(BuildUpdater::new(true, debug_updater_tx), "updater (debug)", "debug updater build done").await? },
+            async move { cli.run(BuildUpdater::new(false, updater_tx), "updater", "updater build done").await? },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildGui::new(true, client, repo, debug_updater_rx, release_rx_gui_debug, debug_gui_tx), "GUI (Windows, debug)", "Windows debug GUI build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildGui::new(false, client, repo, updater_rx, release_rx_gui, gui_tx), "GUI (Windows)", "Windows GUI build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildGuiLinux::new(client, repo, release_rx_gui_linux, linux_gui_tx), "GUI (Linux)", "Linux GUI build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildBizHawk::new(true, client, repo, debug_gui_rx, release_rx_bizhawk_debug, bizhawk_version_debug, debug_bizhawk_tx), "BizHawk (Windows, debug)", "Windows debug BizHawk build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildBizHawk::new(false, client, repo, gui_rx, release_rx_bizhawk, bizhawk_version, bizhawk_tx), "BizHawk (Windows)", "Windows BizHawk build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildBizHawkLinux::new(client, repo, linux_gui_rx, release_rx_bizhawk_linux, bizhawk_version_linux, linux_bizhawk_tx), "BizHawk (Linux)", "Linux BizHawk build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildPj64::new(client, repo, release_rx_pj64), "Project64", "Project64 build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstaller::new(true, client, repo, debug_bizhawk_rx, debug_gui_rx_installer, release_rx_installer_debug), "installer (Windows, debug)", "Windows debug installer build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstaller::new(false, client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "installer (Windows)", "Windows installer build done").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstallerLinux::new(client, repo, linux_bizhawk_rx, release_rx_installer_linux), "installer (Linux)", "Linux installer build done").await? } },
+            if args.no_server { future::ok(()).boxed() } else { async move { cli.run(BuildServer::new(!args.force), "server", "server build done").await? }.boxed() },
         ]?;
         if !args.no_publish {
             let line = cli.new_line("[....] publishing release").await?;
