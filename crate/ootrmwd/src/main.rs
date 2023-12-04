@@ -177,9 +177,7 @@ fn next_message<C: ClientKind>(reader: C::Reader) -> NextMessage<C> {
 async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, mut read: NextMessage<C>, writer: Arc<Mutex<C::Writer>>, mut shutdown: rocket::Shutdown, logged_in_as_admin: &mut bool, midos_house_user_id: &mut Option<u64>) -> Result<(C::Reader, ArcRwLock<Room<C>>, oneshot::Receiver<EndRoomSession>), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
-            let msg = format!($($msg)*);
-            lock!(writer).write(ServerMessage::OtherError(msg.clone())).await?;
-            return Err(SessionError::Server(msg))
+            return Err(SessionError::Server(format!($($msg)*)))
         }};
     }
 
@@ -490,9 +488,7 @@ async fn update_room_list<C: ClientKind>(rooms: Rooms<C>, writer: Arc<Mutex<C::W
 async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, mut end_rx: oneshot::Receiver<EndRoomSession>, mut shutdown: rocket::Shutdown) -> Result<(NextMessage<C>, EndRoomSession), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
-            let msg = format!($($msg)*);
-            lock!(writer).write(ServerMessage::OtherError(msg.clone())).await?;
-            return Err(SessionError::Server(msg))
+            return Err(SessionError::Server(format!($($msg)*)))
         }};
     }
 
@@ -528,10 +524,7 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                     ClientMessage::SendItem { key, kind, target_world } => match lock!(@write room).queue_item(socket_id, key, kind, target_world).await {
                         Ok(()) => {}
                         Err(multiworld::QueueItemError::FileHash { server, client }) => lock!(writer).write(ServerMessage::WrongFileHash { server, client }).await?,
-                        Err(e) => {
-                            lock!(writer).write(ServerMessage::OtherError(e.to_string())).await?;
-                            return Err(e.into())
-                        }
+                        Err(e) => return Err(e.into()),
                     },
                     ClientMessage::KickPlayer(id) => {
                         let mut room = lock!(@write room);
@@ -556,10 +549,7 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                     ClientMessage::SendAll { source_world, spoiler_log } => match lock!(@write room).send_all(source_world, &spoiler_log).await {
                         Ok(()) => {}
                         Err(multiworld::SendAllError::FileHash { server, client }) => lock!(writer).write(ServerMessage::WrongFileHash { server, client }).await?,
-                        Err(e) => {
-                            lock!(writer).write(ServerMessage::OtherError(e.to_string())).await?;
-                            return Err(e.into())
-                        }
+                        Err(e) => return Err(e.into()),
                     },
                     ClientMessage::SaveDataError { debug, version } => if version >= multiworld::version() {
                         eprintln!("save data error reported by Mido's House Multiworld version {version}: {debug}");
@@ -568,10 +558,7 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                     ClientMessage::FileHash(hash) => match lock!(@write room).set_file_hash(socket_id, hash).await {
                         Ok(()) => {}
                         Err(multiworld::SetHashError::FileHash { server, client }) => lock!(writer).write(ServerMessage::WrongFileHash { server, client }).await?,
-                        Err(e) => {
-                            lock!(writer).write(ServerMessage::OtherError(e.to_string())).await?;
-                            return Err(e.into())
-                        }
+                        Err(e) => return Err(e.into()),
                     },
                     ClientMessage::AutoDeleteDelta(new_delta) => lock!(@write room).set_autodelete_delta(new_delta).await?,
                     ClientMessage::LeaveRoom => {

@@ -7,7 +7,7 @@ use {
         },
     },
     futures::stream::StreamExt as _,
-    log_lock::Mutex,
+    log_lock::*,
     ring::rand::SystemRandom,
     rocket::{
         Rocket,
@@ -24,12 +24,17 @@ use {
     },
     rocket_ws::WebSocket,
     sqlx::PgPool,
-    multiworld::ws::{
-        Version,
-        VersionedReader,
-        VersionedWriter,
-    },
+    tokio::process::Command,
     tokio_tungstenite::tungstenite,
+    multiworld::{
+        ClientWriter as _,
+        ws::{
+            Version,
+            VersionedReader,
+            VersionedWriter,
+            unversioned::ServerMessage,
+        },
+    },
     crate::{
         Rooms,
         SessionError,
@@ -54,13 +59,20 @@ macro_rules! supported_version {
             let session_id = next_session_id.fetch_add(1, SeqCst);
             ws.channel(move |stream| Box::pin(async move {
                 let (sink, stream) = stream.split();
-                match client_session(&rng, db_pool, http_client, rooms, session_id, VersionedReader { inner: stream, version: Version::$variant }, Arc::new(Mutex::new(VersionedWriter { inner: sink, version: Version::$variant })), shutdown).await {
+                let writer = Arc::new(Mutex::new(VersionedWriter { inner: sink, version: Version::$variant }));
+                match client_session(&rng, db_pool, http_client, rooms, session_id, VersionedReader { inner: stream, version: Version::$variant }, Arc::clone(&writer), shutdown).await {
                     Ok(()) => {}
                     Err(SessionError::Read(async_proto::ReadError::Tungstenite(tungstenite::Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake)))) => {} // this happens when a player force quits their multiworld app (or normally quits on macOS, see https://github.com/iced-rs/iced/issues/1941)
+                    Err(SessionError::Server(msg)) => {
+                        eprintln!("server error in WebSocket handler ({}): {msg}", stringify!($version));
+                        let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+                        let _ = lock!(writer).write(ServerMessage::OtherError(msg)).await;
+                    }
                     Err(e) => {
                         eprintln!("error in WebSocket handler ({}): {e}", stringify!($version));
                         eprintln!("debug info: {e:?}");
-                        //TODO send error to client? (currently handled individually for each error)
+                        let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+                        let _ = lock!(writer).write(ServerMessage::OtherError(e.to_string())).await;
                     }
                 }
                 Ok(())
