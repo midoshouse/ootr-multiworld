@@ -53,12 +53,18 @@ macro_rules! server_errors {
 }
 
 server_errors! {
-    /// The client sent the wrong password for the given room.
+    /// You sent the wrong password for the given room.
     #[error("wrong password")]
     WrongPassword,
-    /// The client attempted to create a room with a duplicate name.
+    /// You attempted to create a room with a duplicate name.
     #[error("a room with this name already exists")]
     RoomExists,
+    /// You tried to sign in with a Discord account that's not associated with a Mido's House account.
+    #[error("no Mido's House user associated with this Discord account")]
+    NoMidosHouseAccountDiscord,
+    /// You tried to sign in with a racetime.gg account that's not associated with a Mido's House account.
+    #[error("no Mido's House user associated with this racetime.gg account")]
+    NoMidosHouseAccountRaceTime,
 }
 
 impl crate::ClientKind for WebSocket {

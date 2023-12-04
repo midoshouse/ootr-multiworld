@@ -383,7 +383,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             let old_mhid = midos_house_user_id.replace(mhid as u64);
                             update_room_list(rooms.clone(), Arc::clone(&writer), *logged_in_as_admin, old_mhid, *logged_in_as_admin, *midos_house_user_id).await?;
                         } else {
-                            error!("no Mido's House user associated with this Discord account") //TODO automatically create
+                            lock!(writer).write(ServerMessage::StructuredError(ServerError::NoMidosHouseAccountDiscord)).await?; //TODO automatically create
                         }
                     }
                     ClientMessage::LoginRaceTime { bearer_token } => {
@@ -402,7 +402,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             let old_mhid = midos_house_user_id.replace(mhid as u64);
                             update_room_list(rooms.clone(), Arc::clone(&writer), *logged_in_as_admin, old_mhid, *logged_in_as_admin, *midos_house_user_id).await?;
                         } else {
-                            error!("no Mido's House user associated with this racetime.gg account") //TODO automatically create
+                            lock!(writer).write(ServerMessage::StructuredError(ServerError::NoMidosHouseAccountRaceTime)).await?; //TODO automatically create
                         }
                     }
                     ClientMessage::Stop => if *logged_in_as_admin {

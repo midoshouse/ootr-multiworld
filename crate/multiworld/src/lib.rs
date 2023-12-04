@@ -993,7 +993,10 @@ impl fmt::Display for IdentityProvider {
 pub enum LobbyView {
     Normal,
     Settings,
-    Login(IdentityProvider),
+    Login {
+        provider: IdentityProvider,
+        no_midos_house_account: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1057,6 +1060,16 @@ impl<E> SessionState<E> {
                     },
                     auto_retry: false,
                 };
+            },
+            latest::ServerMessage::StructuredError(ServerError::NoMidosHouseAccountDiscord) => if let Self::Lobby { view: LobbyView::Login { provider: IdentityProvider::Discord, no_midos_house_account }, .. } = self {
+                *no_midos_house_account = true;
+            } else {
+                // ignore, GUI code should delete login token
+            },
+            latest::ServerMessage::StructuredError(ServerError::NoMidosHouseAccountRaceTime) => if let Self::Lobby { view: LobbyView::Login { provider: IdentityProvider::RaceTime, no_midos_house_account }, .. } = self {
+                *no_midos_house_account = true;
+            } else {
+                // ignore, GUI code should delete login token
             },
             latest::ServerMessage::WrongFileHash { server, client } => if let Self::Room { wrong_file_hash, .. } = self {
                 *wrong_file_hash = Some([server, client]);

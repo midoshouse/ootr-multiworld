@@ -286,6 +286,7 @@ enum Message {
     CommandError(Arc<Error>),
     ConfirmRoomDeletion,
     CopyDebugInfo,
+    CreateMidosHouseAccount(login::Provider),
     DiscordChannel,
     DiscordInvite,
     DismissWrongPassword,
@@ -388,7 +389,7 @@ impl State {
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
         } else if let Some(ref e) = self.login_error {
-            let with_provider = if let SessionState::Lobby { view: LobbyView::Login(provider), .. } = self.server_connection {
+            let with_provider = if let SessionState::Lobby { view: LobbyView::Login { provider, .. }, .. } = self.server_connection {
                 format!(" with {provider}")
             } else {
                 String::default()
@@ -623,6 +624,12 @@ impl Application for State {
             } else {
                 return cmd(future::err(Error::CopyDebugInfo))
             },
+            Message::CreateMidosHouseAccount(provider) => if let Err(e) = open(match provider {
+                login::Provider::Discord => "https://midos.house/login/discord",
+                login::Provider::RaceTime => "https://midos.house/login/racetime",
+            }) {
+                return cmd(future::err(e.into()))
+            },
             Message::DiscordChannel => if let Err(e) = open("https://discord.com/channels/274180765816848384/476723801032491008") {
                 return cmd(future::err(e.into()))
             },
@@ -721,7 +728,7 @@ impl Application for State {
                 })
             },
             Message::LoginError(e) => { self.login_error.get_or_insert(e); }
-            Message::LoginToken(bearer_token) => if let SessionState::Lobby { view: LobbyView::Login(provider), .. } = self.server_connection {
+            Message::LoginToken(bearer_token) => if let SessionState::Lobby { view: LobbyView::Login { provider, .. }, .. } = self.server_connection {
                 self.login_tokens.insert(provider, bearer_token.clone());
                 if let Some(writer) = self.server_writer.clone() {
                     return cmd(async move {
@@ -903,6 +910,24 @@ impl Application for State {
                     ServerMessage::StructuredError(ServerError::RoomExists) => if let SessionState::Lobby { .. } = self.server_connection {
                         return cmd(future::ok(Message::JoinRoom))
                     },
+                    ServerMessage::StructuredError(ServerError::NoMidosHouseAccountDiscord) => {
+                        self.login_tokens.remove(&login::Provider::Discord);
+                        return cmd(async {
+                            let mut config = Config::load().await?;
+                            config.login_tokens.remove(&login::Provider::Discord);
+                            config.save().await?;
+                            Ok(Message::Nop)
+                        })
+                    }
+                    ServerMessage::StructuredError(ServerError::NoMidosHouseAccountRaceTime) => {
+                        self.login_tokens.remove(&login::Provider::RaceTime);
+                        return cmd(async {
+                            let mut config = Config::load().await?;
+                            config.login_tokens.remove(&login::Provider::RaceTime);
+                            config.save().await?;
+                            Ok(Message::Nop)
+                        })
+                    }
                     ServerMessage::EnterLobby { .. } => {
                         let login_token = self.login_tokens.iter()
                             .next()
@@ -1150,6 +1175,7 @@ impl Application for State {
                     .into(),
                 SessionState::Lobby { wrong_password: true, .. } => Column::new()
                     .push("wrong password")
+                    .push(Space::with_height(Length::Fill))
                     .push(Button::new("OK").on_press(Message::DismissWrongPassword))
                     .spacing(8)
                     .padding(8)
@@ -1165,12 +1191,31 @@ impl Application for State {
                         col = col.push("You are signed in."); //TODO option to sign out
                     } else {
                         col = col
-                            .push(Button::new("Sign in with racetime.gg").on_press(Message::SetLobbyView(LobbyView::Login(login::Provider::RaceTime))))
-                            .push(Button::new("Sign in with Discord").on_press(Message::SetLobbyView(LobbyView::Login(login::Provider::Discord))));
+                            .push("To access official tournament rooms, sign into Mido's House:")
+                            .push(Button::new("Sign in with racetime.gg").on_press(Message::SetLobbyView(LobbyView::Login { provider: login::Provider::RaceTime, no_midos_house_account: false })))
+                            .push(Button::new("Sign in with Discord").on_press(Message::SetLobbyView(LobbyView::Login { provider: login::Provider::Discord, no_midos_house_account: false })));
                     }
                     col.spacing(8).padding(8).into()
                 }
-                SessionState::Lobby { view: LobbyView::Login(provider), wrong_password: false, .. } => Column::new()
+                SessionState::Lobby { view: LobbyView::Login { provider, no_midos_house_account: true }, wrong_password: false, .. } => Column::new()
+                    .push(Text::new(format!("This {provider} account is not associated with a Mido's House account.")))
+                    .push(Row::new()
+                        .push(Button::new("Create a Mido's House account").on_press(Message::CreateMidosHouseAccount(provider)))
+                        .push(",")
+                        .spacing(8)
+                    )
+                    .push(Row::new()
+                        .push("then")
+                        .push(Button::new("try again").on_press(Message::SetLobbyView(LobbyView::Login { provider, no_midos_house_account: false })))
+                        .push(".")
+                        .spacing(8)
+                    )
+                    .push(Space::with_height(Length::Fill))
+                    .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Settings)))
+                    .spacing(8)
+                    .padding(8)
+                    .into(),
+                SessionState::Lobby { view: LobbyView::Login { provider, no_midos_house_account: false }, wrong_password: false, .. } => Column::new()
                     .push(Text::new(format!("Signing in with {provider}…")))
                     .push("Please continue in your web browser.")
                     .push({
@@ -1180,6 +1225,7 @@ impl Application for State {
                         }
                         btn
                     })
+                    .push(Space::with_height(Length::Fill))
                     .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Settings)))
                     .spacing(8)
                     .padding(8)
@@ -1224,11 +1270,9 @@ impl Application for State {
                 }
                 SessionState::Room { view: RoomView::ConfirmDeletion, .. } => Column::new()
                     .push("Are you sure you want to delete this room? Items that have already been sent will be lost forever!")
-                    .push(Row::new()
-                        .push(Button::new("Delete").on_press(Message::ConfirmRoomDeletion))
-                        .push(Button::new("Back").on_press(Message::SetRoomView(RoomView::Normal)))
-                        .spacing(8)
-                    )
+                    .push(Button::new("Delete").on_press(Message::ConfirmRoomDeletion))
+                    .push(Space::with_height(Length::Fill))
+                    .push(Button::new("Back").on_press(Message::SetRoomView(RoomView::Normal)))
                     .spacing(8)
                     .padding(8)
                     .into(),
@@ -1382,7 +1426,7 @@ impl Application for State {
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
                 subscriptions.push(Subscription::from_recipe(subscriptions::Client { log: self.log, websocket_url: self.websocket_url.clone() }));
             }
-            if let SessionState::Lobby { view: LobbyView::Login(provider), .. } = self.server_connection {
+            if let SessionState::Lobby { view: LobbyView::Login { provider, no_midos_house_account: false }, .. } = self.server_connection {
                 subscriptions.push(Subscription::from_recipe(login::Subscription(provider)));
             }
         }
