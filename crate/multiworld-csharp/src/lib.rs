@@ -442,7 +442,7 @@ impl Client {
 #[csharp_ffi] pub unsafe extern "C" fn opt_message_result_kind(opt_msg_res: *const Result<Option<ServerMessage>, Error>) -> i8 {
     let opt_msg_res = &*opt_msg_res;
     match opt_msg_res {
-        Err(Error::Read(async_proto::ReadError::EndOfStream)) => -3,
+        Err(Error::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::EndOfStream, .. })) => -3,
         Err(_) => -2,
         Ok(None) => -1,
         Ok(Some(ServerMessage::ItemQueue(_))) => 0,

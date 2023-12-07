@@ -76,7 +76,8 @@ features = ["io"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
-branch = "main"
+#branch = "main"
+branch = "async-proto-error-ctx" #TODO go back to main once error-ctx branch of async-proto is published
 
 [target.'cfg(unix)'.dependencies]
 xdg = "2"

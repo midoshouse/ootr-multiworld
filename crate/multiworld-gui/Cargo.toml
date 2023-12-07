@@ -17,7 +17,7 @@ warnings = "deny"
 winres = "0.1"
 
 [dependencies]
-async-proto = "0.16.10"
+#async-proto = "0.16.10"
 dark-light = "1"
 enum-iterator = "1"
 futures = "0.3"
@@ -35,6 +35,10 @@ sysinfo = "0.29"
 thiserror = "1"
 tokio-stream = "0.1"
 url = "2"
+
+[dependencies.async-proto]
+git = "https://github.com/fenhl/async-proto" #TODO release
+branch = "error-ctx"
 
 [dependencies.chrono]
 version = "0.4"
@@ -98,7 +102,8 @@ features = ["rustls-tls-webpki-roots"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
-branch = "main"
+#branch = "main"
+branch = "async-proto-error-ctx" #TODO go back to main once error-ctx branch of async-proto is published
 features = ["reqwest", "tungstenite"]
 
 [target.'cfg(unix)'.dependencies]

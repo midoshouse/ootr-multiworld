@@ -82,7 +82,10 @@ impl TryFrom<ClientMessage> for unversioned::ClientMessage {
             ClientMessage::Ping => unversioned::ClientMessage::Ping,
             ClientMessage::JoinRoom { name, password } => unversioned::ClientMessage::JoinRoom { room: Either::Right(name), password },
             ClientMessage::CreateRoom { name, password } => unversioned::ClientMessage::CreateRoom { name, password },
-            ClientMessage::Login { .. } => return Err(async_proto::ReadError::Custom(format!("ClientMessage::Login is retired. Sign in with a Mido's House API key instead."))),
+            ClientMessage::Login { .. } => return Err(async_proto::ReadError {
+                context: async_proto::ErrorContext::Custom(format!("multiworld: unversioned ClientMessage from v11")),
+                kind: async_proto::ReadErrorKind::Custom(format!("ClientMessage::Login is retired. Sign in with a Mido's House API key instead.")),
+            }),
             ClientMessage::Stop => unversioned::ClientMessage::Stop,
             ClientMessage::PlayerId(world) => unversioned::ClientMessage::PlayerId(world),
             ClientMessage::ResetPlayerId => unversioned::ClientMessage::ResetPlayerId,

@@ -18,11 +18,15 @@ unused_qualifications = "deny"
 warnings = "deny"
 
 [dependencies]
-async-proto = "0.16.10"
+#async-proto = "0.16.10"
 itertools = "0.12"
 libc = "0.2"
 once_cell = "1"
 thiserror = "1"
+
+[dependencies.async-proto]
+git = "https://github.com/fenhl/async-proto" #TODO release
+branch = "error-ctx"
 
 [dependencies.chrono]
 version = "0.4"
@@ -45,7 +49,8 @@ branch = "mw"
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
-branch = "main"
+#branch = "main"
+branch = "async-proto-error-ctx" #TODO go back to main once error-ctx branch of async-proto is published
 
 [target.'cfg(unix)'.dependencies]
 xdg = "2"

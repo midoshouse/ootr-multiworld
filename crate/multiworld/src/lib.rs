@@ -862,7 +862,10 @@ impl<C: ClientKind> Room<C> {
                 worlds[usize::from(player.world.get() - 1)].0 = Some(save_data);
             }
         }
-        let mut sock = tokio_tungstenite::connect_async("wss://oottracker.fenhl.net/websocket").await?.0;
+        let mut sock = tokio_tungstenite::connect_async("wss://oottracker.fenhl.net/websocket").await.map_err(|e| async_proto::WriteError {
+            context: async_proto::ErrorContext::Custom(format!("multiworld::Room::init_tracker")),
+            kind: e.into(),
+        })?.0;
         oottracker::websocket::ClientMessage::MwCreateRoom { room: tracker_room_name.clone(), worlds }.write_ws(&mut sock).await?;
         self.tracker_state = Some((tracker_room_name, sock));
         Ok(())

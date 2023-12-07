@@ -149,7 +149,10 @@ impl LoggingReader {
     async fn read<T: Protocol + fmt::Debug>(&mut self) -> Result<T, async_proto::ReadError> {
         let msg = T::read(&mut self.inner).await?;
         if self.log {
-            writeln!(&*lock!(LOG), "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
+            writeln!(&*lock!(LOG), "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context).map_err(|e| async_proto::ReadError {
+                context: async_proto::ErrorContext::Custom(format!("multiworld-gui::LoggingReader::read")),
+                kind: e.into(),
+            })?;
         }
         Ok(msg)
     }
@@ -165,7 +168,10 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
     async fn read_owned(mut self) -> Result<(Self, ServerMessage), async_proto::ReadError> {
         let msg = ServerMessage::read_ws(&mut self.inner).await?;
         if self.log {
-            writeln!(&*lock!(LOG), "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
+            writeln!(&*lock!(LOG), "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context).map_err(|e| async_proto::ReadError {
+                context: async_proto::ErrorContext::Custom(format!("multiworld-gui::LoggingStream::read_owned")),
+                kind: e.into(),
+            })?;
         }
         Ok((self, msg))
     }
@@ -181,7 +187,10 @@ struct LoggingWriter {
 impl LoggingWriter {
     async fn write(&self, msg: impl Protocol + fmt::Debug) -> Result<(), async_proto::WriteError> {
         if self.log {
-            writeln!(&*lock!(LOG), "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
+            writeln!(&*lock!(LOG), "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context).map_err(|e| async_proto::WriteError {
+                context: async_proto::ErrorContext::Custom(format!("multiworld-gui::LoggingWriter::write")),
+                kind: e.into(),
+            })?;
         }
         msg.write(&mut *lock!(self.inner)).await
     }
@@ -197,7 +206,10 @@ struct LoggingSink {
 impl LoggingSink {
     async fn write(&self, msg: ClientMessage) -> Result<(), async_proto::WriteError> {
         if self.log {
-            writeln!(&*lock!(LOG), "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)?;
+            writeln!(&*lock!(LOG), "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context).map_err(|e| async_proto::WriteError {
+                context: async_proto::ErrorContext::Custom(format!("multiworld-gui::LoggingSink::write")),
+                kind: e.into(),
+            })?;
         }
         msg.write_ws(&mut *lock!(self.inner)).await
     }
@@ -706,7 +718,7 @@ impl Application for State {
                 }
             }
             Message::FrontendSubscriptionError(e) => {
-                if let Error::Read(async_proto::ReadError::Io(ref e)) = *e {
+                if let Error::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::Io(ref e), .. }) = *e {
                     match (self.frontend.kind, e.kind()) {
                         (Frontend::BizHawk | Frontend::Pj64V4, io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof) => return window::close(), // frontend closed
                         (Frontend::Pj64V3, io::ErrorKind::ConnectionReset) => {

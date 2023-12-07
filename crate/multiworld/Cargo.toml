@@ -24,7 +24,9 @@ serde_json = "1"
 thiserror = "1"
 
 [dependencies.async-proto]
-version = "0.16.10"
+#version = "0.16.10"
+git = "https://github.com/fenhl/async-proto" #TODO release
+branch = "error-ctx"
 features = ["semver"]
 
 [dependencies.chrono]
@@ -80,7 +82,8 @@ features = ["serde"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
-branch = "main"
+#branch = "main"
+branch = "async-proto-error-ctx" #TODO go back to main once error-ctx branch of async-proto is published
 features = ["async-proto", "reqwest", "serde", "serde_json"]
 
 [target.'cfg(unix)'.dependencies]

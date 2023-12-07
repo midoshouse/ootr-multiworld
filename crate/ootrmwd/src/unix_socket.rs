@@ -7,6 +7,7 @@ use {
     async_proto::{
         Protocol,
         ReadError,
+        ReadErrorKind,
     },
     chrono::prelude::*,
     either::Either,
@@ -81,7 +82,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                 tokio::spawn(async move {
                     let msg = match ClientMessage::read(&mut sock).await {
                         Ok(msg) => msg,
-                        Err(ReadError::Io(e)) if e.kind() == io::ErrorKind::UnexpectedEof => return,
+                        Err(ReadError { kind: ReadErrorKind::Io(e), .. }) if e.kind() == io::ErrorKind::UnexpectedEof => return,
                         Err(e) => panic!("error reading from UNIX socket: {e} ({e:?})"),
                     };
                     match msg {
