@@ -12,6 +12,41 @@ use {
     wheel::traits::ReqwestResponseExt as _,
 };
 
+#[cfg(feature = "github-app-auth")]
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)] Auth(#[from] github_app_auth::AuthError),
+    #[error(transparent)] Reqwest(#[from] reqwest::Error),
+    #[error(transparent)] Wheel(#[from] wheel::Error),
+}
+
+#[cfg(feature = "github-app-auth")]
+#[derive(Debug, Deserialize)]
+pub struct Issue {
+    number: u64,
+    pub labels: Vec<Label>,
+}
+
+#[cfg(feature = "github-app-auth")]
+impl Issue {
+    pub async fn set_labels(&self, client: &Client, token: &mut github_app_auth::InstallationAccessToken, repo: &Repo, labels: &[String]) -> Result<(), Error> {
+        client.patch(&format!("https://api.github.com/repos/{}/{}/issues/{}", repo.user, repo.name, self.number))
+            .headers(token.header().await?)
+            .json(&json!({
+                "labels": labels,
+            }))
+            .send().await?
+            .detailed_error_for_status().await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "github-app-auth")]
+#[derive(Debug, Deserialize)]
+pub struct Label {
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Release {
     pub assets: Vec<ReleaseAsset>,
@@ -47,6 +82,19 @@ impl Repo {
             user: user.to_string(),
             name: name.to_string(),
         }
+    }
+
+    #[cfg(feature = "github-app-auth")]
+    pub async fn issues_with_label(&self, client: &Client, token: &mut github_app_auth::InstallationAccessToken, label: &str) -> Result<Vec<Issue>, Error> {
+        Ok(client.get(&format!("https://api.github.com/repos/{}/{}/issues", self.user, self.name))
+            .headers(token.header().await?)
+            .query(&[
+                ("state", "all"),
+                ("labels", label),
+            ])
+            .send().await?
+            .detailed_error_for_status().await?
+            .json_with_text_in_error().await?)
     }
 
     pub async fn latest_release(&self, client: &Client) -> wheel::Result<Option<Release>> {

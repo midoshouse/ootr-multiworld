@@ -38,6 +38,10 @@ features = ["clock", "std"]
 version = "4"
 features = ["derive"]
 
+[dependencies.github-app-auth]
+version = "3"
+optional = true
+
 [dependencies.log-lock]
 git = "https://github.com/fenhl/log-lock"
 branch = "main"

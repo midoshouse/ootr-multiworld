@@ -23,6 +23,7 @@ use {
         Progress,
         Task,
     },
+    itertools::Itertools as _,
     semver::Version,
     tempfile::NamedTempFile,
     tokio::{
@@ -1018,6 +1019,8 @@ enum Error {
     #[error(transparent)] BizHawkVersionCheck(#[from] version::BizHawkError),
     #[error(transparent)] BroadcastRecv(#[from] broadcast::error::RecvError),
     #[error(transparent)] DirLock(#[from] dir_lock::Error),
+    #[error(transparent)] GitHub(#[from] multiworld::github::Error),
+    #[error(transparent)] GitHubAppAuth(#[from] github_app_auth::AuthError),
     #[error(transparent)] InvalidHeaderValue(#[from] reqwest::header::InvalidHeaderValue),
     #[error(transparent)] Io(#[from] tokio::io::Error),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
@@ -1134,6 +1137,21 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
             let line = cli.new_line("[....] publishing release").await?;
             repo.publish_release(&client, release).await?;
             line.replace("[done] release published").await?;
+            let line = cli.new_line("[....] relabelling issues").await?;
+            let mut token = github_app_auth::InstallationAccessToken::new(github_app_auth::GithubAuthParams {
+                user_agent: concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")).to_owned(),
+                private_key: include_bytes!("../../../assets/github-private-key.pem").to_vec(),
+                installation_id: 40480009,
+                app_id: 371733,
+            }).await?;
+            let issues = repo.issues_with_label(&client, &mut token, "status: pending release").await?;
+            for issue in &issues {
+                let mut labels = issue.labels.iter().map(|multiworld::github::Label { name }| name.clone()).collect_vec();
+                labels.retain(|label| label != "status: pending release");
+                labels.push(format!("status: released"));
+                issue.set_labels(&client, &mut token, &repo, &labels).await?;
+            }
+            line.replace(format!("[done] {} issues relabelled", issues.len())).await?;
         }
     }
     Ok(())
