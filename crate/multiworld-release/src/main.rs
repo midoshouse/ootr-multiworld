@@ -915,9 +915,14 @@ impl Task<Result<(), Error>> for BuildServer {
                 Ok(Err(if wait_restart { Self::WaitRestart } else { Self::Stop }))
             }).await,
             Self::WaitRestart => gres::transpose(async move {
-                Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /usr/local/share/midos-house/bin/ootrmwd wait-until-inactive; fi").check("ssh midos.house ootrmwd wait-until-inactive").await?;
-                //TODO show output
-                //TODO continue normally if this fails because the server is stopped
+                loop {
+                    //TODO show output
+                    match Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /usr/local/share/midos-house/bin/ootrmwd wait-until-inactive; fi").check("ssh midos.house ootrmwd wait-until-inactive").await {
+                        Ok(_) => break,
+                        Err(wheel::Error::CommandExit { output, .. }) if std::str::from_utf8(&output.stderr).is_ok_and(|stderr| stderr.contains("Connection reset")) => continue,
+                        Err(e) => return Err(e.into()), //TODO continue normally if this fails because the server is stopped
+                    }
+                }
                 Ok(Err(Self::Stop))
             }).await,
             Self::Stop => gres::transpose(async move {

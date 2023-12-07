@@ -9,6 +9,8 @@ use {
         ReadError,
     },
     chrono::prelude::*,
+    either::Either,
+    futures::future,
     log_lock::{
         ArcRwLock,
         lock,
@@ -21,6 +23,7 @@ use {
         net::UnixListener,
         select,
         sync::broadcast,
+        time::sleep,
     },
     wheel::{
         fs,
@@ -54,6 +57,7 @@ pub(crate) enum ClientMessage {
         hash5: HashIcon,
         players: Vec<u64>,
     },
+    PrepareRestart,
 }
 
 #[derive(Protocol)]
@@ -177,6 +181,86 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 tracker_state: None,
                                 id, name,
                             })).await.write(&mut sock).await.expect("error writing to UNIX socket");
+                        }
+                        ClientMessage::PrepareRestart => {
+                            let mut deadline = Utc::now() + chrono::Duration::days(1);
+                            loop {
+                                match sqlx::query_scalar!(r#"SELECT start AS "start!" FROM races WHERE series = 'mw' AND start > $1::TIMESTAMPTZ - INTERVAL '24:00:00' AND start <= $1::TIMESTAMPTZ + INTERVAL '00:15:00' ORDER BY start DESC LIMIT 1"#, deadline).fetch_optional(&db_pool).await {
+                                    Ok(Some(start)) => {
+                                        deadline = start + chrono::Duration::days(1);
+                                        continue
+                                    }
+                                    Ok(None) => {}
+                                    Err(_) => {
+                                        WaitUntilInactiveMessage::Error.write(&mut sock).await.expect("error writing to UNIX socket");
+                                        return
+                                    }
+                                }
+                                match sqlx::query_scalar!(r#"SELECT async_start1 AS "async_start1!" FROM races WHERE series = 'mw' AND async_start1 > $1::TIMESTAMPTZ - INTERVAL '24:00:00' AND async_start1 <= $1::TIMESTAMPTZ + INTERVAL '00:15:00' ORDER BY async_start1 DESC LIMIT 1"#, deadline).fetch_optional(&db_pool).await {
+                                    Ok(Some(start)) => {
+                                        deadline = start + chrono::Duration::days(1);
+                                        continue
+                                    }
+                                    Ok(None) => {}
+                                    Err(_) => {
+                                        WaitUntilInactiveMessage::Error.write(&mut sock).await.expect("error writing to UNIX socket");
+                                        return
+                                    }
+                                }
+                                match sqlx::query_scalar!(r#"SELECT async_start2 AS "async_start2!" FROM races WHERE series = 'mw' AND async_start2 > $1::TIMESTAMPTZ - INTERVAL '24:00:00' AND async_start2 <= $1::TIMESTAMPTZ + INTERVAL '00:15:00' ORDER BY async_start2 DESC LIMIT 1"#, deadline).fetch_optional(&db_pool).await {
+                                    Ok(Some(start)) => {
+                                        deadline = start + chrono::Duration::days(1);
+                                        continue
+                                    }
+                                    Ok(None) => {}
+                                    Err(_) => {
+                                        WaitUntilInactiveMessage::Error.write(&mut sock).await.expect("error writing to UNIX socket");
+                                        return
+                                    }
+                                }
+                                break
+                            }
+                            //TODO announce deadline
+                            let mut active_rooms = HashMap::default();
+                            let mut room_stream = lock!(rooms.0).change_tx.subscribe();
+                            loop {
+                                let now = Utc::now();
+                                let previous_active_rooms = mem::take(&mut active_rooms);
+                                for room in lock!(rooms.0).list.values() {
+                                    let room = lock!(@read room);
+                                    if room.last_saved > now - chrono::Duration::hours(1) && room.clients.values().any(|client| client.player.is_some()) {
+                                        active_rooms.insert(room.name.clone(), (room.last_saved + chrono::Duration::hours(1), room.clients.values().filter(|client| client.player.is_some()).count().try_into().expect("too many players")));
+                                    }
+                                }
+                                if active_rooms.is_empty() { break }
+                                if active_rooms != previous_active_rooms {
+                                    WaitUntilInactiveMessage::ActiveRooms(active_rooms.clone()).write(&mut sock).await.expect("error writing to UNIX socket");
+                                }
+                                let sleep = if let Ok(duration) = (deadline - Utc::now()).to_std() {
+                                    Either::Left(sleep(duration))
+                                } else {
+                                    Either::Right(future::ready(()))
+                                };
+                                select! {
+                                    res = rooms.wait_inactive(shutdown.clone()) => match res {
+                                        Ok(()) => {}
+                                        Err(_) => {
+                                            WaitUntilInactiveMessage::Error.write(&mut sock).await.expect("error writing to UNIX socket");
+                                            return
+                                        }
+                                    },
+                                    res = room_stream.recv() => match res {
+                                        Ok(_) => {}
+                                        Err(_) => {
+                                            WaitUntilInactiveMessage::Error.write(&mut sock).await.expect("error writing to UNIX socket");
+                                            return
+                                        }
+                                    },
+                                    () = sleep => break,
+                                }
+                            }
+                            WaitUntilInactiveMessage::Inactive.write(&mut sock).await.expect("error writing to UNIX socket");
+                            return
                         }
                     }
                 });

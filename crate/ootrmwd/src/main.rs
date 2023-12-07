@@ -788,7 +788,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
             subcommand.write(&mut sock).await?;
             match subcommand {
                 Subcommand::Stop | Subcommand::StopWhenEmpty | Subcommand::WaitUntilEmpty => { u8::read(&mut sock).await?; }
-                Subcommand::WaitUntilInactive => loop {
+                Subcommand::WaitUntilInactive | Subcommand::PrepareRestart => loop {
                     match WaitUntilInactiveMessage::read(&mut sock).await? {
                         WaitUntilInactiveMessage::Error => return Err(Error::WaitUntilInactive),
                         WaitUntilInactiveMessage::ActiveRooms(rooms) => {
