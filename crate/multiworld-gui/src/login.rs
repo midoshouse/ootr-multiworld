@@ -220,21 +220,19 @@ fn not_found() -> RawHtml<String> {
         h1 : "Error 404: Not Found";
         p : "There is no page at this address.";
         h2 : "Support";
-        p {
-            ul {
-                li {
-                    : "Ask in #setup-support on the OoT Randomizer Discord (";
-                    a(href = "https://discord.gg/BGRrKKn") : "invite link";
-                    : " • ";
-                    a(href = "https://discord.com/channels/274180765816848384/476723801032491008") : "direct channel link";
-                    : "). Feel free to ping @fenhl.";
-                }
-                li : "Ask in #general on the OoTR MW Tournament Discord.";
-                li {
-                    : "Or ";
-                    a(href = "https://github.com/midoshouse/ootr-multiworld/issues/new") : "open an issue";
-                    : ".";
-                }
+        ul {
+            li {
+                : "Ask in #setup-support on the OoT Randomizer Discord (";
+                a(href = "https://discord.gg/BGRrKKn") : "invite link";
+                : " • ";
+                a(href = "https://discord.com/channels/274180765816848384/476723801032491008") : "direct channel link";
+                : "). Feel free to ping @fenhl.";
+            }
+            li : "Ask in #general on the OoTR MW Tournament Discord.";
+            li {
+                : "Or ";
+                a(href = "https://github.com/midoshouse/ootr-multiworld/issues/new") : "open an issue";
+                : ".";
             }
         }
     })
@@ -247,22 +245,20 @@ fn internal_server_error() -> RawHtml<String> {
         p : "An error occurred while trying to sign in.";
         //TODO show error (global mutex holding last error?)
         h2 : "Support";
-        p {
-            ul {
-                li {
-                    : "Ask in #setup-support on the OoT Randomizer Discord (";
-                    a(href = "https://discord.gg/BGRrKKn") : "invite link";
-                    : " • ";
-                    a(href = "https://discord.com/channels/274180765816848384/476723801032491008") : "direct channel link";
-                    : "). Feel free to ping @fenhl.";
-                }
-                li : "Ask in #general on the OoTR MW Tournament Discord.";
-                li {
-                    : "Or ";
-                    a(href = "https://github.com/midoshouse/ootr-multiworld/issues/new") : "open an issue";
-                    : ".";
-                }
+        p : "This is a bug in Mido's House Multiworld. Please report it:";
+        ul {
+            li {
+                a(href = "https://github.com/midoshouse/ootr-multiworld/issues/new") : "Open a GitHub issue";
+                : ",";
             }
+            li {
+                : "Or post in #setup-support on the OoT Randomizer Discord (";
+                a(href = "https://discord.gg/BGRrKKn") : "invite link";
+                : " • ";
+                a(href = "https://discord.com/channels/274180765816848384/476723801032491008") : "direct channel link";
+                : "). Please ping @fenhl in your message.";
+            }
+            li : "Or ask in #general on the OoTR MW Tournament Discord.";
         }
     })
 }

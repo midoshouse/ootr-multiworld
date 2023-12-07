@@ -992,7 +992,9 @@ impl Application for State {
                                 })
                             })
                         } else {
-                            //TODO notify user that they're no longer signed in
+                            if let SessionState::Lobby { ref mut view, .. } = self.server_connection {
+                                *view = LobbyView::SessionExpired(login::Provider::Discord);
+                            }
                         }
                     }
                     ServerMessage::StructuredError(ServerError::SessionExpiredRaceTime) => {
@@ -1009,7 +1011,9 @@ impl Application for State {
                                 })
                             })
                         } else {
-                            //TODO notify user that they're no longer signed in
+                            if let SessionState::Lobby { ref mut view, .. } = self.server_connection {
+                                *view = LobbyView::SessionExpired(login::Provider::RaceTime);
+                            }
                         }
                     }
                     ServerMessage::EnterLobby { .. } => {
@@ -1261,6 +1265,14 @@ impl Application for State {
                     .push("wrong password")
                     .push(Space::with_height(Length::Fill))
                     .push(Button::new("OK").on_press(Message::DismissWrongPassword))
+                    .spacing(8)
+                    .padding(8)
+                    .into(),
+                SessionState::Lobby { view: LobbyView::SessionExpired(provider), wrong_password: false, .. } => Column::new()
+                    .push(Text::new(format!("Your Mido's House user session has expired.")))
+                    .push(Button::new("Sign back in").on_press(Message::SetLobbyView(LobbyView::Login { provider, no_midos_house_account: false })))
+                    .push(Space::with_width(Length::Fill))
+                    .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Normal)))
                     .spacing(8)
                     .padding(8)
                     .into(),
@@ -1530,18 +1542,19 @@ fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, debug_inf
                 .spacing(8)
             )
             .push(Text::new("Support").size(24))
-            .push("• Ask in #setup-support on the OoT Randomizer Discord. Feel free to ping @fenhl.")
+            .push("This is a bug in Mido's House Multiworld. Please report it:")
+            .push(Row::new()
+                .push("• ")
+                .push(Button::new("Open a GitHub issue").on_press(Message::NewIssue))
+                .spacing(8)
+            )
+            .push("• Or post in #setup-support on the OoT Randomizer Discord. Please ping @fenhl in your message.")
             .push(Row::new()
                 .push(Button::new("invite link").on_press(Message::DiscordInvite))
                 .push(Button::new("direct channel link").on_press(Message::DiscordChannel))
                 .spacing(8)
             )
-            .push("• Ask in #general on the OoTR MW Tournament Discord.")
-            .push(Row::new()
-                .push("• Or ")
-                .push(Button::new("open an issue").on_press(Message::NewIssue))
-                .spacing(8)
-            )
+            .push("• Or post in #general on the OoTR MW Tournament Discord.")
             .spacing(8)
             .padding(8)
         )

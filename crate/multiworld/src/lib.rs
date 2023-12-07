@@ -995,6 +995,7 @@ impl fmt::Display for IdentityProvider {
 #[derive(Debug, Clone, Copy)]
 pub enum LobbyView {
     Normal,
+    SessionExpired(IdentityProvider),
     Settings,
     Login {
         provider: IdentityProvider,
