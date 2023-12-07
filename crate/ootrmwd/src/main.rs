@@ -366,41 +366,49 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                         error!("invalid API key")
                     },
                     ClientMessage::LoginDiscord { bearer_token } => {
-                        #[derive(Deserialize)]
-                        struct DiscordUser {
-                            id: serenity::all::UserId,
-                        }
+                        match http_client.get("https://discord.com/api/v10/users/@me").bearer_auth(bearer_token).send().await?.detailed_error_for_status().await {
+                            Ok(response) => {
+                                #[derive(Deserialize)]
+                                struct DiscordUser {
+                                    id: serenity::all::UserId,
+                                }
 
-                        let DiscordUser { id } = http_client.get("https://discord.com/api/v10/users/@me")
-                            .bearer_auth(bearer_token)
-                            .send().await?
-                            .detailed_error_for_status().await?
-                            .json_with_text_in_error().await?;
-                        if let Some(mhid) = sqlx::query_scalar!("SELECT id FROM users WHERE discord_id = $1", i64::from(id)).fetch_optional(&db_pool).await? {
-                            lock!(writer).write(ServerMessage::LoginSuccess).await?;
-                            let old_mhid = midos_house_user_id.replace(mhid as u64);
-                            update_room_list(rooms.clone(), Arc::clone(&writer), *logged_in_as_admin, old_mhid, *logged_in_as_admin, *midos_house_user_id).await?;
-                        } else {
-                            lock!(writer).write(ServerMessage::StructuredError(ServerError::NoMidosHouseAccountDiscord)).await?; //TODO automatically create
+                                let DiscordUser { id } = response.json_with_text_in_error().await?;
+                                if let Some(mhid) = sqlx::query_scalar!("SELECT id FROM users WHERE discord_id = $1", i64::from(id)).fetch_optional(&db_pool).await? {
+                                    lock!(writer).write(ServerMessage::LoginSuccess).await?;
+                                    let old_mhid = midos_house_user_id.replace(mhid as u64);
+                                    update_room_list(rooms.clone(), Arc::clone(&writer), *logged_in_as_admin, old_mhid, *logged_in_as_admin, *midos_house_user_id).await?;
+                                } else {
+                                    lock!(writer).write(ServerMessage::StructuredError(ServerError::NoMidosHouseAccountDiscord)).await?; //TODO automatically create
+                                }
+                            }
+                            Err(wheel::Error::ResponseStatus { inner, .. }) if inner.status() == Some(reqwest::StatusCode::FORBIDDEN) => {
+                                lock!(writer).write(ServerMessage::StructuredError(ServerError::SessionExpiredDiscord)).await?;
+                            }
+                            Err(e) => return Err(e.into()),
                         }
                     }
                     ClientMessage::LoginRaceTime { bearer_token } => {
-                        #[derive(Deserialize)]
-                        struct RaceTimeUser {
-                            id: String,
-                        }
+                        match http_client.get("https://racetime.gg/o/userinfo").bearer_auth(bearer_token).send().await?.detailed_error_for_status().await {
+                            Ok(response) => {
+                                #[derive(Deserialize)]
+                                struct RaceTimeUser {
+                                    id: String,
+                                }
 
-                        let RaceTimeUser { id } = http_client.get("https://racetime.gg/o/userinfo")
-                            .bearer_auth(bearer_token)
-                            .send().await?
-                            .detailed_error_for_status().await?
-                            .json_with_text_in_error().await?;
-                        if let Some(mhid) = sqlx::query_scalar!("SELECT id FROM users WHERE racetime_id = $1", id).fetch_optional(&db_pool).await? {
-                            lock!(writer).write(ServerMessage::LoginSuccess).await?;
-                            let old_mhid = midos_house_user_id.replace(mhid as u64);
-                            update_room_list(rooms.clone(), Arc::clone(&writer), *logged_in_as_admin, old_mhid, *logged_in_as_admin, *midos_house_user_id).await?;
-                        } else {
-                            lock!(writer).write(ServerMessage::StructuredError(ServerError::NoMidosHouseAccountRaceTime)).await?; //TODO automatically create
+                                let RaceTimeUser { id } = response.json_with_text_in_error().await?;
+                                if let Some(mhid) = sqlx::query_scalar!("SELECT id FROM users WHERE racetime_id = $1", id).fetch_optional(&db_pool).await? {
+                                    lock!(writer).write(ServerMessage::LoginSuccess).await?;
+                                    let old_mhid = midos_house_user_id.replace(mhid as u64);
+                                    update_room_list(rooms.clone(), Arc::clone(&writer), *logged_in_as_admin, old_mhid, *logged_in_as_admin, *midos_house_user_id).await?;
+                                } else {
+                                    lock!(writer).write(ServerMessage::StructuredError(ServerError::NoMidosHouseAccountRaceTime)).await?; //TODO automatically create
+                                }
+                            }
+                            Err(wheel::Error::ResponseStatus { inner, .. }) if inner.status() == Some(reqwest::StatusCode::FORBIDDEN) => {
+                                lock!(writer).write(ServerMessage::StructuredError(ServerError::SessionExpiredRaceTime)).await?;
+                            }
+                            Err(e) => return Err(e.into()),
                         }
                     }
                     ClientMessage::Stop => if *logged_in_as_admin {

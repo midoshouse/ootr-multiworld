@@ -31,10 +31,7 @@ use {
         Scope,
         TokenResponse as _,
         TokenUrl,
-        basic::{
-            BasicClient,
-            BasicRequestTokenError,
-        },
+        basic::BasicClient,
         reqwest::async_http_client,
     },
     rocket::{
@@ -66,6 +63,23 @@ const PORT: u16 = 24819;
 pub(crate) enum Error {
     #[error(transparent)] Rocket(#[from] rocket::Error),
     #[error(transparent)] Url(#[from] url::ParseError),
+}
+
+pub(crate) fn oauth_client(provider: Provider) -> Result<BasicClient, url::ParseError> {
+    Ok(match provider {
+        Provider::RaceTime => BasicClient::new(
+            ClientId::new(env!("CLIENT_ID_RACETIME").to_owned()),
+            None,
+            AuthUrl::new(format!("https://racetime.gg/o/authorize"))?,
+            Some(TokenUrl::new(format!("https://racetime.gg/o/token"))?),
+        ).set_redirect_uri(RedirectUrl::new(format!("http://localhost:{PORT}/auth/racetime"))?),
+        Provider::Discord => BasicClient::new(
+            ClientId::new(env!("CLIENT_ID_DISCORD").to_owned()),
+            None,
+            AuthUrl::new(format!("https://discord.com/oauth2/authorize"))?,
+            Some(TokenUrl::new(format!("https://discord.com/api/oauth2/token"))?),
+        ).set_redirect_uri(RedirectUrl::new(format!("http://localhost:{PORT}/auth/discord"))?),
+    })
 }
 
 pub(crate) struct Subscription(pub(crate) Provider);
@@ -103,21 +117,9 @@ impl Recipe for Subscription {
         }
 
         stream::once(async move {
-            let oauth_client = match self.0 {
-                Provider::RaceTime => BasicClient::new(
-                    ClientId::new(env!("CLIENT_ID_RACETIME").to_owned()),
-                    None,
-                    AuthUrl::new(format!("https://racetime.gg/o/authorize"))?,
-                    Some(TokenUrl::new(format!("https://racetime.gg/o/token"))?),
-                ).set_redirect_uri(RedirectUrl::new(format!("http://localhost:{PORT}/auth/racetime"))?),
-                Provider::Discord => BasicClient::new(
-                    ClientId::new(env!("CLIENT_ID_DISCORD").to_owned()),
-                    None,
-                    AuthUrl::new(format!("https://discord.com/oauth2/authorize"))?,
-                    Some(TokenUrl::new(format!("https://discord.com/api/oauth2/token"))?),
-                ).set_redirect_uri(RedirectUrl::new(format!("http://localhost:{PORT}/auth/discord"))?),
-            };
-            let (pkce_challenge, pkce_verifier) = match self.0 {
+            let provider = self.0;
+            let oauth_client = oauth_client(provider)?;
+            let (pkce_challenge, pkce_verifier) = match provider {
                 Provider::RaceTime => (None, None),
                 Provider::Discord => {
                     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
@@ -126,7 +128,7 @@ impl Recipe for Subscription {
             };
             let (auth_url, csrf_token) = {
                 let mut auth_request = oauth_client.authorize_url(CsrfToken::new_random);
-                auth_request = auth_request.add_scope(Scope::new(match self.0 {
+                auth_request = auth_request.add_scope(Scope::new(match provider {
                     Provider::RaceTime => format!("read"),
                     Provider::Discord => format!("identify"),
                 }));
@@ -135,7 +137,7 @@ impl Recipe for Subscription {
                 }
                 auth_request.url()
             };
-            let (token_tx, token_rx) = mpsc::channel::<String>(1);
+            let (token_tx, token_rx) = mpsc::channel::<(String, Option<String>)>(1);
             let mut rocket = rocket::custom(rocket::Config {
                 log_level: rocket::config::LogLevel::Critical,
                 port: PORT,
@@ -145,7 +147,7 @@ impl Recipe for Subscription {
                     ..rocket::config::Shutdown::default()
                 },
                 ..rocket::Config::default()
-            }).mount("/", match self.0 {
+            }).mount("/", match provider {
                 Provider::RaceTime => rocket::routes![racetime_callback],
                 Provider::Discord => rocket::routes![discord_callback],
             })
@@ -165,7 +167,7 @@ impl Recipe for Subscription {
                     let Rocket { .. } = rocket.launch().await.expect("error in OAuth callback web server");
                 }),
                 stream: stream::once(future::ready(Message::OpenLoginPage(auth_url)))
-                    .chain(ReceiverStream::new(token_rx).map(Message::LoginToken))
+                    .chain(ReceiverStream::new(token_rx).map(move |(bearer_token, refresh_token)| Message::LoginTokens { provider, bearer_token, refresh_token }))
                     .map(Ok),
             })
         })
@@ -282,7 +284,7 @@ impl ProviderTrait for RaceTime {
 
 #[derive(Debug, thiserror::Error)]
 enum CallbackError<P: ProviderTrait> {
-    #[error(transparent)] RequestToken(#[from] BasicRequestTokenError<oauth2::reqwest::HttpClientError>),
+    #[error(transparent)] RequestToken(#[from] oauth2::basic::BasicRequestTokenError<oauth2::reqwest::HttpClientError>),
     #[error("invalid CSRF token")]
     CsrfMismatch,
     #[error("failed to send bearer token to multiworld app")]
@@ -310,17 +312,16 @@ impl<'r, P: ProviderTrait> Responder<'r, 'static> for CallbackError<P> {
 }
 
 #[rocket::get("/auth/discord?<code>&<state>")]
-async fn discord_callback(oauth_client: &State<BasicClient>, csrf_token: &State<CsrfToken>, pkce_verifier: &State<PkceCodeVerifier>, shutdown: rocket::Shutdown, sender: &State<mpsc::Sender<String>>, code: String, state: String) -> Result<RawHtml<String>, CallbackError<Discord>> {
+async fn discord_callback(oauth_client: &State<BasicClient>, csrf_token: &State<CsrfToken>, pkce_verifier: &State<PkceCodeVerifier>, shutdown: rocket::Shutdown, sender: &State<mpsc::Sender<(String, Option<String>)>>, code: String, state: String) -> Result<RawHtml<String>, CallbackError<Discord>> {
     if state != *csrf_token.secret() {
         return Err(CallbackError::CsrfMismatch)
     }
-    let token = oauth_client
+    let tokens = oauth_client
         .exchange_code(AuthorizationCode::new(code))
         .set_pkce_verifier(PkceCodeVerifier::new(pkce_verifier.secret().clone())) // need to extract and rebuild a `PkceCodeVerifier` because it doesn't implement `Clone`
         .request_async(async_http_client).await?;
-    sender.send(token.access_token().secret().clone()).await.map_err(|_| CallbackError::Send)?;
+    sender.send((tokens.access_token().secret().clone(), tokens.refresh_token().map(|refresh_token| refresh_token.secret().clone()))).await.map_err(|_| CallbackError::Send)?;
     shutdown.notify();
-    //TODO save refresh token
     Ok(page("Login successful — Mido's House Multiworld", html! {
         h1 : "Discord login successful";
         p : "You can now close this tab and continue in the multiworld app.";
@@ -328,16 +329,15 @@ async fn discord_callback(oauth_client: &State<BasicClient>, csrf_token: &State<
 }
 
 #[rocket::get("/auth/racetime?<code>&<state>")]
-async fn racetime_callback(oauth_client: &State<BasicClient>, csrf_token: &State<CsrfToken>, shutdown: rocket::Shutdown, sender: &State<mpsc::Sender<String>>, code: String, state: String) -> Result<RawHtml<String>, CallbackError<RaceTime>> {
+async fn racetime_callback(oauth_client: &State<BasicClient>, csrf_token: &State<CsrfToken>, shutdown: rocket::Shutdown, sender: &State<mpsc::Sender<(String, Option<String>)>>, code: String, state: String) -> Result<RawHtml<String>, CallbackError<RaceTime>> {
     if state != *csrf_token.secret() {
         return Err(CallbackError::CsrfMismatch)
     }
-    let token = oauth_client
+    let tokens = oauth_client
         .exchange_code(AuthorizationCode::new(code))
         .request_async(async_http_client).await?;
-    sender.send(token.access_token().secret().clone()).await.map_err(|_| CallbackError::Send)?;
+    sender.send((tokens.access_token().secret().clone(), tokens.refresh_token().map(|refresh_token| refresh_token.secret().clone()))).await.map_err(|_| CallbackError::Send)?;
     shutdown.notify();
-    //TODO save refresh token
     Ok(page("Login successful — Mido's House Multiworld", html! {
         h1 : "racetime.gg login successful";
         p : "You can now close this tab and continue in the multiworld app.";

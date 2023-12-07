@@ -65,6 +65,12 @@ server_errors! {
     /// You tried to sign in with a racetime.gg account that's not associated with a Mido's House account.
     #[error("no Mido's House user associated with this racetime.gg account")]
     NoMidosHouseAccountRaceTime,
+    /// You tried to sign in with an expired Discord session token.
+    #[error("this Discord session token has expired")]
+    SessionExpiredDiscord,
+    /// You tried to sign in with an expired racetime.gg session token.
+    #[error("this racetime.gg session token has expired")]
+    SessionExpiredRaceTime,
 }
 
 impl crate::ClientKind for WebSocket {

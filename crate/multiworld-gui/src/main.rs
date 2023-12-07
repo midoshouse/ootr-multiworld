@@ -52,6 +52,11 @@ use {
         Mutex,
         lock,
     },
+    oauth2::{
+        RefreshToken,
+        TokenResponse as _,
+        reqwest::async_http_client,
+    },
     once_cell::sync::Lazy,
     ootr_utils::spoiler::HashIcon,
     open::that as open,
@@ -244,6 +249,7 @@ enum Error {
     #[error(transparent)] Json(#[from] serde_json::Error),
     #[error(transparent)] PersistentState(#[from] persistent_state::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
+    #[error(transparent)] RequestToken(#[from] oauth2::basic::BasicRequestTokenError<oauth2::reqwest::HttpClientError>),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Semver(#[from] semver::Error),
     #[error(transparent)] Url(#[from] url::ParseError),
@@ -271,6 +277,17 @@ impl IsNetworkError for Error {
             Self::Client(e) => e.is_network_error(),
             Self::Io(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),
+            Self::RequestToken(e) => match e {
+                oauth2::basic::BasicRequestTokenError::ServerResponse(_) => false,
+                oauth2::basic::BasicRequestTokenError::Request(e) => match e {
+                    oauth2::reqwest::Error::Reqwest(e) => e.is_network_error(),
+                    oauth2::reqwest::Error::Http(_) => false, // this is https://docs.rs/http/0.2.9/http/struct.Error.html which does not appear to be constructed from network errors
+                    oauth2::reqwest::Error::Io(e) => e.is_network_error(),
+                    oauth2::reqwest::Error::Other(_) => false,
+                },
+                oauth2::basic::BasicRequestTokenError::Parse(_, _) => false,
+                oauth2::basic::BasicRequestTokenError::Other(_) => false,
+            },
             Self::Reqwest(e) => e.is_network_error(),
             Self::WebSocket(e) => e.is_network_error(),
             Self::Wheel(e) => e.is_network_error(),
@@ -298,7 +315,11 @@ enum Message {
     Kick(NonZeroU8),
     Leave,
     LoginError(Arc<login::Error>),
-    LoginToken(String),
+    LoginTokens {
+        provider: login::Provider,
+        bearer_token: String,
+        refresh_token: Option<String>,
+    },
     NewIssue,
     Nop,
     OpenLoginPage(Url),
@@ -347,6 +368,7 @@ struct State {
     frontend_writer: Option<LoggingWriter>,
     log: bool,
     login_tokens: BTreeMap<login::Provider, String>,
+    refresh_tokens: BTreeMap<login::Provider, String>,
     last_login_url: Option<Url>,
     websocket_url: Url,
     server_connection: SessionState<Arc<Error>>,
@@ -505,6 +527,7 @@ impl Application for State {
             websocket_url: config.websocket_url().expect("failed to parse WebSocket URL"),
             log: config.log,
             login_tokens: config.login_tokens,
+            refresh_tokens: config.refresh_tokens,
             last_login_url: None,
             server_connection: SessionState::Init,
             server_writer: None,
@@ -728,21 +751,32 @@ impl Application for State {
                 })
             },
             Message::LoginError(e) => { self.login_error.get_or_insert(e); }
-            Message::LoginToken(bearer_token) => if let SessionState::Lobby { view: LobbyView::Login { provider, .. }, .. } = self.server_connection {
+            Message::LoginTokens { provider, bearer_token, refresh_token } => {
                 self.login_tokens.insert(provider, bearer_token.clone());
+                if let Some(ref refresh_token) = refresh_token {
+                    self.refresh_tokens.insert(provider, refresh_token.clone());
+                }
                 if let Some(writer) = self.server_writer.clone() {
+                    let change_view = matches!(self.server_connection, SessionState::Lobby { view: LobbyView::Login { .. }, .. });
                     return cmd(async move {
                         let mut config = Config::load().await?;
                         config.login_tokens.insert(provider, bearer_token.clone());
+                        if let Some(refresh_token) = refresh_token {
+                            config.refresh_tokens.insert(provider, refresh_token.clone());
+                        }
                         config.save().await?;
                         writer.write(match provider {
                             login::Provider::RaceTime => ClientMessage::LoginRaceTime { bearer_token },
                             login::Provider::Discord => ClientMessage::LoginDiscord { bearer_token },
                         }).await?;
-                        Ok(Message::SetLobbyView(LobbyView::Settings))
+                        Ok(if change_view {
+                            Message::SetLobbyView(LobbyView::Settings)
+                        } else {
+                            Message::Nop
+                        })
                     })
                 }
-            },
+            }
             Message::NewIssue => {
                 let mut issue_url = match Url::parse("https://github.com/midoshouse/ootr-multiworld/issues/new") {
                     Ok(issue_url) => issue_url,
@@ -912,21 +946,59 @@ impl Application for State {
                     },
                     ServerMessage::StructuredError(ServerError::NoMidosHouseAccountDiscord) => {
                         self.login_tokens.remove(&login::Provider::Discord);
+                        self.refresh_tokens.remove(&login::Provider::Discord);
                         return cmd(async {
                             let mut config = Config::load().await?;
                             config.login_tokens.remove(&login::Provider::Discord);
+                            config.refresh_tokens.remove(&login::Provider::Discord);
                             config.save().await?;
                             Ok(Message::Nop)
                         })
                     }
                     ServerMessage::StructuredError(ServerError::NoMidosHouseAccountRaceTime) => {
                         self.login_tokens.remove(&login::Provider::RaceTime);
+                        self.refresh_tokens.remove(&login::Provider::RaceTime);
                         return cmd(async {
                             let mut config = Config::load().await?;
                             config.login_tokens.remove(&login::Provider::RaceTime);
+                            config.refresh_tokens.remove(&login::Provider::RaceTime);
                             config.save().await?;
                             Ok(Message::Nop)
                         })
+                    }
+                    ServerMessage::StructuredError(ServerError::SessionExpiredDiscord) => {
+                        self.login_tokens.remove(&login::Provider::Discord);
+                        if let Some(refresh_token) = self.refresh_tokens.remove(&login::Provider::Discord) {
+                            return cmd(async move {
+                                let tokens = login::oauth_client(login::Provider::Discord)?
+                                    .exchange_refresh_token(&RefreshToken::new(refresh_token))
+                                    .request_async(async_http_client).await?;
+                                Ok(Message::LoginTokens {
+                                    provider: login::Provider::Discord,
+                                    bearer_token: tokens.access_token().secret().clone(),
+                                    refresh_token: tokens.refresh_token().map(|refresh_token| refresh_token.secret().clone()),
+                                })
+                            })
+                        } else {
+                            //TODO notify user that they're no longer signed in
+                        }
+                    }
+                    ServerMessage::StructuredError(ServerError::SessionExpiredRaceTime) => {
+                        self.login_tokens.remove(&login::Provider::RaceTime);
+                        if let Some(refresh_token) = self.refresh_tokens.remove(&login::Provider::RaceTime) {
+                            return cmd(async move {
+                                let tokens = login::oauth_client(login::Provider::RaceTime)?
+                                    .exchange_refresh_token(&RefreshToken::new(refresh_token))
+                                    .request_async(async_http_client).await?;
+                                Ok(Message::LoginTokens {
+                                    provider: login::Provider::RaceTime,
+                                    bearer_token: tokens.access_token().secret().clone(),
+                                    refresh_token: tokens.refresh_token().map(|refresh_token| refresh_token.secret().clone()),
+                                })
+                            })
+                        } else {
+                            //TODO notify user that they're no longer signed in
+                        }
                     }
                     ServerMessage::EnterLobby { .. } => {
                         let login_token = self.login_tokens.iter()

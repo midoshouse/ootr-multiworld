@@ -24,6 +24,8 @@ pub struct Config {
     pub log: bool,
     #[serde(default)]
     pub login_tokens: BTreeMap<crate::IdentityProvider, String>,
+    #[serde(default)]
+    pub refresh_tokens: BTreeMap<crate::IdentityProvider, String>,
     pub pj64_script_path: Option<PathBuf>,
     #[serde(default = "default_websocket_hostname")]
     pub websocket_hostname: String,
@@ -109,6 +111,7 @@ impl Default for Config {
             default_frontend: None,
             log: false,
             login_tokens: BTreeMap::default(),
+            refresh_tokens: BTreeMap::default(),
             pj64_script_path: None,
             websocket_hostname: default_websocket_hostname(),
         }

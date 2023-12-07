@@ -1071,6 +1071,9 @@ impl<E> SessionState<E> {
             } else {
                 // ignore, GUI code should delete login token
             },
+            latest::ServerMessage::StructuredError(ServerError::SessionExpiredDiscord | ServerError::SessionExpiredRaceTime) => {
+                // ignore, GUI code should refresh login token
+            }
             latest::ServerMessage::WrongFileHash { server, client } => if let Self::Room { wrong_file_hash, .. } = self {
                 *wrong_file_hash = Some([server, client]);
             } else {
