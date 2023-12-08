@@ -45,6 +45,7 @@ use {
             ServerMessage,
         },
     },
+    crate::util::absolute_path,
 };
 #[cfg(unix)] use {
     std::os::unix::fs::PermissionsExt as _,
@@ -54,6 +55,8 @@ use {
     directories::ProjectDirs,
     semver::Version,
 };
+
+mod util;
 
 static CONFIG: Lazy<Config> = Lazy::new(|| {
     match Config::blocking_load() {
@@ -332,7 +335,7 @@ impl Client {
                 #[cfg(target_os = "windows")] { env::current_exe().at_unknown()? }
                 #[cfg(target_os = "linux")] { env::current_dir().at_unknown()?.join(env::args_os().nth(1).ok_or(Error::NoCurrentExe)?) }
             };
-            emuhawk_path.canonicalize().at_unknown()?.parent().ok_or(Error::CurrentExeAtRoot)?
+            absolute_path(emuhawk_path)?.parent().ok_or(Error::CurrentExeAtRoot)?
         });
         cmd.arg(process::id().to_string());
         cmd.arg(format!("{}.{}.{}", major?, minor?, patch?));

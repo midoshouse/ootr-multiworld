@@ -3558,6 +3558,7 @@ dependencies = [
  "semver",
  "thiserror",
  "wheel 0.13.1 (git+https://github.com/fenhl/wheel?branch=async-proto-error-ctx)",
+ "windows 0.52.0",
  "winver",
  "xdg",
 ]
