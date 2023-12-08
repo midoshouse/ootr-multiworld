@@ -325,19 +325,22 @@ impl Client {
             #[cfg(unix)] fs::set_permissions(&gui_path, fs::Permissions::from_mode(0o755)).at(&gui_path)?;
         }
         let (major, minor, patch) = version.split('.').map(u64::from_str).chain(iter::repeat(Ok(0))).next_tuple().expect("iter::repeat produces an infinite iterator");
-        Command::new(&gui_path)
-            .arg("bizhawk")
-            .arg({
-                let emuhawk_path = {
-                    #[cfg(target_os = "windows")] { env::current_exe().at_unknown()? }
-                    #[cfg(target_os = "linux")] { env::current_dir().at_unknown()?.join(env::args_os().nth(1).ok_or(Error::NoCurrentExe)?) }
-                };
-                emuhawk_path.canonicalize().at_unknown()?.parent().ok_or(Error::CurrentExeAtRoot)?
-            })
-            .arg(process::id().to_string())
-            .arg(format!("{}.{}.{}", major?, minor?, patch?))
-            .arg(tcp_listener.local_addr().at_unknown()?.port().to_string())
-            .spawn().at_command(gui_path.display().to_string())?;
+        let mut cmd = Command::new(&gui_path);
+        cmd.arg("bizhawk");
+        cmd.arg({
+            let emuhawk_path = {
+                #[cfg(target_os = "windows")] { env::current_exe().at_unknown()? }
+                #[cfg(target_os = "linux")] { env::current_dir().at_unknown()?.join(env::args_os().nth(1).ok_or(Error::NoCurrentExe)?) }
+            };
+            emuhawk_path.canonicalize().at_unknown()?.parent().ok_or(Error::CurrentExeAtRoot)?
+        });
+        cmd.arg(process::id().to_string());
+        cmd.arg(format!("{}.{}.{}", major?, minor?, patch?));
+        cmd.arg(tcp_listener.local_addr().at_unknown()?.port().to_string());
+        if CONFIG.log {
+            writeln!(&*LOG, "{} running {cmd:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")).expect("failed to write log entry");
+        }
+        cmd.spawn().at_command(gui_path.display().to_string())?;
         Ok(Client {
             tcp_stream: None,
             buf: Vec::default(),
