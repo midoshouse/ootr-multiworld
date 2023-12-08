@@ -28,7 +28,7 @@ enum Error {
     UndefinedCsharpFunction(String),
 }
 
-#[wheel::main(debug)]
+#[wheel::main]
 async fn main() -> Result<(), Error> {
     println!("cargo:rerun-if-changed=nonexistent.foo"); // check a nonexistent file to make sure build script is always run (see https://github.com/rust-lang/cargo/issues/4213 and https://github.com/rust-lang/cargo/issues/5663)
     // check for extern function definitions in C# which aren't defined in Rust

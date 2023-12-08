@@ -631,7 +631,7 @@ enum MainError {
     MissingHomeDir,
 }
 
-#[wheel::main(debug)]
+#[wheel::main]
 fn main(args: Args) -> Result<(), MainError> {
     match args {
         Args::Emu(args) => Ok(App::run(Settings {

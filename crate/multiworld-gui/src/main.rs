@@ -1614,7 +1614,7 @@ struct CliArgs {
     frontend: Option<FrontendArgs>,
 }
 
-#[wheel::main(debug)]
+#[wheel::main]
 fn main(CliArgs { frontend }: CliArgs) -> iced::Result {
     let (icon, icon_error) = match icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico)) {
         Ok(icon) => (Some(icon), None),

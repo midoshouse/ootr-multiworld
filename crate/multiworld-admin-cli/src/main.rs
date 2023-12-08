@@ -173,7 +173,7 @@ async fn cli(Args { api_key }: Args) -> Result<(), Error> {
     Ok(())
 }
 
-#[wheel::main(debug)]
+#[wheel::main]
 async fn main(args: Args) -> Result<(), Error> {
     enable_raw_mode()?;
     let res = cli(args).await;

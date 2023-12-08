@@ -1027,7 +1027,7 @@ enum MainError {
     #[error(transparent)] Wheel(#[from] wheel::Error),
 }
 
-#[wheel::main(debug)]
+#[wheel::main]
 fn main(args: Args) -> Result<(), MainError> {
     Ok(State::run(Settings {
         window: window::Settings {
