@@ -2,6 +2,7 @@ use {
     std::{
         collections::HashMap,
         mem,
+        sync::Arc,
         time::Duration,
     },
     async_proto::{
@@ -23,7 +24,10 @@ use {
         io,
         net::UnixListener,
         select,
-        sync::broadcast,
+        sync::{
+            broadcast,
+            watch,
+        },
         time::sleep,
     },
     wheel::{
@@ -66,9 +70,10 @@ pub(crate) enum WaitUntilInactiveMessage {
     Error,
     ActiveRooms(HashMap<String, (DateTime<Utc>, u64)>),
     Inactive,
+    Deadline(DateTime<Utc>),
 }
 
-pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Rooms<C>, mut shutdown: rocket::Shutdown) -> wheel::Result<()> {
+pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Rooms<C>, mut shutdown: rocket::Shutdown, maintenance: Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>) -> wheel::Result<()> {
     fs::remove_file(PATH).await.missing_ok()?;
     let listener = UnixListener::bind(PATH).at(PATH)?;
     loop {
@@ -79,6 +84,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                 let db_pool = db_pool.clone();
                 let rooms = rooms.clone();
                 let shutdown = shutdown.clone();
+                let maintenance = maintenance.clone();
                 tokio::spawn(async move {
                     let msg = match ClientMessage::read(&mut sock).await {
                         Ok(msg) => msg,
@@ -221,7 +227,9 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 }
                                 break
                             }
-                            //TODO announce deadline
+                            //TODO adjust deadline for races scheduled during the wait
+                            WaitUntilInactiveMessage::Deadline(deadline).write(&mut sock).await.expect("error writing to UNIX socket");
+                            maintenance.send_replace(Some((deadline, Duration::from_secs(5 * 60)))); //TODO measure actual downtime duration and use as estimate
                             let mut active_rooms = HashMap::default();
                             let mut room_stream = lock!(rooms.0).change_tx.subscribe();
                             loop {

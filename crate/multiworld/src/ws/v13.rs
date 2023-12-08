@@ -123,7 +123,6 @@ pub enum ServerMessage {
     DeleteRoom(u64),
     EnterRoom {
         room_id: u64,
-        //TODO (v14) add room_name field (why?)
         players: Vec<Player>,
         num_unassigned_clients: u8,
         autodelete_delta: Duration,
@@ -185,6 +184,7 @@ impl From<unversioned::ServerMessage> for Option<ServerMessage> {
             unversioned::ServerMessage::LoginSuccess => Some(ServerMessage::LoginSuccess),
             unversioned::ServerMessage::WorldTaken(world) => Some(ServerMessage::WorldTaken(world)),
             unversioned::ServerMessage::WorldFreed => Some(ServerMessage::WorldFreed),
+            unversioned::ServerMessage::MaintenanceNotice { .. } => None, // clients on old versions just won't get notified
         }
     }
 }

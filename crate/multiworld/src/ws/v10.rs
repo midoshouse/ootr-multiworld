@@ -168,6 +168,7 @@ impl From<unversioned::ServerMessage> for Option<ServerMessage> {
             unversioned::ServerMessage::LoginSuccess => unreachable!(), // old admin login system no longer works
             unversioned::ServerMessage::WorldTaken(world) => Some(ServerMessage::OtherError(format!("world {world} is already taken"))),
             unversioned::ServerMessage::WorldFreed => None, // can only be sent after WorldTaken which is converted to a fatal error
+            unversioned::ServerMessage::MaintenanceNotice { .. } => None, // clients on old versions just won't get notified
         }
     }
 }

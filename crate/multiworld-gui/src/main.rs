@@ -1128,6 +1128,7 @@ impl Application for State {
                         Message::ReconnectToLobby
                     };
                     self.server_connection = SessionState::Error {
+                        maintenance: self.server_connection.maintenance(),
                         e: SessionStateError::Connection(e),
                         auto_retry: true,
                     };
@@ -1137,6 +1138,7 @@ impl Application for State {
                     })
                 } else {
                     self.server_connection = SessionState::Error {
+                        maintenance: self.server_connection.maintenance(),
                         e: SessionStateError::Connection(e),
                         auto_retry: false,
                     };
@@ -1228,23 +1230,33 @@ impl Application for State {
             col.spacing(8).padding(8).into()
         } else {
             match self.server_connection {
-                SessionState::Error { auto_retry: false, ref e } => error_view("An error occurred during communication with the server:", e, self.debug_info_copied),
-                SessionState::Error { auto_retry: true, ref e } => Column::new()
-                    .push("A network error occurred:")
-                    .push(Text::new(e.to_string()))
-                    .push(Row::new()
-                        .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
-                        .push(if self.debug_info_copied { "Copied!" } else { "for pasting into Discord" })
+                SessionState::Error { auto_retry: false, ref e, maintenance: _ } => error_view("An error occurred during communication with the server:", e, self.debug_info_copied),
+                SessionState::Error { auto_retry: true, ref e, maintenance } => {
+                    let mut col = Column::new();
+                    if let Some((start, duration)) = maintenance {
+                        col = col.push(Text::new(format!(
+                            "Maintenance on the Mido's House server is scheduled for {} (time shown in your local timezone). Mido's House Multiworld is expected to go offline for approximately {}.",
+                            start.with_timezone(&Local).format("%A, %B %e, %H:%M"),
+                            DurationFormatter(duration),
+                        )));
+                    }
+                    col
+                        .push("A network error occurred:")
+                        .push(Text::new(e.to_string()))
+                        .push(Row::new()
+                            .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
+                            .push(if self.debug_info_copied { "Copied!" } else { "for pasting into Discord" })
+                            .spacing(8)
+                        )
+                        .push(Text::new(if let Ok(retry) = chrono::Duration::from_std(self.retry.duration_since(Instant::now())) {
+                            format!("Reconnecting at {}", (Local::now() + retry).format("%H:%M:%S"))
+                        } else {
+                            format!("Reconnecting…")
+                        })) //TODO live countdown
                         .spacing(8)
-                    )
-                    .push(Text::new(if let Ok(retry) = chrono::Duration::from_std(self.retry.duration_since(Instant::now())) {
-                        format!("Reconnecting at {}", (Local::now() + retry).format("%H:%M:%S"))
-                    } else {
-                        format!("Reconnecting…")
-                    })) //TODO live countdown
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                        .padding(8)
+                        .into()
+                }
                 SessionState::Init => Column::new()
                     .push("Connecting to server…")
                     .push("If this takes longer than 5 seconds, check your internet connection or contact @fenhl on Discord for support.")
@@ -1326,8 +1338,16 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                SessionState::Lobby { view: LobbyView::Normal, wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } => {
-                    let mut col = Column::new()
+                SessionState::Lobby { view: LobbyView::Normal, wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password, maintenance, .. } => {
+                    let mut col = Column::new();
+                    if let Some((start, duration)) = maintenance {
+                        col = col.push(Text::new(format!(
+                            "Maintenance on the Mido's House server is scheduled for {} (time shown in your local timezone). Mido's House Multiworld is expected to go offline for approximately {}.",
+                            start.with_timezone(&Local).format("%A, %B %e, %H:%M"),
+                            DurationFormatter(duration),
+                        )));
+                    }
+                    col = col
                         .push(Radio::new("Connect to existing room", false, Some(create_new_room), Message::SetCreateNewRoom))
                         .push(Radio::new("Create new room", true, Some(create_new_room), Message::SetCreateNewRoom))
                         .push(if create_new_room {
@@ -1464,9 +1484,17 @@ impl Application for State {
                     }
                     col.spacing(8).padding(8).into()
                 }
-                SessionState::Room { view: RoomView::Normal, wrong_file_hash: None, ref players, num_unassigned_clients, .. } => {
+                SessionState::Room { view: RoomView::Normal, wrong_file_hash: None, ref players, num_unassigned_clients, maintenance, .. } => {
                     let (players, other) = format_room_state(players, num_unassigned_clients, self.last_world);
-                    let mut col = Column::new()
+                    let mut col = Column::new();
+                    if let Some((start, duration)) = maintenance {
+                        col = col.push(Text::new(format!(
+                            "Maintenance on the Mido's House server is scheduled for {} (time shown in your local timezone). Mido's House Multiworld is expected to go offline for approximately {}.",
+                            start.with_timezone(&Local).format("%A, %B %e, %H:%M"),
+                            DurationFormatter(duration),
+                        )));
+                    }
+                    col = col
                         .push(Row::new()
                             .push(Button::new("Delete Room").on_press(Message::SetRoomView(RoomView::ConfirmDeletion)))
                             .push(Button::new("Options").on_press(Message::SetRoomView(RoomView::Options)))

@@ -1,11 +1,15 @@
 use {
-    std::sync::{
-        Arc,
-        atomic::{
-            AtomicUsize,
-            Ordering::*,
+    std::{
+        sync::{
+            Arc,
+            atomic::{
+                AtomicUsize,
+                Ordering::*,
+            },
         },
+        time::Duration,
     },
+    chrono::prelude::*,
     futures::stream::StreamExt as _,
     log_lock::*,
     ring::rand::SystemRandom,
@@ -24,7 +28,10 @@ use {
     },
     rocket_ws::WebSocket,
     sqlx::PgPool,
-    tokio::process::Command,
+    tokio::{
+        process::Command,
+        sync::watch,
+    },
     tokio_tungstenite::tungstenite,
     multiworld::{
         ClientWriter as _,
@@ -50,17 +57,18 @@ fn index() -> Redirect {
 macro_rules! supported_version {
     ($endpoint:literal, $version:ident, $variant:ident, $number:literal) => {
         #[rocket::get($endpoint)]
-        async fn $version(rng: &State<Arc<SystemRandom>>, db_pool: &State<PgPool>, http_client: &State<reqwest::Client>, rooms: &State<Rooms<WebSocket>>, next_session_id: &State<AtomicUsize>, ws: WebSocket, shutdown: rocket::Shutdown) -> rocket_ws::Channel<'static> {
+        async fn $version(rng: &State<Arc<SystemRandom>>, db_pool: &State<PgPool>, http_client: &State<reqwest::Client>, rooms: &State<Rooms<WebSocket>>, maintenance: &State<Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>>, next_session_id: &State<AtomicUsize>, ws: WebSocket, shutdown: rocket::Shutdown) -> rocket_ws::Channel<'static> {
             let _ = sqlx::query!("INSERT INTO mw_versions (version, last_used) VALUES ($1, NOW()) ON CONFLICT (version) DO UPDATE SET last_used = EXCLUDED.last_used", $number).execute(&**db_pool).await;
             let rng = (*rng).clone();
             let db_pool = (*db_pool).clone();
             let http_client = (*http_client).clone();
             let rooms = (*rooms).clone();
+            let maintenance = (*maintenance).clone();
             let session_id = next_session_id.fetch_add(1, SeqCst);
             ws.channel(move |stream| Box::pin(async move {
                 let (sink, stream) = stream.split();
                 let writer = Arc::new(Mutex::new(VersionedWriter { inner: sink, version: Version::$variant }));
-                match client_session(&rng, db_pool, http_client, rooms, session_id, VersionedReader { inner: stream, version: Version::$variant }, Arc::clone(&writer), shutdown).await {
+                match client_session(&rng, db_pool, http_client, rooms, session_id, VersionedReader { inner: stream, version: Version::$variant }, Arc::clone(&writer), shutdown, maintenance).await {
                     Ok(()) => {}
                     Err(SessionError::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::Tungstenite(tungstenite::Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake)), .. })) => {} // this happens when a player force quits their multiworld app (or normally quits on macOS, see https://github.com/iced-rs/iced/issues/1941)
                     Err(SessionError::Server(msg)) => {
@@ -85,6 +93,7 @@ supported_version!("/v10", v10, V10, 10);
 supported_version!("/v11", v11, V11, 11);
 supported_version!("/v12", v12, V12, 12);
 supported_version!("/v13", v13, V13, 13);
+supported_version!("/v14", v14, V14, 14);
 
 #[rocket::catch(404)]
 async fn not_found() -> RawHtml<String> {
@@ -126,7 +135,7 @@ async fn internal_server_error() -> RawHtml<String> {
     }
 }
 
-pub(crate) async fn rocket(db_pool: PgPool, http_client: reqwest::Client, rng: Arc<SystemRandom>, port: u16, rooms: Rooms<WebSocket>) -> Result<Rocket<rocket::Ignite>, crate::Error> {
+pub(crate) async fn rocket(db_pool: PgPool, http_client: reqwest::Client, rng: Arc<SystemRandom>, port: u16, rooms: Rooms<WebSocket>, maintenance: Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>) -> Result<Rocket<rocket::Ignite>, crate::Error> {
     Ok(rocket::custom(rocket::Config {
         log_level: rocket::config::LogLevel::Critical,
         port,
@@ -144,6 +153,7 @@ pub(crate) async fn rocket(db_pool: PgPool, http_client: reqwest::Client, rng: A
     .manage(http_client)
     .manage(rng)
     .manage(rooms)
+    .manage(maintenance)
     .manage(AtomicUsize::default())
     .ignite().await?)
 }

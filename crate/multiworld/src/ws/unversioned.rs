@@ -4,6 +4,7 @@ use {
         num::NonZeroU8,
         time::Duration,
     },
+    chrono::prelude::*,
     either::Either,
     ootr_utils::spoiler::{
         HashIcon,
@@ -168,4 +169,9 @@ pub enum ServerMessage {
     WorldTaken(NonZeroU8),
     /// This world is no longer taken.
     WorldFreed,
+    /// Announcing a future server downtime.
+    MaintenanceNotice {
+        start: DateTime<Utc>,
+        duration: Duration,
+    },
 }

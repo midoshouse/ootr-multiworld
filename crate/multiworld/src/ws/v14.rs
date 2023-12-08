@@ -5,6 +5,7 @@ use {
         time::Duration,
     },
     async_proto::Protocol,
+    chrono::prelude::*,
     either::Either,
     futures::{
         Sink,
@@ -45,7 +46,7 @@ pub enum ClientMessage {
     ResetPlayerId,
     PlayerName(Filename),
     SendItem {
-        key: u32,
+        key: u64,
         kind: u16,
         target_world: NonZeroU8,
     },
@@ -74,6 +75,7 @@ pub enum ClientMessage {
     LoginRaceTime {
         bearer_token: String,
     },
+    LeaveRoom,
 }
 
 impl TryFrom<ClientMessage> for unversioned::ClientMessage {
@@ -89,7 +91,7 @@ impl TryFrom<ClientMessage> for unversioned::ClientMessage {
             ClientMessage::PlayerId(world) => unversioned::ClientMessage::PlayerId(world),
             ClientMessage::ResetPlayerId => unversioned::ClientMessage::ResetPlayerId,
             ClientMessage::PlayerName(filename) => unversioned::ClientMessage::PlayerName(filename),
-            ClientMessage::SendItem { key, kind, target_world } => unversioned::ClientMessage::SendItem { key: key.into(), kind, target_world },
+            ClientMessage::SendItem { key, kind, target_world } => unversioned::ClientMessage::SendItem { key, kind, target_world },
             ClientMessage::KickPlayer(world) => unversioned::ClientMessage::KickPlayer(world),
             ClientMessage::DeleteRoom => unversioned::ClientMessage::DeleteRoom,
             ClientMessage::Track { mw_room, tracker_room_name, world_count } => unversioned::ClientMessage::Track { mw_room: Either::Left(mw_room), tracker_room_name, world_count },
@@ -101,6 +103,7 @@ impl TryFrom<ClientMessage> for unversioned::ClientMessage {
             ClientMessage::WaitUntilEmpty => unversioned::ClientMessage::WaitUntilEmpty,
             ClientMessage::LoginDiscord { bearer_token } => unversioned::ClientMessage::LoginDiscord { bearer_token },
             ClientMessage::LoginRaceTime { bearer_token } => unversioned::ClientMessage::LoginRaceTime { bearer_token },
+            ClientMessage::LeaveRoom => unversioned::ClientMessage::LeaveRoom,
         })
     }
 }
@@ -150,6 +153,12 @@ pub enum ServerMessage {
         state: u32,
     },
     LoginSuccess,
+    WorldTaken(NonZeroU8),
+    WorldFreed,
+    MaintenanceNotice {
+        start: DateTime<Utc>,
+        duration: Duration,
+    },
 }
 
 impl From<unversioned::ServerMessage> for Option<ServerMessage> {
@@ -178,9 +187,9 @@ impl From<unversioned::ServerMessage> for Option<ServerMessage> {
             unversioned::ServerMessage::WrongFileHash { server, client } => Some(ServerMessage::WrongFileHash { server, client }),
             unversioned::ServerMessage::ProgressiveItems { world, state } => Some(ServerMessage::ProgressiveItems { world, state }),
             unversioned::ServerMessage::LoginSuccess => Some(ServerMessage::LoginSuccess),
-            unversioned::ServerMessage::WorldTaken(world) => Some(ServerMessage::OtherError(format!("world {world} is already taken"))),
-            unversioned::ServerMessage::WorldFreed => None, // can only be sent after WorldTaken which is converted to a fatal error
-            unversioned::ServerMessage::MaintenanceNotice { .. } => None, // clients on old versions just won't get notified
+            unversioned::ServerMessage::WorldTaken(world) => Some(ServerMessage::WorldTaken(world)),
+            unversioned::ServerMessage::WorldFreed => Some(ServerMessage::WorldFreed),
+            unversioned::ServerMessage::MaintenanceNotice { start, duration } => Some(ServerMessage::MaintenanceNotice { start, duration }),
         }
     }
 }

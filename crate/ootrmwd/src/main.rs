@@ -61,6 +61,7 @@ use {
         sync::{
             broadcast,
             oneshot,
+            watch,
         },
         time::{
             Instant,
@@ -139,7 +140,8 @@ enum SessionError {
     Shutdown,
 }
 
-async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, shutdown: rocket::Shutdown) -> Result<(), SessionError> {
+async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, shutdown: rocket::Shutdown, maintenance: Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>) -> Result<(), SessionError> {
+    let mut maintenance = maintenance.subscribe();
     let ping_writer = Arc::clone(&writer);
     let ping_task = tokio::spawn(async move {
         let mut interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
@@ -152,9 +154,9 @@ async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http
     let mut logged_in_as_admin = false;
     let mut midos_house_user_id = None;
     loop {
-        let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, writer.clone(), shutdown.clone(), &mut logged_in_as_admin, &mut midos_house_user_id).await?;
+        let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, writer.clone(), shutdown.clone(), &mut maintenance, &mut logged_in_as_admin, &mut midos_house_user_id).await?;
         let _ = lock!(rooms.0).change_tx.send(RoomListChange::Join);
-        let (lobby_reader, end) = room_session(rooms.clone(), room, socket_id, room_reader, writer.clone(), end_rx, shutdown.clone()).await?;
+        let (lobby_reader, end) = room_session(rooms.clone(), room, socket_id, room_reader, writer.clone(), &mut maintenance, end_rx, shutdown.clone()).await?;
         let _ = lock!(rooms.0).change_tx.send(RoomListChange::Leave);
         match end {
             EndRoomSession::ToLobby => read = lobby_reader,
@@ -174,7 +176,7 @@ fn next_message<C: ClientKind>(reader: C::Reader) -> NextMessage<C> {
     Box::pin(timeout(Duration::from_secs(60), reader.read_owned()))
 }
 
-async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, mut read: NextMessage<C>, writer: Arc<Mutex<C::Writer>>, mut shutdown: rocket::Shutdown, logged_in_as_admin: &mut bool, midos_house_user_id: &mut Option<u64>) -> Result<(C::Reader, ArcRwLock<Room<C>>, oneshot::Receiver<EndRoomSession>), SessionError> {
+async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, mut read: NextMessage<C>, writer: Arc<Mutex<C::Writer>>, mut shutdown: rocket::Shutdown, maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>, logged_in_as_admin: &mut bool, midos_house_user_id: &mut Option<u64>) -> Result<(C::Reader, ArcRwLock<Room<C>>, oneshot::Receiver<EndRoomSession>), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             return Err(SessionError::Server(format!($($msg)*)))
@@ -203,6 +205,12 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
     Ok(loop {
         select! {
             () = &mut shutdown => return Err(SessionError::Shutdown),
+            Ok(()) = maintenance.changed() => {
+                let maintenance = *maintenance.borrow_and_update();
+                if let Some((start, duration)) = maintenance {
+                    lock!(writer).write(ServerMessage::MaintenanceNotice { start, duration }).await?;
+                }
+            }
             room_list_change = room_stream.recv() => {
                 match room_list_change {
                     Ok(RoomListChange::New(room)) => {
@@ -493,7 +501,7 @@ async fn update_room_list<C: ClientKind>(rooms: Rooms<C>, writer: Arc<Mutex<C::W
     Ok(())
 }
 
-async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, mut end_rx: oneshot::Receiver<EndRoomSession>, mut shutdown: rocket::Shutdown) -> Result<(NextMessage<C>, EndRoomSession), SessionError> {
+async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>, mut end_rx: oneshot::Receiver<EndRoomSession>, mut shutdown: rocket::Shutdown) -> Result<(NextMessage<C>, EndRoomSession), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             return Err(SessionError::Server(format!($($msg)*)))
@@ -504,6 +512,12 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
     Ok(loop {
         select! {
             () = &mut shutdown => return Err(SessionError::Shutdown),
+            Ok(()) = maintenance.changed() => {
+                let maintenance = *maintenance.borrow_and_update();
+                if let Some((start, duration)) = maintenance {
+                    lock!(writer).write(ServerMessage::MaintenanceNotice { start, duration }).await?;
+                }
+            }
             end_res = &mut end_rx => break (read, end_res?),
             res = &mut read => {
                 let (reader, msg) = res??;
@@ -796,7 +810,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
             subcommand.write(&mut sock).await?;
             match subcommand {
                 Subcommand::Stop | Subcommand::StopWhenEmpty | Subcommand::WaitUntilEmpty => { u8::read(&mut sock).await?; }
-                Subcommand::WaitUntilInactive | Subcommand::PrepareRestart => loop {
+                Subcommand::WaitUntilInactive => loop {
                     match WaitUntilInactiveMessage::read(&mut sock).await? {
                         WaitUntilInactiveMessage::Error => return Err(Error::WaitUntilInactive),
                         WaitUntilInactiveMessage::ActiveRooms(rooms) => {
@@ -809,6 +823,34 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                         WaitUntilInactiveMessage::Inactive => {
                             println!("[ ok ]");
                             break
+                        }
+                        WaitUntilInactiveMessage::Deadline(_) => unreachable!(),
+                    }
+                },
+                Subcommand::PrepareRestart => {
+                    let mut deadline = None::<DateTime<Utc>>;
+                    loop {
+                        match WaitUntilInactiveMessage::read(&mut sock).await? {
+                            WaitUntilInactiveMessage::Error => return Err(Error::WaitUntilInactive),
+                            WaitUntilInactiveMessage::ActiveRooms(rooms) => if let Some(deadline) = deadline {
+                                wheel::print_flush!(
+                                    "\r[....] waiting for {} rooms to be inactive (current ETA: {}) or until {} ",
+                                    rooms.len(),
+                                    rooms.values().map(|(inactive_at, _)| inactive_at).max().expect("waiting for 0 rooms").format("%Y-%m-%d %H:%M:%S UTC"),
+                                    deadline.format("%Y-%m-%d %H:%M:%S UTC"),
+                                )?;
+                            } else {
+                                wheel::print_flush!(
+                                    "\r[....] waiting for {} rooms to be inactive (current ETA: {}) ",
+                                    rooms.len(),
+                                    rooms.values().map(|(inactive_at, _)| inactive_at).max().expect("waiting for 0 rooms").format("%Y-%m-%d %H:%M:%S UTC"),
+                                )?;
+                            },
+                            WaitUntilInactiveMessage::Inactive => {
+                                println!("[ ok ]");
+                                break
+                            }
+                            WaitUntilInactiveMessage::Deadline(new_deadline) => deadline = Some(new_deadline),
                         }
                     }
                 },
@@ -829,6 +871,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
             .https_only(true)
             .build()?;
         let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database(&database).application_name("ootrmwd")).await?;
+        let maintenance = Arc::new(watch::channel(None).0);
         let rooms = Rooms::default();
         {
             let mut query = sqlx::query!(r#"SELECT
@@ -868,8 +911,8 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 })).await);
             }
         }
-        let rocket = http::rocket(db_pool.clone(), http_client, rng.clone(), port, rooms.clone()).await?;
-        #[cfg(unix)] let unix_socket_task = tokio::spawn(unix_socket::listen(db_pool.clone(), rooms.clone(), rocket.shutdown())).map(|res| match res {
+        let rocket = http::rocket(db_pool.clone(), http_client, rng.clone(), port, rooms.clone(), maintenance.clone()).await?;
+        #[cfg(unix)] let unix_socket_task = tokio::spawn(unix_socket::listen(db_pool.clone(), rooms.clone(), rocket.shutdown(), maintenance)).map(|res| match res {
             Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => Err(Error::from(e)),
             Err(e) => Err(Error::from(e)),

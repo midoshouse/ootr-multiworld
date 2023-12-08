@@ -27,7 +27,7 @@ thiserror = "1"
 #version = "0.16.10"
 git = "https://github.com/fenhl/async-proto" #TODO release
 branch = "error-ctx"
-features = ["semver"]
+features = ["chrono", "semver"]
 
 [dependencies.chrono]
 version = "0.4"
