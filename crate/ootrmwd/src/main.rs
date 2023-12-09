@@ -862,6 +862,11 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
         }
         #[cfg(not(unix))] match subcommand {}
     } else {
+        let default_panic_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+            default_panic_hook(info)
+        }));
         let rng = Arc::new(SystemRandom::new());
         let http_client = reqwest::Client::builder()
             .user_agent(concat!("MidosHouse/", env!("CARGO_PKG_VERSION")))
