@@ -83,7 +83,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                 let (mut sock, _) = res.at_unknown()?;
                 let db_pool = db_pool.clone();
                 let rooms = rooms.clone();
-                let shutdown = shutdown.clone();
+                let mut shutdown = shutdown.clone();
                 let maintenance = maintenance.clone();
                 tokio::spawn(async move {
                     let msg = match ClientMessage::read(&mut sock).await {
@@ -154,6 +154,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                             return
                                         }
                                     },
+                                    () = &mut shutdown => break,
                                 }
                             }
                             WaitUntilInactiveMessage::Inactive.write(&mut sock).await.expect("error writing to UNIX socket");
@@ -266,6 +267,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                         }
                                     },
                                     () = sleep => break,
+                                    () = &mut shutdown => break,
                                 }
                             }
                             WaitUntilInactiveMessage::Inactive.write(&mut sock).await.expect("error writing to UNIX socket");
