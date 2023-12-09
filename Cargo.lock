@@ -3665,6 +3665,7 @@ name = "multiworld-release"
 version = "14.0.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "clap",
  "crossterm",
  "dir-lock",

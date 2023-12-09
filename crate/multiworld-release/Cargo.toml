@@ -19,6 +19,11 @@ tempfile = "3"
 thiserror = "1"
 zip = "0.6"
 
+[dependencies.chrono]
+version = "0.4"
+default-features = false
+features = ["clock", "std"]
+
 [dependencies.clap]
 version = "4"
 features = ["derive"]

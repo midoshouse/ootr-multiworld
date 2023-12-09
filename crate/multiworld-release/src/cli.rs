@@ -8,6 +8,7 @@ use {
         },
         sync::Arc,
     },
+    chrono::prelude::*,
     crossterm::{
         style::Print,
         terminal::{
@@ -38,11 +39,11 @@ impl Cli {
         Ok(LineHandle { stdout: Arc::clone(&self.stdout) })
     }
 
-    pub(crate) async fn run<T>(&self, mut task: impl gres::Task<T> + fmt::Display, prefix: impl fmt::Display, done_label: impl fmt::Display) -> io::Result<T> {
+    pub(crate) async fn run<T>(&self, mut task: impl gres::Task<T> + fmt::Display, prefix: impl fmt::Display) -> io::Result<T> {
         {
             let mut stdout = lock!(self.stdout);
             crossterm::execute!(stdout,
-                Print(format_args!("{prefix:>26}: [  0%] {task}\r\n")),
+                Print(format_args!("{} {prefix:>26}: {task}\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
             )?;
         }
         loop {
@@ -50,7 +51,7 @@ impl Cli {
                 Ok(result) => {
                     let mut stdout = lock!(self.stdout);
                     crossterm::execute!(stdout,
-                        Print(format_args!("{prefix:>26}: [done] {done_label}\r\n")),
+                        Print(format_args!("{} {prefix:>26}: done\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
                     )?;
                     break Ok(result)
                 }
@@ -58,7 +59,7 @@ impl Cli {
                     task = next_task;
                     let mut stdout = lock!(self.stdout);
                     crossterm::execute!(stdout,
-                        Print(format_args!("{prefix:>26}: [{:>3}%] {task}\r\n", u8::from(task.progress()))),
+                        Print(format_args!("{} {prefix:>26}: {task}\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
                     )?;
                 }
             }
