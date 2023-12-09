@@ -1,8 +1,9 @@
-use std::{
-    path::{
+use {
+    std::path::{
         Path,
         PathBuf,
     },
+    wheel::traits::IoResultExt as _,
 };
 #[cfg(unix)] use std::fs;
 #[cfg(windows)] use {
@@ -16,7 +17,6 @@ use std::{
         },
     },
     itertools::Itertools as _,
-    wheel::traits::IoResultExt as _,
     windows::{
         Win32::Storage::FileSystem::GetFullPathNameW,
         core::PCWSTR,
@@ -26,7 +26,7 @@ use std::{
 pub(crate) fn absolute_path(path: impl AsRef<Path>) -> wheel::Result<PathBuf> {
     let path = path.as_ref();
     #[cfg(unix)] {
-        fs::canonicalize(path)
+        fs::canonicalize(path).at(path)
     }
     #[cfg(windows)] {
         let path_wide = path.as_os_str().encode_wide().chain(iter::once(0)).collect_vec();

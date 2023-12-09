@@ -918,7 +918,7 @@ impl Task<Result<(), Error>> for BuildServer {
             Self::WaitRestart => gres::transpose(async move {
                 loop {
                     //TODO show output
-                    match Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /usr/local/share/midos-house/bin/ootrmwd wait-until-inactive; fi").check("ssh midos.house ootrmwd wait-until-inactive").await {
+                    match Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /usr/local/share/midos-house/bin/ootrmwd prepare-restart; fi").check("ssh midos.house ootrmwd wait-until-inactive").await {
                         Ok(_) => break,
                         Err(wheel::Error::CommandExit { output, .. }) if std::str::from_utf8(&output.stderr).is_ok_and(|stderr| stderr.contains("Connection reset")) => continue,
                         Err(e) => return Err(e.into()), //TODO continue normally if this fails because the server is stopped
@@ -935,9 +935,7 @@ impl Task<Result<(), Error>> for BuildServer {
                 Ok(Err(Self::Replace))
             }).await,
             Self::Replace => gres::transpose(async move {
-                Command::new("ssh").arg("midos.house").arg("sudo chown mido:www-data bin/ootrmwd-next").check("ssh midos.house chmod").await?;
-                Command::new("ssh").arg("midos.house").arg("sudo chmod +x bin/ootrmwd-next").check("ssh midos.house chmod").await?;
-                Command::new("ssh").arg("midos.house").arg("sudo mv bin/ootrmwd-next /usr/local/share/midos-house/bin/ootrmwd").check("ssh midos.house mv").await?;
+                Command::new("ssh").arg("midos.house").arg("sudo chown mido:www-data bin/ootrmwd-next && sudo chmod +x bin/ootrmwd-next && sudo mv bin/ootrmwd-next /usr/local/share/midos-house/bin/ootrmwd").check("ssh midos.house chown && chmod && mv").await?;
                 Ok(Err(Self::Start))
             }).await,
             Self::Start => gres::transpose(async move {
@@ -1159,7 +1157,7 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
 
 #[wheel::main(custom_exit)]
 async fn main(args: CliArgs) -> Result<(), Error> {
-    let cli = Cli::new()?;
+    let cli = Cli::new()?; //TODO adjust to show a summary of currently running steps, prioritizing active work over waiting
     let res = cli_main(&cli, Args::from(args)).await;
     drop(cli);
     res
