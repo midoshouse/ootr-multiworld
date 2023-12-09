@@ -68,7 +68,7 @@ macro_rules! supported_version {
             ws.channel(move |stream| Box::pin(async move {
                 let (sink, stream) = stream.split();
                 let writer = Arc::new(Mutex::new(VersionedWriter { inner: sink, version: Version::$variant }));
-                match client_session(&rng, db_pool, http_client, rooms, session_id, VersionedReader { inner: stream, version: Version::$variant }, Arc::clone(&writer), shutdown, maintenance).await {
+                match client_session(&rng, db_pool.clone(), http_client, rooms, session_id, VersionedReader { inner: stream, version: Version::$variant }, Arc::clone(&writer), shutdown, maintenance).await {
                     Ok(()) => {}
                     Err(SessionError::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::Tungstenite(tungstenite::Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake)), .. })) => {} // this happens when a player force quits their multiworld app (or normally quits on macOS, see https://github.com/iced-rs/iced/issues/1941)
                     Err(SessionError::Server(msg)) => {
@@ -83,6 +83,7 @@ macro_rules! supported_version {
                         let _ = lock!(writer).write(ServerMessage::OtherError(e.to_string())).await;
                     }
                 }
+                let _ = sqlx::query!("INSERT INTO mw_versions (version, last_used) VALUES ($1, NOW()) ON CONFLICT (version) DO UPDATE SET last_used = EXCLUDED.last_used", $number).execute(&db_pool).await;
                 Ok(())
             }))
         }
