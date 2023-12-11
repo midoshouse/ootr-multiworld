@@ -312,6 +312,7 @@ impl IsNetworkError for Error {
 
 #[derive(Debug, Clone)]
 enum Message {
+    CheckForUpdates,
     CommandError(Arc<Error>),
     ConfirmRoomDeletion,
     CopyDebugInfo,
@@ -528,7 +529,6 @@ impl Application for State {
             },
         };
         (Self {
-            frontend: frontend.clone(),
             debug_info_copied: false,
             icon_error: icon_error.map(Arc::new),
             command_error: None,
@@ -552,64 +552,8 @@ impl Application for State {
             updates_checked: false,
             send_all_path: String::default(),
             send_all_world: String::default(),
-            config_error, persistent_state_error, persistent_state,
-        }, cmd(async move {
-            let http_client = reqwest::Client::builder()
-                .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
-                .use_rustls_tls()
-                .https_only(true)
-                .http2_prior_knowledge()
-                .build()?;
-            let repo = Repo::new("midoshouse", "ootr-multiworld");
-            if let Some(release) = repo.latest_release(&http_client).await? {
-                let new_ver = release.version()?;
-                if new_ver > Version::parse(env!("CARGO_PKG_VERSION"))? {
-                    let updater_path = {
-                        #[cfg(unix)] {
-                            BaseDirectories::new()?.place_cache_file("midos-house/multiworld-updater")?
-                        }
-                        #[cfg(windows)] {
-                            let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::MissingHomeDir)?;
-                            let cache_dir = project_dirs.cache_dir();
-                            fs::create_dir_all(cache_dir).await?;
-                            cache_dir.join("updater.exe")
-                        }
-                    };
-                    #[cfg(all(target_arch = "x86_64", target_os = "linux", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater");
-                    #[cfg(all(target_arch = "x86_64", target_os = "linux", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater");
-                    #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater.exe");
-                    #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
-                    fs::write(&updater_path, updater_data).await?;
-                    #[cfg(unix)] fs::set_permissions(&updater_path, fs::Permissions::from_mode(0o755)).await?;
-                    let mut cmd = std::process::Command::new(updater_path);
-                    match frontend.kind {
-                        Frontend::Dummy => return Ok(Message::UpToDate),
-                        Frontend::EverDrive => {
-                            cmd.arg("everdrive");
-                            cmd.arg(env::current_exe()?);
-                            cmd.arg(process::id().to_string());
-                        }
-                        Frontend::BizHawk => if let Some(BizHawkState { path, pid, version, port: _ }) = frontend.bizhawk {
-                            cmd.arg("bizhawk");
-                            cmd.arg(process::id().to_string());
-                            cmd.arg(path);
-                            cmd.arg(pid.to_string());
-                            cmd.arg(version.to_string());
-                        } else {
-                            return Ok(Message::UpToDate)
-                        },
-                        Frontend::Pj64V3 | Frontend::Pj64V4 => {
-                            cmd.arg("pj64");
-                            cmd.arg(env::current_exe()?);
-                            cmd.arg(process::id().to_string());
-                        }
-                    }
-                    let _ = cmd.spawn()?;
-                    return Ok(Message::Exit)
-                }
-            }
-            Ok(Message::UpToDate)
-        }))
+            frontend, config_error, persistent_state_error, persistent_state,
+        }, cmd(future::ok(Message::CheckForUpdates)))
     }
 
     fn theme(&self) -> Theme {
@@ -646,6 +590,66 @@ impl Application for State {
             Message::SetRoomView(new_view) => if let SessionState::Room { ref mut view, .. } = self.server_connection {
                 *view = new_view;
             },
+            Message::CheckForUpdates => {
+                let frontend = self.frontend.clone();
+                return cmd(async move {
+                    let http_client = reqwest::Client::builder()
+                        .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
+                        .use_rustls_tls()
+                        .https_only(true)
+                        .http2_prior_knowledge()
+                        .build()?;
+                    let repo = Repo::new("midoshouse", "ootr-multiworld");
+                    if let Some(release) = repo.latest_release(&http_client).await? {
+                        let new_ver = release.version()?;
+                        if new_ver > Version::parse(env!("CARGO_PKG_VERSION"))? {
+                            let updater_path = {
+                                #[cfg(unix)] {
+                                    BaseDirectories::new()?.place_cache_file("midos-house/multiworld-updater")?
+                                }
+                                #[cfg(windows)] {
+                                    let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::MissingHomeDir)?;
+                                    let cache_dir = project_dirs.cache_dir();
+                                    fs::create_dir_all(cache_dir).await?;
+                                    cache_dir.join("updater.exe")
+                                }
+                            };
+                            #[cfg(all(target_arch = "x86_64", target_os = "linux", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater");
+                            #[cfg(all(target_arch = "x86_64", target_os = "linux", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater");
+                            #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater.exe");
+                            #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
+                            fs::write(&updater_path, updater_data).await?;
+                            #[cfg(unix)] fs::set_permissions(&updater_path, fs::Permissions::from_mode(0o755)).await?;
+                            let mut cmd = std::process::Command::new(updater_path);
+                            match frontend.kind {
+                                Frontend::Dummy => return Ok(Message::UpToDate),
+                                Frontend::EverDrive => {
+                                    cmd.arg("everdrive");
+                                    cmd.arg(env::current_exe()?);
+                                    cmd.arg(process::id().to_string());
+                                }
+                                Frontend::BizHawk => if let Some(BizHawkState { path, pid, version, port: _ }) = frontend.bizhawk {
+                                    cmd.arg("bizhawk");
+                                    cmd.arg(process::id().to_string());
+                                    cmd.arg(path);
+                                    cmd.arg(pid.to_string());
+                                    cmd.arg(version.to_string());
+                                } else {
+                                    return Ok(Message::UpToDate)
+                                },
+                                Frontend::Pj64V3 | Frontend::Pj64V4 => {
+                                    cmd.arg("pj64");
+                                    cmd.arg(env::current_exe()?);
+                                    cmd.arg(process::id().to_string());
+                                }
+                            }
+                            let _ = cmd.spawn()?;
+                            return Ok(Message::Exit)
+                        }
+                    }
+                    Ok(Message::UpToDate)
+                })
+            }
             Message::CommandError(e) => { self.command_error.get_or_insert(e); }
             Message::ConfirmRoomDeletion => if let Some(writer) = self.server_writer.clone() {
                 return cmd(async move {
@@ -1139,9 +1143,15 @@ impl Application for State {
                 } else {
                     self.server_connection = SessionState::Error {
                         maintenance: self.server_connection.maintenance(),
-                        e: SessionStateError::Connection(e),
+                        e: SessionStateError::Connection(e.clone()),
                         auto_retry: false,
                     };
+                    if let Error::WebSocket(tungstenite::Error::Http(ref resp)) = *e {
+                        if resp.status() == tungstenite::http::StatusCode::GONE {
+                            self.updates_checked = false;
+                            return cmd(future::ok(Message::CheckForUpdates))
+                        }
+                    }
                 }
             },
             Message::SetAutoDeleteDelta(DurationFormatter(new_delta)) => if let Some(writer) = self.server_writer.clone() {
@@ -1190,7 +1200,22 @@ impl Application for State {
                 error_view(format!("An error occurred during communication with {}:", self.frontend.kind), e, self.debug_info_copied)
             }
         } else if !self.updates_checked {
-            Column::new()
+            let mut col = Column::new();
+            if let SessionState::Error { auto_retry: false, e: SessionStateError::Connection(ref e), maintenance } = self.server_connection {
+                if let Error::WebSocket(tungstenite::Error::Http(ref resp)) = **e {
+                    if resp.status() == tungstenite::http::StatusCode::GONE {
+                        if let Some((start, duration)) = maintenance {
+                            col = col.push(Text::new(format!(
+                                "Maintenance on the Mido's House server is scheduled for {} (time shown in your local timezone). Mido's House Multiworld is expected to go offline for approximately {}.",
+                                start.with_timezone(&Local).format("%A, %B %e, %H:%M"),
+                                DurationFormatter(duration),
+                            )));
+                        }
+                        col = col.push("This version of the multiworld app is no longer supported by the server.");
+                    }
+                }
+            }
+            col
                 .push("Checking for updates…")
                 .spacing(8)
                 .padding(8)
@@ -1243,16 +1268,17 @@ impl Application for State {
                     col
                         .push("A network error occurred:")
                         .push(Text::new(e.to_string()))
-                        .push(Row::new()
-                            .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
-                            .push(if self.debug_info_copied { "Copied!" } else { "for pasting into Discord" })
-                            .spacing(8)
-                        )
                         .push(Text::new(if let Ok(retry) = chrono::Duration::from_std(self.retry.duration_since(Instant::now())) {
                             format!("Reconnecting at {}", (Local::now() + retry).format("%H:%M:%S"))
                         } else {
                             format!("Reconnecting…")
                         })) //TODO live countdown
+                        .push("If this error persists, check your internet connection or contact @fenhl on Discord for support.")
+                        .push(Row::new()
+                            .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
+                            .push(if self.debug_info_copied { "Copied!" } else { "for pasting into Discord" })
+                            .spacing(8)
+                        )
                         .spacing(8)
                         .padding(8)
                         .into()
