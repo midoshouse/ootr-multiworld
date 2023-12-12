@@ -373,7 +373,7 @@ dependencies = [
 [[package]]
 name = "async-proto"
 version = "0.17.0"
-source = "git+https://github.com/fenhl/async-proto?branch=error-ctx#8599da51543bb468c324b860f8e89ccb87cea010"
+source = "git+https://github.com/fenhl/async-proto?branch=error-ctx#bf8845f1c4ced189c17bc6f204a31215b0162908"
 dependencies = [
  "async-proto-derive",
  "byteorder",
@@ -389,7 +389,7 @@ dependencies = [
 [[package]]
 name = "async-proto-derive"
 version = "0.17.0"
-source = "git+https://github.com/fenhl/async-proto?branch=error-ctx#8599da51543bb468c324b860f8e89ccb87cea010"
+source = "git+https://github.com/fenhl/async-proto?branch=error-ctx#bf8845f1c4ced189c17bc6f204a31215b0162908"
 dependencies = [
  "itertools 0.12.0",
  "proc-macro2",
@@ -7935,9 +7935,9 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "0.5.26"
+version = "0.5.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b67b5f0a4e7a27a64c651977932b9dc5667ca7fc31ac44b03ed37a0cf42fdfff"
+checksum = "6c830786f7720c2fd27a1a0e27a709dbd3c4d009b56d098fc742d4f4eab91fe2"
 dependencies = [
  "memchr",
 ]
