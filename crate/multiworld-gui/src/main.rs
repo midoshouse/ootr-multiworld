@@ -1649,7 +1649,7 @@ fn main(CliArgs { frontend }: CliArgs) -> iced::Result {
     State::run(Settings {
         exit_on_close_request: false,
         window: window::Settings {
-            size: (360, 256),
+            size: (360, 360),
             icon,
             ..window::Settings::default()
         },
