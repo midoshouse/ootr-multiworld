@@ -390,7 +390,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                                     lock!(writer).write(ServerMessage::StructuredError(ServerError::NoMidosHouseAccountDiscord)).await?; //TODO automatically create
                                 }
                             }
-                            Err(wheel::Error::ResponseStatus { inner, .. }) if inner.status() == Some(reqwest::StatusCode::FORBIDDEN) => {
+                            Err(wheel::Error::ResponseStatus { inner, .. }) if inner.status() == Some(reqwest::StatusCode::UNAUTHORIZED) => {
                                 lock!(writer).write(ServerMessage::StructuredError(ServerError::SessionExpiredDiscord)).await?;
                             }
                             Err(e) => return Err(e.into()),
