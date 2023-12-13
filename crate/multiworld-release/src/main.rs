@@ -1132,10 +1132,10 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
             if args.no_server { future::ok(()).boxed() } else { async move { cli.run(BuildServer::new(!args.force), "server").await? }.boxed() },
         ]?;
         if !args.no_publish {
-            let line = cli.new_line("[....] publishing release").await?;
+            let line = cli.new_line("publishing release").await?;
             repo.publish_release(&client, release).await?;
-            line.replace("[done] release published").await?;
-            let line = cli.new_line("[....] relabelling issues").await?;
+            line.replace("release published").await?;
+            let line = cli.new_line("relabelling issues").await?;
             let mut token = github_app_auth::InstallationAccessToken::new(github_app_auth::GithubAuthParams {
                 user_agent: concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")).to_owned(),
                 private_key: include_bytes!("../../../assets/github-private-key.pem").to_vec(),
@@ -1149,7 +1149,7 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
                 labels.push(format!("status: released"));
                 issue.set_labels(&client, &mut token, &repo, &labels).await?;
             }
-            line.replace(format!("[done] {} issues relabelled", issues.len())).await?;
+            line.replace(format!("{} issues relabelled", issues.len())).await?;
         }
     }
     Ok(())

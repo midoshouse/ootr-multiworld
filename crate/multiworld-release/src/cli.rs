@@ -33,7 +33,7 @@ impl Cli {
         {
             let mut stdout = lock!(self.stdout);
             crossterm::execute!(stdout,
-                Print(format_args!("{initial_text}\r\n")),
+                Print(format_args!("{} {initial_text}\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
             )?;
         }
         Ok(LineHandle { stdout: Arc::clone(&self.stdout) })
@@ -82,7 +82,7 @@ impl LineHandle {
     pub(crate) async fn replace(&self, new_text: impl fmt::Display) -> io::Result<()> {
         let mut stdout = lock!(self.stdout);
         crossterm::execute!(stdout,
-            Print(format_args!("{new_text}\r\n")),
+            Print(format_args!("{} {new_text}\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
         )?;
         Ok(())
     }
