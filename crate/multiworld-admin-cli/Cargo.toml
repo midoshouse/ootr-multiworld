@@ -8,16 +8,12 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-#async-proto = "0.16.10"
+async-proto = "0.17"
 futures = "0.3"
 itertools = "0.12"
 serde_json = "1"
 thiserror = "1"
 url = "2"
-
-[dependencies.async-proto]
-git = "https://github.com/fenhl/async-proto" #TODO release
-branch = "error-ctx"
 
 [dependencies.clap]
 version = "4"
@@ -48,5 +44,4 @@ features = ["rustls-tls-webpki-roots"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
-#branch = "main"
-branch = "async-proto-error-ctx" #TODO go back to main once error-ctx branch of async-proto is published
+branch = "main"

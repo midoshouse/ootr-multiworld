@@ -805,7 +805,7 @@ impl<C: ClientKind> Room<C> {
             self.file_hash = Some(spoiler_log.file_hash);
         }
         spoiler_log.version.clone_repo().await?;
-        let py_modules = spoiler_log.version.py_modules()?;
+        let py_modules = spoiler_log.version.py_modules("/usr/bin/python3")?;
         let mut items_to_queue = Vec::default();
         let world_locations = spoiler_log.locations.get(usize::from(source_world.get() - 1)).ok_or(SendAllError::Items(Vec::default()))?;
         for (loc, ootr_utils::spoiler::Item { player, item, model: _ }) in world_locations {

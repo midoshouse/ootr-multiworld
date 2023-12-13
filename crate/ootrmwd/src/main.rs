@@ -802,7 +802,7 @@ enum Error {
     WaitUntilInactive,
 }
 
-#[wheel::main(debug, rocket)]
+#[wheel::main(rocket)]
 async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
     if let Some(subcommand) = subcommand {
         #[cfg(unix)] {

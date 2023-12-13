@@ -13,8 +13,7 @@ winres = "0.1"
 
 [build-dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
-#branch = "main"
-branch = "async-proto-error-ctx" #TODO go back to main once error-ctx branch of async-proto is published
+branch = "main"
 
 [target.'cfg(windows)'.build-dependencies.multiworld-bizhawk]
 path = "../multiworld-bizhawk"
@@ -89,8 +88,7 @@ features = ["serde"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
-#branch = "main"
-branch = "async-proto-error-ctx" #TODO go back to main once error-ctx branch of async-proto is published
+branch = "main"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gio = "0.18"

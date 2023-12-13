@@ -15,9 +15,7 @@ thiserror = "1"
 tokio-tungstenite = "0.20"
 
 [dependencies.async-proto]
-#version = "0.16.10"
-git = "https://github.com/fenhl/async-proto" #TODO release
-branch = "error-ctx"
+version = "0.17"
 features = ["chrono"]
 
 [dependencies.chrono]
@@ -73,8 +71,7 @@ features = ["macros", "net", "parking_lot", "process", "rt-multi-thread", "sync"
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
-#branch = "main"
-branch = "async-proto-error-ctx" #TODO go back to main once error-ctx branch of async-proto is published
+branch = "main"
 features = ["reqwest", "rocket", "serde", "serde_json"]
 
 [target.'cfg(unix)'.dependencies.ootr-utils]

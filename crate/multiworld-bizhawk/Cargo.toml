@@ -17,8 +17,7 @@ features = ["parking_lot", "process"]
 
 [build-dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
-#branch = "main"
-branch = "async-proto-error-ctx" #TODO go back to main once error-ctx branch of async-proto is published
+branch = "main"
 
 [dependencies]
 semver = "1"
