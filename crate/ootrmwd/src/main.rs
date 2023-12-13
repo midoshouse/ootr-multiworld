@@ -156,7 +156,15 @@ async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http
     loop {
         let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, writer.clone(), shutdown.clone(), &mut maintenance, &mut logged_in_as_admin, &mut midos_house_user_id).await?;
         let _ = lock!(rooms.0).change_tx.send(RoomListChange::Join);
-        let (lobby_reader, end) = room_session(rooms.clone(), room, socket_id, room_reader, writer.clone(), &mut maintenance, end_rx, shutdown.clone()).await?;
+        let (lobby_reader, end) = match room_session(rooms.clone(), room.clone(), socket_id, room_reader, writer.clone(), &mut maintenance, end_rx, shutdown.clone()).await {
+            Ok(value) => value,
+            Err(e) => {
+                ping_task.abort();
+                let _ = lock!(@write room).remove_client(socket_id, EndRoomSession::Disconnect).await;
+                let _ = lock!(rooms.0).change_tx.send(RoomListChange::Leave);
+                return Err(e)
+            }
+        };
         let _ = lock!(rooms.0).change_tx.send(RoomListChange::Leave);
         match end {
             EndRoomSession::ToLobby => read = lobby_reader,
