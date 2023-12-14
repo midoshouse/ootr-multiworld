@@ -68,7 +68,12 @@ use {
     },
 };
 #[cfg(target_os = "linux")] use {
-    std::io::Cursor,
+    std::{
+        io::Cursor,
+        os::unix::fs::PermissionsExt as _,
+        pin::Pin,
+    },
+    futures::stream::TryStreamExt as _,
     gio::traits::SettingsExt as _,
     which::which,
     xdg::BaseDirectories,
@@ -182,6 +187,23 @@ fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) ->
             Err(e) => Message::Error(Arc::new(e)),
         }
     })))
+}
+
+/// BizHawk for Linux comes with misconfigured file permissions.
+/// See <https://aur.archlinux.org/cgit/aur.git/tree/PKGBUILD?h=bizhawk-monort>
+#[cfg(target_os = "linux")]
+fn fix_bizhawk_permissions(path: PathBuf) -> Pin<Box<dyn Future<Output = wheel::Result> + Send>> {
+    Box::pin(async move {
+        let metadata = fs::metadata(&path).await?;
+        if metadata.is_dir() {
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o775)).await?;
+            fs::read_dir(path)
+                .try_for_each_concurrent(None, |entry| fix_bizhawk_permissions(entry.path())).await?;
+        } else if metadata.is_file() {
+            fs::set_permissions(&path, fs::Permissions::from_mode(if path.extension().is_some_and(|extension| extension == "sh") { 0o774 } else { 0o664 })).await?;
+        }
+        Ok(())
+    })
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -494,7 +516,8 @@ impl Application for State {
                                 let response = http_client.get(asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
                                 #[cfg(target_os = "linux")] {
                                     let tar_file = async_compression::tokio::bufread::GzipDecoder::new(Cursor::new(Vec::from(response)));
-                                    tokio_tar::Archive::new(tar_file).unpack(bizhawk_dir).await?;
+                                    tokio_tar::Archive::new(tar_file).unpack(&bizhawk_dir).await?;
+                                    fix_bizhawk_permissions(bizhawk_dir).await?;
                                 }
                                 #[cfg(target_os = "windows")] {
                                     let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
