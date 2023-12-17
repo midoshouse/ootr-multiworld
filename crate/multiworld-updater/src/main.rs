@@ -85,7 +85,10 @@ use {
     xdg::BaseDirectories,
 };
 #[cfg(windows)] use directories::ProjectDirs;
-#[cfg(target_os = "linux")] use gio::traits::SettingsExt as _;
+#[cfg(target_os = "linux")] use {
+    gio::traits::SettingsExt as _,
+    multiworld::fix_bizhawk_permissions,
+};
 
 mod util;
 
@@ -434,7 +437,8 @@ impl Application for App {
                 let path = path.clone();
                 #[cfg(target_os = "linux")] return cmd(async move {
                     let tar_file = async_compression::tokio::bufread::GzipDecoder::new(Cursor::new(Vec::from(response)));
-                    tokio_tar::Archive::new(tar_file).unpack(&path).await.at(path)?;
+                    tokio_tar::Archive::new(tar_file).unpack(&path).await.at(&path)?;
+                    fix_bizhawk_permissions(path).await?;
                     Ok(Message::Launch)
                 });
                 #[cfg(target_os = "windows")] return cmd(async move {

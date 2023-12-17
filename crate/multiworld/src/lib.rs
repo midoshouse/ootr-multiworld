@@ -57,6 +57,18 @@ use {
 };
 #[cfg(unix)] use std::os::unix::io::AsRawFd;
 #[cfg(windows)] use std::os::windows::io::AsRawSocket;
+#[cfg(target_os = "linux")] use {
+    std::{
+        os::unix::fs::PermissionsExt as _,
+        path::PathBuf,
+        pin::Pin,
+    },
+    futures::{
+        future::Future,
+        stream::TryStreamExt as _,
+    },
+    wheel::fs,
+};
 #[cfg(feature = "sqlx")] use sqlx::PgPool;
 
 pub mod config;
@@ -1455,4 +1467,21 @@ pub fn io_error_from_reqwest(e: reqwest::Error) -> io::Error {
     } else {
         io::ErrorKind::Other
     }, e)
+}
+
+/// BizHawk for Linux comes with misconfigured file permissions.
+/// See <https://aur.archlinux.org/cgit/aur.git/tree/PKGBUILD?h=bizhawk-monort>
+#[cfg(target_os = "linux")]
+pub fn fix_bizhawk_permissions(path: PathBuf) -> Pin<Box<dyn Future<Output = wheel::Result> + Send>> {
+    Box::pin(async move {
+        let metadata = fs::metadata(&path).await?;
+        if metadata.is_dir() {
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o775)).await?;
+            fs::read_dir(path)
+                .try_for_each_concurrent(None, |entry| fix_bizhawk_permissions(entry.path())).await?;
+        } else if metadata.is_file() {
+            fs::set_permissions(&path, fs::Permissions::from_mode(if path.extension().is_some_and(|extension| extension == "sh") { 0o774 } else { 0o664 })).await?;
+        }
+        Ok(())
+    })
 }
