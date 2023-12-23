@@ -261,7 +261,6 @@ enum Error {
     #[error(transparent)] Json(#[from] serde_json::Error),
     #[error(transparent)] PersistentState(#[from] persistent_state::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
-    #[error(transparent)] RequestToken(#[from] oauth2::basic::BasicRequestTokenError<oauth2::reqwest::HttpClientError>),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Semver(#[from] semver::Error),
     #[error(transparent)] Url(#[from] url::ParseError),
@@ -274,6 +273,11 @@ enum Error {
     #[cfg(windows)]
     #[error("user folder not found")]
     MissingHomeDir,
+    #[error("error signing in with {provider}: {source}")]
+    RequestToken {
+        provider: login::Provider,
+        source: oauth2::basic::BasicRequestTokenError<oauth2::reqwest::HttpClientError>,
+    },
     #[error("protocol version mismatch: {frontend} plugin is version {version} but we're version {}", frontend::PROTOCOL_VERSION)]
     VersionMismatch {
         frontend: Frontend,
@@ -289,7 +293,7 @@ impl IsNetworkError for Error {
             Self::Client(e) => e.is_network_error(),
             Self::Io(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),
-            Self::RequestToken(e) => match e {
+            Self::RequestToken { source, .. } => match source {
                 oauth2::basic::BasicRequestTokenError::ServerResponse(_) => false,
                 oauth2::basic::BasicRequestTokenError::Request(e) => match e {
                     oauth2::reqwest::Error::Reqwest(e) => e.is_network_error(),
@@ -988,7 +992,7 @@ impl Application for State {
                             return cmd(async move {
                                 let tokens = login::oauth_client(login::Provider::Discord)?
                                     .exchange_refresh_token(&RefreshToken::new(refresh_token))
-                                    .request_async(async_http_client).await?;
+                                    .request_async(async_http_client).await.map_err(|source| Error::RequestToken { provider: login::Provider::Discord, source })?;
                                 Ok(Message::LoginTokens {
                                     provider: login::Provider::Discord,
                                     bearer_token: tokens.access_token().secret().clone(),
@@ -1007,7 +1011,7 @@ impl Application for State {
                             return cmd(async move {
                                 let tokens = login::oauth_client(login::Provider::RaceTime)?
                                     .exchange_refresh_token(&RefreshToken::new(refresh_token))
-                                    .request_async(async_http_client).await?;
+                                    .request_async(async_http_client).await.map_err(|source| Error::RequestToken { provider: login::Provider::RaceTime, source })?;
                                 Ok(Message::LoginTokens {
                                     provider: login::Provider::RaceTime,
                                     bearer_token: tokens.access_token().secret().clone(),
