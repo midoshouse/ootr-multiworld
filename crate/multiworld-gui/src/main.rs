@@ -988,6 +988,9 @@ impl Application for State {
                     }
                     ServerMessage::StructuredError(ServerError::SessionExpiredDiscord) => {
                         self.login_tokens.remove(&login::Provider::Discord);
+                        // refreshing Discord logins gives the following error:
+                        // RequestToken(ServerResponse(StandardErrorResponse { error: invalid_client, error_description: None, error_uri: None }))
+                        /*
                         if let Some(refresh_token) = self.refresh_tokens.remove(&login::Provider::Discord) {
                             return cmd(async move {
                                 let tokens = login::oauth_client(login::Provider::Discord)?
@@ -1000,10 +1003,13 @@ impl Application for State {
                                 })
                             })
                         } else {
+                        */
                             if let SessionState::Lobby { ref mut view, .. } = self.server_connection {
                                 *view = LobbyView::SessionExpired(login::Provider::Discord);
                             }
+                        /*
                         }
+                        */
                     }
                     ServerMessage::StructuredError(ServerError::SessionExpiredRaceTime) => {
                         self.login_tokens.remove(&login::Provider::RaceTime);
