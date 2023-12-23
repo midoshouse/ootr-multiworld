@@ -73,6 +73,7 @@ macro_rules! supported_version {
                     Err(SessionError::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::MessageKind(tungstenite::Message::Close(_)), .. })) => {} // client disconnected normally
                     Err(SessionError::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::Tungstenite(tungstenite::Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake)), .. })) => {} // this happens when a player force quits their multiworld app (or normally quits on macOS, see https://github.com/iced-rs/iced/issues/1941)
                     Err(SessionError::Elapsed(_)) => {} // client not responding
+                    Err(SessionError::Shutdown) => {} // server shutting down
                     Err(SessionError::Server(msg)) => {
                         eprintln!("server error in WebSocket handler ({}): {msg}", stringify!($version));
                         let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
