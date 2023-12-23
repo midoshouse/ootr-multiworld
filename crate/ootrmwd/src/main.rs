@@ -925,16 +925,22 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
             }
         }
         let rocket = http::rocket(db_pool.clone(), http_client, rng.clone(), port, rooms.clone(), maintenance.clone()).await?;
-        #[cfg(unix)] let unix_socket_task = tokio::spawn(unix_socket::listen(db_pool.clone(), rooms.clone(), rocket.shutdown(), maintenance)).map(|res| match res {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(e)) => Err(Error::from(e)),
-            Err(e) => Err(Error::from(e)),
+        #[cfg(unix)] let unix_socket_task = tokio::spawn(unix_socket::listen(db_pool.clone(), rooms.clone(), rocket.shutdown(), maintenance)).map(|res| {
+            println!("UNIX listener task stopped");
+            match res {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => Err(Error::from(e)),
+                Err(e) => Err(Error::from(e)),
+            }
         });
         #[cfg(not(unix))] let unix_socket_task = future::ok(());
         let shutdown = rocket.shutdown();
         let cleanup_task = tokio::spawn(async move {
             loop {
-                rooms.wait_cleanup(shutdown.clone()).await?;
+                select! {
+                    () = shutdown.clone() => break,
+                    res = rooms.wait_cleanup(shutdown.clone()) => { let () = res?; }
+                }
                 let now = Utc::now();
                 while let Some(room) = {
                     let rooms = lock!(rooms.0);
@@ -949,15 +955,22 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     rooms.remove(id).await;
                 }
             }
-        }).map(|res| match res {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(e)) => Err(e),
-            Err(e) => Err(Error::from(e)),
+            Ok(())
+        }).map(|res| {
+            println!("cleanup task stopped");
+            match res {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => Err(e),
+                Err(e) => Err(Error::from(e)),
+            }
         });
-        let rocket_task = tokio::spawn(rocket.launch()).map(|res| match res {
-            Ok(Ok(Rocket { .. })) => Ok(()),
-            Ok(Err(e)) => Err(Error::from(e)),
-            Err(e) => Err(Error::from(e)),
+        let rocket_task = tokio::spawn(rocket.launch()).map(|res| {
+            println!("Rocket task stopped");
+            match res {
+                Ok(Ok(Rocket { .. })) => Ok(()),
+                Ok(Err(e)) => Err(Error::from(e)),
+                Err(e) => Err(Error::from(e)),
+            }
         });
         let ((), (), ()) = tokio::try_join!(unix_socket_task, cleanup_task, rocket_task)?;
         Ok(())
