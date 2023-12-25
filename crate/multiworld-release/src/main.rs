@@ -8,15 +8,19 @@ use {
             prelude::*,
         },
         path::Path,
+        pin::pin,
         process,
         time::Duration,
     },
     async_trait::async_trait,
     dir_lock::DirLock,
-    futures::future::{
-        self,
-        FutureExt as _,
-        TryFutureExt as _,
+    futures::{
+        future::{
+            self,
+            FutureExt as _,
+            TryFutureExt as _,
+        },
+        stream::TryStreamExt as _,
     },
     gres::{
         Percent,
@@ -24,23 +28,35 @@ use {
         Task,
     },
     itertools::Itertools as _,
+    lazy_regex::regex_captures,
     semver::Version,
     tempfile::NamedTempFile,
     tokio::{
+        io::{
+            AsyncBufReadExt as _,
+            BufReader,
+        },
         process::Command,
         sync::broadcast,
     },
+    tokio_stream::wrappers::LinesStream,
     wheel::{
-        fs,
+        fs::{
+            self,
+            File,
+        },
         traits::AsyncCommandOutputExt as _,
     },
     zip::{
         ZipWriter,
         write::FileOptions,
     },
-    multiworld::github::{
-        Release,
-        Repo,
+    multiworld::{
+        frontend,
+        github::{
+            Release,
+            Repo,
+        },
     },
     crate::cli::Cli,
 };
@@ -58,6 +74,7 @@ enum Setup {
     CreateReqwestClient(bool),
     CheckVersion(bool, reqwest::Client),
     CheckBizHawkVersion(reqwest::Client, Repo),
+    CheckPj64ProtocolVersion(reqwest::Client, Repo, Version),
     LockRust(reqwest::Client, Repo, Version),
     UpdateRust(reqwest::Client, Repo, Version, DirLock),
 }
@@ -74,6 +91,7 @@ impl fmt::Display for Setup {
             Self::CreateReqwestClient(..) => write!(f, "creating reqwest client"),
             Self::CheckVersion(..) => write!(f, "checking version"),
             Self::CheckBizHawkVersion(..) => write!(f, "checking BizHawk version"),
+            Self::CheckPj64ProtocolVersion(..) => write!(f, "checking Project64 protocol version"),
             Self::LockRust(..) => write!(f, "waiting for Rust lock"),
             Self::UpdateRust(..) => write!(f, "updating Rust"),
         }
@@ -86,9 +104,10 @@ impl Progress for Setup {
             Self::CreateReqwestClient(..) => 0,
             Self::CheckVersion(..) => 1,
             Self::CheckBizHawkVersion(..) => 2,
-            Self::LockRust(..) => 3,
-            Self::UpdateRust(..) => 4,
-        }, 5)
+            Self::CheckPj64ProtocolVersion(..) => 3,
+            Self::LockRust(..) => 4,
+            Self::UpdateRust(..) => 5,
+        }, 6)
     }
 }
 
@@ -131,6 +150,19 @@ impl Task<Result<(reqwest::Client, Repo, Version), Error>> for Setup {
                     Less => return Err(Error::BizHawkOutdated { local: local_version, latest: remote_version }),
                     Equal => {}
                     Greater => return Err(Error::BizHawkVersionRegression),
+                }
+                Ok(Err(Self::CheckPj64ProtocolVersion(client, repo, local_version)))
+            }).await,
+            Self::CheckPj64ProtocolVersion(client, repo, local_version) => gres::transpose(async move {
+                let frontend_version = pin!(LinesStream::new(BufReader::new(File::open("assets/ootrmw-pj64.js").await?).lines())
+                    .err_into::<Error>()
+                    .try_filter_map(|line| async move {
+                        let Some((_, frontend_version)) = regex_captures!("^const MW_FRONTEND_PROTO_VERSION = ([0-9]+);$", &line) else { return Ok(None) };
+                        Ok(Some(frontend_version.parse::<u8>()?))
+                    }))
+                    .try_next().await?.ok_or(Error::MissingPj64ProtocolVersion)?;
+                if frontend_version != frontend::PROTOCOL_VERSION {
+                    return Err(Error::WrongPj64ProtocolVersion)
                 }
                 Ok(Err(Self::LockRust(client, repo, local_version)))
             }).await,
@@ -1021,6 +1053,7 @@ enum Error {
     #[error(transparent)] GitHubAppAuth(#[from] github_app_auth::AuthError),
     #[error(transparent)] InvalidHeaderValue(#[from] reqwest::header::InvalidHeaderValue),
     #[error(transparent)] Io(#[from] tokio::io::Error),
+    #[error(transparent)] ParseInt(#[from] std::num::ParseIntError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] SemVer(#[from] semver::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
@@ -1037,10 +1070,14 @@ enum Error {
     EmptyReleaseNotes,
     #[error("missing environment variable: {0}")]
     MissingEnvar(&'static str),
+    #[error("frontend protocol version not found in Project64 frontend code")]
+    MissingPj64ProtocolVersion,
     #[error("there is already a release with this version number")]
     SameVersion,
     #[error("the latest GitHub release has a newer version than the local crate version")]
     VersionRegression,
+    #[error("frontend protocol version mismatch between client and Project64 frontend")]
+    WrongPj64ProtocolVersion,
 }
 
 impl wheel::CustomExit for Error {

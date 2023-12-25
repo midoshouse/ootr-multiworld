@@ -3811,6 +3811,7 @@ dependencies = [
  "graphql_client",
  "gres",
  "itertools 0.12.0",
+ "lazy-regex",
  "log-lock",
  "multiworld",
  "multiworld-bizhawk",
@@ -3820,6 +3821,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "wheel",
  "zip",
 ]

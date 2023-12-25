@@ -14,6 +14,7 @@ futures = "0.3"
 github-app-auth = "3"
 graphql_client = "0.13"
 itertools = "0.12"
+lazy-regex = "3"
 semver = "1"
 tempfile = "3"
 thiserror = "1"
@@ -58,7 +59,11 @@ features = ["derive"]
 
 [dependencies.tokio]
 version = "1"
-features = ["parking_lot", "process", "sync"]
+features = ["io-util", "parking_lot", "process", "sync"]
+
+[dependencies.tokio-stream]
+version = "0.1"
+features = ["io-util"]
 
 [dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
