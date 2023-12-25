@@ -410,14 +410,6 @@ pub enum SendItemError {
     Kind(String),
 }
 
-fn display_send_item_errors(errors: &[SendItemError]) -> String {
-    match errors {
-        [] => format!("empty SendItemError list"),
-        [e] => e.to_string(),
-        [e, _, ..] => format!("failed to send {} items, sample error: {e}", errors.len()),
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum SendAllError {
     #[error(transparent)] Clone(#[from] ootr_utils::CloneError),
@@ -431,8 +423,8 @@ pub enum SendAllError {
         server: [HashIcon; 5],
         client: [HashIcon; 5],
     },
-    #[error("{}", display_send_item_errors(.0))]
-    Items(Vec<SendItemError>),
+    #[error("the given world number is not listed in the given spoiler log's locations section")]
+    NoSuchWorld,
 }
 
 bitflags! {
@@ -819,7 +811,7 @@ impl<C: ClientKind> Room<C> {
         spoiler_log.version.clone_repo().await?;
         let py_modules = spoiler_log.version.py_modules("/usr/bin/python3")?;
         let mut items_to_queue = Vec::default();
-        let world_locations = spoiler_log.locations.get(usize::from(source_world.get() - 1)).ok_or(SendAllError::Items(Vec::default()))?;
+        let world_locations = spoiler_log.locations.get(usize::from(source_world.get() - 1)).ok_or(SendAllError::NoSuchWorld)?;
         for (loc, ootr_utils::spoiler::Item { player, item, model: _ }) in world_locations {
             if let Some((key, kind)) = py_modules.override_entry(source_world, loc, *player, item).await? {
                 if kind == TRIFORCE_PIECE || *player != source_world {
