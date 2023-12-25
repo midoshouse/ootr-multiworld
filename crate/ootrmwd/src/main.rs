@@ -153,6 +153,12 @@ async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http
     let mut read = next_message::<C>(reader);
     let mut logged_in_as_admin = false;
     let mut midos_house_user_id = None;
+    {
+        let maintenance = *maintenance.borrow_and_update();
+        if let Some((start, duration)) = maintenance {
+            lock!(writer).write(ServerMessage::MaintenanceNotice { start, duration }).await?;
+        }
+    }
     loop {
         let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, writer.clone(), shutdown.clone(), &mut maintenance, &mut logged_in_as_admin, &mut midos_house_user_id).await?;
         let _ = lock!(rooms.0).change_tx.send(RoomListChange::Join);
