@@ -15,6 +15,7 @@ pub mod v11;
 pub mod v12;
 pub mod v13;
 pub mod v14;
+pub mod v15;
 
 macro_rules! server_errors {
     ($($(#[$attr:meta])* $variant:ident),* $(,)?) => {
@@ -87,6 +88,7 @@ pub enum Version {
     V12,
     V13,
     V14,
+    V15,
 }
 
 pub struct VersionedReader {
@@ -103,6 +105,7 @@ impl crate::ClientReader for VersionedReader {
             Version::V12 => v12::read_owned(self.inner).await.map(|(inner, msg)| (Self { version: Version::V12, inner }, msg)),
             Version::V13 => v13::read_owned(self.inner).await.map(|(inner, msg)| (Self { version: Version::V13, inner }, msg)),
             Version::V14 => v14::read_owned(self.inner).await.map(|(inner, msg)| (Self { version: Version::V14, inner }, msg)),
+            Version::V15 => v15::read_owned(self.inner).await.map(|(inner, msg)| (Self { version: Version::V15, inner }, msg)),
         }
     }
 }
@@ -121,6 +124,7 @@ impl crate::ClientWriter for VersionedWriter {
             Version::V12 => v12::write(&mut self.inner, msg).await,
             Version::V13 => v13::write(&mut self.inner, msg).await,
             Version::V14 => v14::write(&mut self.inner, msg).await,
+            Version::V15 => v15::write(&mut self.inner, msg).await,
         }
     }
 }

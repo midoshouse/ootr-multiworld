@@ -23,6 +23,11 @@ use {
         Mutex,
         lock,
     },
+    ootr::model::{
+        DungeonReward,
+        DungeonRewardLocation,
+        MainDungeon,
+    },
     ootr_utils::spoiler::{
         HashIcon,
         SpoilerLog,
@@ -34,7 +39,6 @@ use {
         Serialize,
     },
     tokio::{
-        io,
         net::{
             TcpStream,
             tcp::{
@@ -137,6 +141,91 @@ pub struct RoomFormatter {
 impl fmt::Display for RoomFormatter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.name.fmt(f)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Protocol)]
+pub enum HintArea {
+    Root,
+    HyruleField,
+    LonLonRanch,
+    Market,
+    TempleOfTime,
+    HyruleCastle,
+    OutsideGanonsCastle,
+    InsideGanonsCastle,
+    KokiriForest,
+    DekuTree,
+    LostWoods,
+    SacredForestMeadow,
+    ForestTemple,
+    DeathMountainTrail,
+    DodongosCavern,
+    GoronCity,
+    DeathMountainCrater,
+    FireTemple,
+    ZoraRiver,
+    ZorasDomain,
+    ZorasFountain,
+    JabuJabusBelly,
+    IceCavern,
+    LakeHylia,
+    WaterTemple,
+    KakarikoVillage,
+    BottomOfTheWell,
+    Graveyard,
+    ShadowTemple,
+    GerudoValley,
+    GerudoFortress,
+    ThievesHideout,
+    GerudoTrainingGround,
+    HauntedWasteland,
+    DesertColossus,
+    SpiritTemple,
+}
+
+impl TryFrom<HintArea> for DungeonRewardLocation {
+    type Error = ();
+
+    fn try_from(area: HintArea) -> Result<Self, ()> {
+        match area {
+            HintArea::Root => Ok(Self::LinksPocket),
+            HintArea::HyruleField => Err(()),
+            HintArea::LonLonRanch => Err(()),
+            HintArea::Market => Err(()),
+            HintArea::TempleOfTime => Err(()),
+            HintArea::HyruleCastle => Err(()),
+            HintArea::OutsideGanonsCastle => Err(()),
+            HintArea::InsideGanonsCastle => Err(()),
+            HintArea::KokiriForest => Err(()),
+            HintArea::DekuTree => Ok(Self::Dungeon(MainDungeon::DekuTree)),
+            HintArea::LostWoods => Err(()),
+            HintArea::SacredForestMeadow => Err(()),
+            HintArea::ForestTemple => Ok(Self::Dungeon(MainDungeon::ForestTemple)),
+            HintArea::DeathMountainTrail => Err(()),
+            HintArea::DodongosCavern => Ok(Self::Dungeon(MainDungeon::DodongosCavern)),
+            HintArea::GoronCity => Err(()),
+            HintArea::DeathMountainCrater => Err(()),
+            HintArea::FireTemple => Ok(Self::Dungeon(MainDungeon::FireTemple)),
+            HintArea::ZoraRiver => Err(()),
+            HintArea::ZorasDomain => Err(()),
+            HintArea::ZorasFountain => Err(()),
+            HintArea::JabuJabusBelly => Ok(Self::Dungeon(MainDungeon::JabuJabu)),
+            HintArea::IceCavern => Err(()),
+            HintArea::LakeHylia => Err(()),
+            HintArea::WaterTemple => Ok(Self::Dungeon(MainDungeon::WaterTemple)),
+            HintArea::KakarikoVillage => Err(()),
+            HintArea::BottomOfTheWell => Err(()),
+            HintArea::Graveyard => Err(()),
+            HintArea::ShadowTemple => Ok(Self::Dungeon(MainDungeon::ShadowTemple)),
+            HintArea::GerudoValley => Err(()),
+            HintArea::GerudoFortress => Err(()),
+            HintArea::ThievesHideout => Err(()),
+            HintArea::GerudoTrainingGround => Err(()),
+            HintArea::HauntedWasteland => Err(()),
+            HintArea::DesertColossus => Err(()),
+            HintArea::SpiritTemple => Ok(Self::Dungeon(MainDungeon::SpiritTemple)),
+        }
     }
 }
 
@@ -294,13 +383,13 @@ pub struct Client<C: ClientKind> {
     pub pending_world: Option<NonZeroU8>,
     pub pending_name: Option<Filename>,
     pub pending_hash: Option<[HashIcon; 5]>,
-    pub save_data: Option<oottracker::Save>,
+    pub tracker_state: oottracker::ModelState,
     pub adjusted_save: oottracker::Save,
 }
 
 impl<C: ClientKind> fmt::Debug for Client<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { writer: _, end_tx, player, pending_world, pending_name, pending_hash, save_data, adjusted_save } = self;
+        let Self { writer: _, end_tx, player, pending_world, pending_name, pending_hash, tracker_state, adjusted_save } = self;
         f.debug_struct("Client")
             .field("writer", &format_args!("_"))
             .field("end_tx", end_tx)
@@ -308,7 +397,7 @@ impl<C: ClientKind> fmt::Debug for Client<C> {
             .field("pending_world", pending_world)
             .field("pending_name", pending_name)
             .field("pending_hash", pending_hash)
-            .field("save_data", save_data)
+            .field("tracker_state", tracker_state)
             .field("adjusted_save", adjusted_save)
             .finish()
     }
@@ -559,7 +648,7 @@ impl<C: ClientKind> Room<C> {
             pending_world: None,
             pending_name: None,
             pending_hash: None,
-            save_data: None,
+            tracker_state: oottracker::ModelState::default(),
             adjusted_save: oottracker::Save::default(),
             writer, end_tx,
         });
@@ -611,7 +700,7 @@ impl<C: ClientKind> Room<C> {
             return Ok(false)
         }
         let client = self.clients.get_mut(&client_id).expect("tried to set world for nonexistent client");
-        let save = client.save_data.clone();
+        let save = client.tracker_state.ram.save.clone();
         let prev_player = &mut client.player;
         if let Some(player) = prev_player {
             let prev_world = mem::replace(&mut player.world, world);
@@ -638,34 +727,30 @@ impl<C: ClientKind> Room<C> {
             }
         }
         let queue = self.player_queues.get(&world).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>();
-        if let Some(save) = save {
-            let mut adjusted_save = save.clone();
-            if let Some(queued_items) = queue.get(adjusted_save.inv_amounts.num_received_mw_items.into()..) {
-                for &item in queued_items {
-                    if let Err(()) = adjusted_save.recv_mw_item(item) {
-                        eprintln!("item {item:#04x} not supported by recv_mw_item");
-                        let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
-                    }
+        let mut adjusted_save = save.clone();
+        if let Some(queued_items) = queue.get(adjusted_save.inv_amounts.num_received_mw_items.into()..) {
+            for &item in queued_items {
+                if let Err(()) = adjusted_save.recv_mw_item(item) {
+                    eprintln!("item {item:#04x} not supported by recv_mw_item");
+                    let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
                 }
-            } else {
-                eprintln!("save data from client has more received items than are in their queue");
             }
-            if let Some(client) = self.clients.get_mut(&client_id) {
-                let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
-                let new_progressive_items = ProgressiveItems::new(&adjusted_save);
-                client.adjusted_save = adjusted_save;
-                if old_progressive_items != new_progressive_items {
-                    self.write_all(&unversioned::ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await?;
-                }
+        } else {
+            eprintln!("save data from client has more received items than are in their queue");
+        }
+        if let Some(client) = self.clients.get_mut(&client_id) {
+            let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
+            let new_progressive_items = ProgressiveItems::new(&adjusted_save);
+            client.adjusted_save = adjusted_save;
+            if old_progressive_items != new_progressive_items {
+                self.write_all(&unversioned::ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await?;
             }
         }
         if !queue.is_empty() {
             self.write(client_id, unversioned::ServerMessage::ItemQueue(queue)).await?;
         }
-        if let Some(save) = save {
-            if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
-                oottracker::websocket::ClientMessage::MwResetPlayer { room: tracker_room_name.clone(), world, save }.write_ws(sock).await?;
-            }
+        if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
+            oottracker::websocket::ClientMessage::MwResetPlayer { room: tracker_room_name.clone(), world, save }.write_ws(sock).await?;
         }
         Ok(true)
     }
@@ -827,7 +912,7 @@ impl<C: ClientKind> Room<C> {
 
     pub async fn set_save_data(&mut self, client_id: C::SessionId, save: oottracker::Save) -> Result<(), async_proto::WriteError> {
         let client = self.clients.get_mut(&client_id).expect("tried to set save data for nonexistent client");
-        client.save_data = Some(save.clone());
+        client.tracker_state.ram.save = save.clone();
         if let Some(Player { world, .. }) = client.player {
             let queue = self.player_queues.get(&world).unwrap_or(&self.base_queue).iter().map(|item| item.kind).collect::<Vec<_>>();
             let mut adjusted_save = save.clone();
@@ -854,16 +939,27 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
+    pub async fn add_dungeon_reward_info(&mut self, client_id: C::SessionId, reward: DungeonReward, _ /*source_world*/ /*TODO for dungeon reward shuffle, track which world the reward is in */: NonZeroU8, location: DungeonRewardLocation) -> Result<(), async_proto::WriteError> {
+        let client = self.clients.get_mut(&client_id).expect("tried to add dungeon reward info for nonexistent client");
+        client.tracker_state.knowledge.dungeon_reward_locations.insert(reward, location);
+        if let Some(Player { world, .. }) = client.player {
+            if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
+                oottracker::websocket::ClientMessage::MwDungeonRewardLocation { room: tracker_room_name.clone(), world, reward, location }.write_ws(sock).await?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn init_tracker(&mut self, tracker_room_name: String, world_count: NonZeroU8) -> Result<(), async_proto::WriteError> {
         let mut worlds = (1..=world_count.get())
             .map(|player_id| (
-                None,
+                oottracker::ModelState::default(),
                 self.player_queues.get(&NonZeroU8::new(player_id).expect("range starts at 1")).unwrap_or(&self.base_queue).clone(),
             ))
             .collect::<Vec<_>>();
         for client in self.clients.values() {
-            if let (Some(player), Some(save_data)) = (client.player, client.save_data) {
-                worlds[usize::from(player.world.get() - 1)].0 = Some(save_data);
+            if let Some(player) = client.player {
+                worlds[usize::from(player.world.get() - 1)].0 = client.tracker_state.clone();
             }
         }
         let mut sock = tokio_tungstenite::connect_async("wss://oottracker.fenhl.net/websocket").await.map_err(|e| async_proto::WriteError {
@@ -1451,14 +1547,6 @@ pub fn format_room_state(players: &[Player], num_unassigned_clients: u8, my_worl
             })
         }
     }
-}
-
-pub fn io_error_from_reqwest(e: reqwest::Error) -> io::Error {
-    io::Error::new(if e.is_timeout() {
-        io::ErrorKind::TimedOut
-    } else {
-        io::ErrorKind::Other
-    }, e)
 }
 
 /// BizHawk for Linux comes with misconfigured file permissions.

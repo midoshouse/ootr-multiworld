@@ -339,7 +339,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             pending_name: None,
                             pending_hash: None,
                             writer: Arc::clone(&writer),
-                            save_data: None,
+                            tracker_state: Default::default(),
                             adjusted_save: Default::default(),
                             end_tx,
                         });
@@ -479,6 +479,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                     ClientMessage::FileHash(_) => error!("received a FileHash message, which only works in a room, but you're in the lobby"),
                     ClientMessage::AutoDeleteDelta(_) => error!("received an AutoDeleteDelta message, which only works in a room, but you're in the lobby"),
                     ClientMessage::LeaveRoom => {}
+                    ClientMessage::DungeonRewardInfo { .. } => error!("received a DungeonRewardInfo message, which only works in a room, but you're in the lobby"),
                 }
                 read = next_message::<C>(reader);
             }
@@ -601,6 +602,9 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                         let mut room = lock!(@write room);
                         room.remove_client(socket_id, EndRoomSession::ToLobby).await?;
                     }
+                    ClientMessage::DungeonRewardInfo { reward, world, area } => if let Ok(location) = area.try_into() {
+                        lock!(@write room).add_dungeon_reward_info(socket_id, reward, world, location).await?;
+                    },
                 }
                 read = next_message::<C>(reader);
             },

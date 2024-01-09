@@ -3,7 +3,10 @@
 use {
     std::{
         borrow::Cow,
-        collections::BTreeMap,
+        collections::{
+            BTreeMap,
+            HashMap,
+        },
         env,
         fmt,
         future::Future,
@@ -58,6 +61,11 @@ use {
         reqwest::async_http_client,
     },
     once_cell::sync::Lazy,
+    ootr::model::{
+        DungeonReward,
+        Medallion,
+        Stone,
+    },
     ootr_utils::spoiler::HashIcon,
     open::that as open,
     rand::prelude::*,
@@ -88,6 +96,7 @@ use {
     multiworld::{
         DurationFormatter,
         Filename,
+        HintArea,
         LobbyView,
         RoomFormatter,
         RoomView,
@@ -396,6 +405,7 @@ struct State {
     last_name: Filename,
     last_hash: Option<[HashIcon; 5]>,
     last_save: Option<oottracker::Save>,
+    last_dungeon_reward_locations: HashMap<DungeonReward, (NonZeroU8, HintArea)>,
     updates_checked: bool,
     send_all_path: String,
     send_all_world: String,
@@ -553,6 +563,7 @@ impl Application for State {
             last_name: Filename::default(),
             last_hash: None,
             last_save: None,
+            last_dungeon_reward_locations: HashMap::default(),
             updates_checked: false,
             send_all_path: String::default(),
             send_all_world: String::default(),
@@ -922,6 +933,65 @@ impl Application for State {
                         }
                     }
                 }
+                frontend::ClientMessage::DungeonRewardInfo { emerald, ruby, sapphire, light, forest, fire, water, shadow, spirit } => {
+                    let mut messages = Vec::default();
+                    if let Some((world, area)) = emerald {
+                        if self.last_dungeon_reward_locations.insert(DungeonReward::Stone(Stone::KokiriEmerald), (world, area)) != Some((world, area)) {
+                            messages.push(ClientMessage::DungeonRewardInfo { reward: DungeonReward::Stone(Stone::KokiriEmerald), world, area });
+                        }
+                    }
+                    if let Some((world, area)) = ruby {
+                        if self.last_dungeon_reward_locations.insert(DungeonReward::Stone(Stone::GoronRuby), (world, area)) != Some((world, area)) {
+                            messages.push(ClientMessage::DungeonRewardInfo { reward: DungeonReward::Stone(Stone::GoronRuby), world, area });
+                        }
+                    }
+                    if let Some((world, area)) = sapphire {
+                        if self.last_dungeon_reward_locations.insert(DungeonReward::Stone(Stone::ZoraSapphire), (world, area)) != Some((world, area)) {
+                            messages.push(ClientMessage::DungeonRewardInfo { reward: DungeonReward::Stone(Stone::ZoraSapphire), world, area });
+                        }
+                    }
+                    if let Some((world, area)) = light {
+                        if self.last_dungeon_reward_locations.insert(DungeonReward::Medallion(Medallion::Light), (world, area)) != Some((world, area)) {
+                            messages.push(ClientMessage::DungeonRewardInfo { reward: DungeonReward::Medallion(Medallion::Light), world, area });
+                        }
+                    }
+                    if let Some((world, area)) = forest {
+                        if self.last_dungeon_reward_locations.insert(DungeonReward::Medallion(Medallion::Forest), (world, area)) != Some((world, area)) {
+                            messages.push(ClientMessage::DungeonRewardInfo { reward: DungeonReward::Medallion(Medallion::Forest), world, area });
+                        }
+                    }
+                    if let Some((world, area)) = fire {
+                        if self.last_dungeon_reward_locations.insert(DungeonReward::Medallion(Medallion::Fire), (world, area)) != Some((world, area)) {
+                            messages.push(ClientMessage::DungeonRewardInfo { reward: DungeonReward::Medallion(Medallion::Fire), world, area });
+                        }
+                    }
+                    if let Some((world, area)) = water {
+                        if self.last_dungeon_reward_locations.insert(DungeonReward::Medallion(Medallion::Water), (world, area)) != Some((world, area)) {
+                            messages.push(ClientMessage::DungeonRewardInfo { reward: DungeonReward::Medallion(Medallion::Water), world, area });
+                        }
+                    }
+                    if let Some((world, area)) = shadow {
+                        if self.last_dungeon_reward_locations.insert(DungeonReward::Medallion(Medallion::Shadow), (world, area)) != Some((world, area)) {
+                            messages.push(ClientMessage::DungeonRewardInfo { reward: DungeonReward::Medallion(Medallion::Shadow), world, area });
+                        }
+                    }
+                    if let Some((world, area)) = spirit {
+                        if self.last_dungeon_reward_locations.insert(DungeonReward::Medallion(Medallion::Spirit), (world, area)) != Some((world, area)) {
+                            messages.push(ClientMessage::DungeonRewardInfo { reward: DungeonReward::Medallion(Medallion::Spirit), world, area });
+                        }
+                    }
+                    if let Some(ref writer) = self.server_writer {
+                        if let SessionState::Room { .. } = self.server_connection {
+                            let writer = writer.clone();
+                            return cmd(async move {
+                                for message in messages {
+                                    writer.write(message).await?;
+                                }
+                                Ok(Message::Nop)
+                            })
+                        }
+                    }
+                }
             },
             Message::ReconnectFrontend => {
                 self.frontend_subscription_error = None;
@@ -1060,6 +1130,7 @@ impl Application for State {
                         let player_name = self.last_name;
                         let file_hash = self.last_hash;
                         let save = self.last_save.clone();
+                        let dungeon_reward_locations = self.last_dungeon_reward_locations.clone();
                         return cmd(async move {
                             let (pending_items_before_save, pending_items_after_save) = persistent_state.edit(|state| (
                                 mem::take(&mut state.pending_items_before_save),
@@ -1079,6 +1150,9 @@ impl Application for State {
                             }
                             if let Some(save) = save {
                                 server_writer.write(ClientMessage::SaveData(save)).await?;
+                            }
+                            for (reward, (world, area)) in dungeon_reward_locations {
+                                server_writer.write(ClientMessage::DungeonRewardInfo { reward, world, area }).await?;
                             }
                             for (key, kind, target_world) in pending_items_after_save {
                                 server_writer.write(ClientMessage::SendItem { key, kind, target_world }).await?;

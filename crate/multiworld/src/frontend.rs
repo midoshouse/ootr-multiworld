@@ -11,14 +11,17 @@ use {
         Deserialize,
         Serialize,
     },
-    crate::Filename,
+    crate::{
+        Filename,
+        HintArea,
+    },
 };
 
 /// The default port used for connections between client and frontend.
 ///
 /// If possible, prefer having the OS select an unused port dynamically, to allow multiple instances of multiworld to run in parallel on the same computer.
 pub const PORT: u16 = 24818;
-pub const PROTOCOL_VERSION: u8 = 4;
+pub const PROTOCOL_VERSION: u8 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Sequence, Deserialize, Serialize, clap::ValueEnum)]
 #[clap(rename_all = "lower")]
@@ -73,4 +76,15 @@ pub enum ClientMessage {
     SaveData([u8; oottracker::save::SIZE]),
     FileHash([HashIcon; 5]),
     ResetPlayerId,
+    DungeonRewardInfo {
+        emerald: Option<(NonZeroU8, HintArea)>,
+        ruby: Option<(NonZeroU8, HintArea)>,
+        sapphire: Option<(NonZeroU8, HintArea)>,
+        light: Option<(NonZeroU8, HintArea)>,
+        forest: Option<(NonZeroU8, HintArea)>,
+        fire: Option<(NonZeroU8, HintArea)>,
+        water: Option<(NonZeroU8, HintArea)>,
+        shadow: Option<(NonZeroU8, HintArea)>,
+        spirit: Option<(NonZeroU8, HintArea)>,
+    },
 }

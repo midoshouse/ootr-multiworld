@@ -46,6 +46,7 @@ fn csharp_ffi_type_check(rust_type: &Type, csharp_type: &str, span: Span) -> std
                 compile_error!("expected IntPtr to map to HandleOwned or StringHandle");
             }.into()),
         },
+        "OptHintArea" => vec![parse_quote!(OptHintArea)],
         "OptMessageResult" => pointers(quote!(Result<Option<ServerMessage>, Error>)),
         "OwnedStringHandle" => vec![parse_quote!(*const c_char)],
         "StringHandle" => vec![parse_quote!(StringHandle)],

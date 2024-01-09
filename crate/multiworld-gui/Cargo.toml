@@ -62,6 +62,10 @@ branch = "main"
 [dependencies.multiworld]
 path = "../multiworld"
 
+[dependencies.ootr]
+git = "https://github.com/fenhl/oottracker"
+branch = "mw"
+
 [dependencies.ootr-utils]
 git = "https://github.com/midoshouse/rust-ootr-utils"
 branch = "main"

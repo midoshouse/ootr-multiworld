@@ -55,6 +55,7 @@ use {
     url::Url,
     wheel::{
         fs,
+        io_error_from_reqwest,
         traits::{
             AsyncCommandOutputExt as _,
             IoResultExt as _,
@@ -64,7 +65,6 @@ use {
         config::Config,
         frontend::Kind as Emulator, //TODO rename to Frontend?
         github::Repo,
-        io_error_from_reqwest,
     },
 };
 #[cfg(target_os = "linux")] use {

@@ -6,6 +6,7 @@ use {
     },
     chrono::prelude::*,
     either::Either,
+    ootr::model::DungeonReward,
     ootr_utils::spoiler::{
         HashIcon,
         SpoilerLog,
@@ -13,6 +14,7 @@ use {
     semver::Version,
     crate::{
         Filename,
+        HintArea,
         Player,
         ws::ServerError,
     },
@@ -88,6 +90,12 @@ pub enum ClientMessage {
     },
     /// Only works after [`ServerMessage::EnterRoom`].
     LeaveRoom,
+    /// Gives info on the player's knowledge of dungeon reward locations in case this room's auto-tracker is used. Only works after [`ServerMessage::EnterRoom`].
+    DungeonRewardInfo {
+        reward: DungeonReward,
+        world: NonZeroU8,
+        area: HintArea,
+    },
 }
 
 #[derive(Debug, Clone)]

@@ -64,6 +64,7 @@ use {
             self,
             File,
         },
+        io_error_from_reqwest,
         traits::{
             IoResultExt as _,
             ResultNeverErrExt as _,
@@ -76,7 +77,6 @@ use {
             ReleaseAsset,
             Repo,
         },
-        io_error_from_reqwest,
     },
     crate::util::absolute_path,
 };
