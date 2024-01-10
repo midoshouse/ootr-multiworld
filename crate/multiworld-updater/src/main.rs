@@ -442,7 +442,7 @@ impl Application for App {
                 });
                 #[cfg(target_os = "windows")] return cmd(async move {
                     let zip_file = async_zip::base::read::mem::ZipFileReader::new(response.into()).await?;
-                    let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| Ok((idx, entry.entry().filename().as_str()?.ends_with('/'), path.join(entry.entry().filename().as_str()?)))).try_collect::<_, Vec<_>, Error>()?;
+                    let entries = zip_file.file().entries().iter().enumerate().map(|(idx, entry)| Ok((idx, entry.filename().as_str()?.ends_with('/'), path.join(entry.filename().as_str()?)))).try_collect::<_, Vec<_>, Error>()?;
                     for (idx, is_dir, path) in entries {
                         if is_dir {
                             fs::create_dir_all(path).await?;

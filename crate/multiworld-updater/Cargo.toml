@@ -31,7 +31,7 @@ thiserror = "1"
 url = "2"
 
 [dependencies.async_zip]
-version = "0.0.15"
+version = "0.0.16"
 features = ["full"]
 
 [dependencies.chrono]
