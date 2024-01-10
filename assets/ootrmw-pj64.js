@@ -327,7 +327,13 @@ if (typeof PJ64_JSAPI_VERSION === 'undefined') {
         console.log('Connection to multiworld app lost');
         throw 'connection to multiworld app lost';
     });
+    // This version of PJ64's API doesn't have any way to detect a failed connection
+    // (no error event handler, no setTimeout), so we have to preemptively give troubleshooting info.
+    console.log('Attempting to connect to multiworld app…');
+    console.log("This should take less than 5 seconds. If you don't see “connected” below, make sure the app is running.");
+    console.log('If you need help, you can ask in #setup-support on the OoT Randomizer Discord or in #general on the OoTR MW Tournament Discord. Feel free to ping @fenhl.');
     sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
+        console.log('Connected.');
         const handshake = new ArrayBuffer(1);
         new DataView(handshake).setUint8(0, MW_FRONTEND_PROTO_VERSION);
         sock.write(new Buffer(new Uint8Array(handshake)), function() {
