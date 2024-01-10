@@ -48,7 +48,6 @@ use {
     sysinfo::{
         Pid,
         ProcessRefreshKind,
-        SystemExt as _,
     },
     tokio::{
         io::{
