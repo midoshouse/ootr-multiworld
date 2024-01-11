@@ -60,6 +60,7 @@ enum Error {
     #[error(transparent)] Client(#[from] multiworld::ClientError),
     #[error(transparent)] Config(#[from] multiworld::config::Error),
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
+    #[error(transparent)] FilenameParse(#[from] multiworld::FilenameParseError),
     #[error(transparent)] Io(#[from] tokio::io::Error),
     #[error(transparent)] Json(#[from] serde_json::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),

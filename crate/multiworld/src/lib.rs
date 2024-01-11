@@ -9,6 +9,7 @@ use {
         hash::Hash,
         mem,
         num::NonZeroU8,
+        str::FromStr,
         sync::Arc,
         time::Duration,
     },
@@ -80,7 +81,7 @@ pub mod frontend;
 pub mod github;
 pub mod ws;
 
-pub const DEFAULT_TCP_PORT: u16 = 24809; //TODO use for LAN support
+pub const DEFAULT_TCP_PORT: u16 = 24809; //TODO use for LAN support (https://github.com/midoshouse/ootr-multiworld/issues/3)
 
 pub const CREDENTIAL_LEN: usize = ring::digest::SHA512_OUTPUT_LEN;
 
@@ -283,6 +284,33 @@ impl<'a> TryFrom<&'a [u8]> for Filename {
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         value.try_into().map(Self)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum FilenameParseError {
+    #[error("the character {0:?} is not allowed in OoT filenames")]
+    Char(char),
+    #[error("OoT filename too long (got {0} characters, maximum is 8)")]
+    TooLong(usize),
+}
+
+impl FromStr for Filename {
+    type Err = FilenameParseError;
+
+    fn from_str(s: &str) -> Result<Self, FilenameParseError> {
+        let mut buf = s.chars().map(|c| if c == '�' {
+            Err(FilenameParseError::Char('�'))
+        } else {
+            Self::ENCODING.into_iter()
+                .position(|iter_char| iter_char == c)
+                .map(|pos| u8::try_from(pos).expect("more than 256 characters in Filename::ENCODING"))
+                .ok_or_else(|| FilenameParseError::Char(c))
+        }).try_collect::<_, Vec<_>, _>()?;
+        if buf.len() < 8 {
+            buf.resize(8, 0xdf);
+        }
+        buf.try_into().map(Self).map_err(|buf| FilenameParseError::TooLong(buf.len()))
     }
 }
 

@@ -152,7 +152,7 @@ impl FromExpr for Duration {
 impl FromExpr for Filename {
     fn from_expr(expr: Expr) -> Result<Self, Error> {
         match expr {
-            //Expr::Lit(ExprLit { lit: Lit::Str(lit), .. }) => Ok(lit.value().parse()?), //TODO allow filename input as string literal
+            Expr::Lit(ExprLit { lit: Lit::Str(lit), .. }) => Ok(lit.value().parse()?),
             Expr::Array(array) => Ok(Self(<_>::from_expr(Expr::Array(array))?)),
             _ => Err(Error::FromExpr),
         }
