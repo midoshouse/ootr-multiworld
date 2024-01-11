@@ -1194,7 +1194,7 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
 
 #[wheel::main(custom_exit)]
 async fn main(args: CliArgs) -> Result<(), Error> {
-    let cli = Cli::new()?; //TODO adjust to show a summary of currently running steps, prioritizing active work over waiting
+    let cli = Cli::new()?;
     let res = cli_main(&cli, Args::from(args)).await;
     drop(cli);
     res

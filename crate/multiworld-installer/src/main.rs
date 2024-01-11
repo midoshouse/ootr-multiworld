@@ -295,7 +295,7 @@ impl Application for State {
     }
 
     fn theme(&self) -> Theme {
-        //TODO automatically update on system theme change
+        //TODO automatically update on system theme change (https://github.com/gtk-rs/gtk-rs-core/discussions/1278 for GNOME, https://github.com/frewsxcv/rust-dark-light/pull/26 for other platforms)
         #[cfg(target_os = "linux")] {
             let settings = gio::Settings::new("org.gnome.desktop.interface");
             if settings.settings_schema().map_or(false, |schema| schema.has_key("color-scheme")) {

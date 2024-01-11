@@ -1,5 +1,6 @@
 use {
     std::{
+        collections::BTreeMap,
         fmt,
         io::{
             self,
@@ -10,8 +11,11 @@ use {
     },
     chrono::prelude::*,
     crossterm::{
+        cursor::MoveToColumn,
         style::Print,
         terminal::{
+            Clear,
+            ClearType,
             disable_raw_mode,
             enable_raw_mode,
         },
@@ -21,12 +25,16 @@ use {
 
 pub(crate) struct Cli {
     stdout: Arc<Mutex<Stdout>>,
+    active_tasks: Arc<Mutex<BTreeMap<String, String>>>,
 }
 
 impl Cli {
     pub(crate) fn new() -> io::Result<Self> {
         enable_raw_mode()?;
-        Ok(Self { stdout: Arc::new(Mutex::new(stdout())) })
+        Ok(Self {
+            stdout: Arc::new(Mutex::new(stdout())),
+            active_tasks: Arc::default(),
+        })
     }
 
     pub(crate) async fn new_line(&self, initial_text: impl fmt::Display) -> io::Result<LineHandle> {
@@ -40,30 +48,65 @@ impl Cli {
     }
 
     pub(crate) async fn run<T>(&self, mut task: impl gres::Task<T> + fmt::Display, prefix: impl fmt::Display) -> io::Result<T> {
+        let prefix = prefix.to_string();
+        lock!(self.active_tasks).insert(prefix.clone(), task.to_string());
         {
             let mut stdout = lock!(self.stdout);
             crossterm::execute!(stdout,
+                MoveToColumn(0),
+                Clear(ClearType::UntilNewLine),
                 Print(format_args!("{} {prefix:>26}: {task}\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
             )?;
         }
+        self.redraw().await?;
         loop {
             match task.run().await {
                 Ok(result) => {
-                    let mut stdout = lock!(self.stdout);
-                    crossterm::execute!(stdout,
-                        Print(format_args!("{} {prefix:>26}: done\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
-                    )?;
+                    lock!(self.active_tasks).remove(&prefix);
+                    {
+                        let mut stdout = lock!(self.stdout);
+                        crossterm::execute!(stdout,
+                            MoveToColumn(0),
+                            Clear(ClearType::UntilNewLine),
+                            Print(format_args!("{} {prefix:>26}: done\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
+                        )?;
+                    }
+                    self.redraw().await?;
                     break Ok(result)
                 }
                 Err(next_task) => {
                     task = next_task;
-                    let mut stdout = lock!(self.stdout);
-                    crossterm::execute!(stdout,
-                        Print(format_args!("{} {prefix:>26}: {task}\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
-                    )?;
+                    *lock!(self.active_tasks).get_mut(&prefix).expect("missing task, did you run multiple tasks with the same prefix?") = task.to_string();
+                    {
+                        let mut stdout = lock!(self.stdout);
+                        crossterm::execute!(stdout,
+                            MoveToColumn(0),
+                            Clear(ClearType::UntilNewLine),
+                            Print(format_args!("{} {prefix:>26}: {task}\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
+                        )?;
+                    }
+                    self.redraw().await?;
                 }
             }
         }
+    }
+
+    async fn redraw(&self) -> io::Result<()> {
+        let active_tasks = lock!(self.active_tasks);
+        let mut stdout = lock!(self.stdout);
+        if let Some((prefix, task)) = active_tasks.iter().next() { //TODO sort by priority (active work preferred over waiting)
+            crossterm::execute!(stdout,
+                MoveToColumn(0),
+                Clear(ClearType::UntilNewLine),
+                Print(format_args!("{} tasks, e.g.: {prefix}: {task}", active_tasks.len())),
+            )?;
+        } else {
+            crossterm::execute!(stdout,
+                MoveToColumn(0),
+                Clear(ClearType::UntilNewLine),
+            )?;
+        }
+        Ok(())
     }
 }
 
