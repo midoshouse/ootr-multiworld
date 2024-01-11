@@ -415,25 +415,37 @@ impl State {
     fn error_to_markdown(&self) -> Option<String> {
         Some(if let Some(ref e) = self.icon_error {
             MessageBuilder::default()
-                .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), " while trying to load icon:"))
+                .push_line(format!("error in Mido's House Multiworld version {}{} while trying to load icon:", env!("CARGO_PKG_VERSION"), {
+                    #[cfg(debug_assertions)] { " (debug)" }
+                    #[cfg(not(debug_assertions))] { "" }
+                }))
                 .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
         } else if let Some(ref e) = self.config_error {
             MessageBuilder::default()
-                .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), " while trying to load config:"))
+                .push_line(format!("error in Mido's House Multiworld version {}{} while trying to load config:", env!("CARGO_PKG_VERSION"), {
+                    #[cfg(debug_assertions)] { " (debug)" }
+                    #[cfg(not(debug_assertions))] { "" }
+                }))
                 .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
         } else if let Some(ref e) = self.persistent_state_error {
             MessageBuilder::default()
-                .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), " while trying to load persistent state:"))
+                .push_line(format!("error in Mido's House Multiworld version {}{} while trying to load persistent state:", env!("CARGO_PKG_VERSION"), {
+                    #[cfg(debug_assertions)] { " (debug)" }
+                    #[cfg(not(debug_assertions))] { "" }
+                }))
                 .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
         } else if let Some(ref e) = self.command_error {
             MessageBuilder::default()
-                .push_line(concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), ":"))
+                .push_line(format!("error in Mido's House Multiworld version {}{}:", env!("CARGO_PKG_VERSION"), {
+                    #[cfg(debug_assertions)] { " (debug)" }
+                    #[cfg(not(debug_assertions))] { "" }
+                }))
                 .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
@@ -444,13 +456,19 @@ impl State {
                 String::default()
             };
             MessageBuilder::default()
-                .push_line(format!("error in Mido's House Multiworld version {} while trying to sign in{with_provider}:", env!("CARGO_PKG_VERSION")))
+                .push_line(format!("error in Mido's House Multiworld version {}{} while trying to sign in{with_provider}:", env!("CARGO_PKG_VERSION"), {
+                    #[cfg(debug_assertions)] { " (debug)" }
+                    #[cfg(not(debug_assertions))] { "" }
+                }))
                 .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
         } else if let Some(ref e) = self.frontend_subscription_error {
             MessageBuilder::default()
-                .push_line(format!("error in Mido's House Multiworld version {} during communication with {}:", env!("CARGO_PKG_VERSION"), self.frontend.display_with_version()))
+                .push_line(format!("error in Mido's House Multiworld version {}{} during communication with {}:", env!("CARGO_PKG_VERSION"), {
+                    #[cfg(debug_assertions)] { " (debug)" }
+                    #[cfg(not(debug_assertions))] { "" }
+                }, self.frontend.display_with_version()))
                 .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
@@ -460,9 +478,15 @@ impl State {
                     if let SessionStateError::Connection(e) = e;
                     if e.is_network_error();
                     then {
-                        concat!("network error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), ":")
+                        format!("network error in Mido's House Multiworld version {}{}:", env!("CARGO_PKG_VERSION"), {
+                            #[cfg(debug_assertions)] { " (debug)" }
+                            #[cfg(not(debug_assertions))] { "" }
+                        })
                     } else {
-                        concat!("error in Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), " during communication with the server:")
+                        format!("error in Mido's House Multiworld version {}{} during communication with the server:", env!("CARGO_PKG_VERSION"), {
+                            #[cfg(debug_assertions)] { " (debug)" }
+                            #[cfg(not(debug_assertions))] { "" }
+                        })
                     }
                 })
                 .push_line_safe(e.to_string())
@@ -1371,7 +1395,10 @@ impl Application for State {
                     .push("Connecting to server…")
                     .push("If this takes longer than 5 seconds, check your internet connection or contact @fenhl on Discord for support.")
                     .push(Space::with_height(Length::Fill))
-                    .push(concat!("version ", env!("CARGO_PKG_VERSION")))
+                    .push(Text::new(format!("version {}{}", env!("CARGO_PKG_VERSION"), {
+                        #[cfg(debug_assertions)] { " (debug)" }
+                        #[cfg(not(debug_assertions))] { "" }
+                    })))
                     .spacing(8)
                     .padding(8)
                     .into(),
@@ -1379,7 +1406,10 @@ impl Application for State {
                     .push("Reconnecting to room…")
                     .push("If this takes longer than 5 seconds, check your internet connection or contact @fenhl on Discord for support.")
                     .push(Space::with_height(Length::Fill))
-                    .push(concat!("version ", env!("CARGO_PKG_VERSION")))
+                    .push(Text::new(format!("version {}{}", env!("CARGO_PKG_VERSION"), {
+                        #[cfg(debug_assertions)] { " (debug)" }
+                        #[cfg(not(debug_assertions))] { "" }
+                    })))
                     .spacing(8)
                     .padding(8)
                     .into(),
@@ -1403,7 +1433,10 @@ impl Application for State {
                         .push(Row::new()
                             .push(Button::new("Back").on_press(Message::SetLobbyView(LobbyView::Normal)))
                             .push(Space::with_width(Length::Fill))
-                            .push(concat!("version ", env!("CARGO_PKG_VERSION")))
+                            .push(Text::new(format!("version {}{}", env!("CARGO_PKG_VERSION"), {
+                                #[cfg(debug_assertions)] { " (debug)" }
+                                #[cfg(not(debug_assertions))] { "" }
+                            })))
                         );
                     if login_state.is_some() {
                         col = col.push("You are signed in."); //TODO option to sign out

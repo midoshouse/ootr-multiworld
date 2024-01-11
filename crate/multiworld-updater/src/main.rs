@@ -132,7 +132,10 @@ enum Error {
 impl Error {
     fn to_markdown(&self) -> String {
         MessageBuilder::default()
-            .push_line(concat!("error while trying to update Mido's House Multiworld from version ", env!("CARGO_PKG_VERSION"), ":")) //TODO also show new version
+            .push_line(format!("error while trying to update Mido's House Multiworld from version {}{}:", env!("CARGO_PKG_VERSION"), {
+                #[cfg(debug_assertions)] { " (debug)" }
+                #[cfg(not(debug_assertions))] { "" }
+            })) //TODO also show new version
             .push_line_safe(self.to_string())
             .push_codeblock_safe(format!("{self:?}"), Some("rust"))
             .build()
@@ -512,7 +515,10 @@ impl Application for App {
                     .push("An update for Mido's House Multiworld for BizHawk is available.")
                     .push("Please close BizHawk to start the update.")
                     .push(Space::with_height(Length::Fill))
-                    .push(concat!("old version: ", env!("CARGO_PKG_VERSION"))) //TODO also show new version
+                    .push(Text::new(format!("old version: {}{}", env!("CARGO_PKG_VERSION"), {
+                        #[cfg(debug_assertions)] { " (debug)" }
+                        #[cfg(not(debug_assertions))] { "" }
+                    }))) //TODO also show new version
                     .spacing(8)
                     .padding(8)
                     .into(),
@@ -520,7 +526,10 @@ impl Application for App {
                     .push("An update for Mido's House Multiworld is available.")
                     .push("Waiting to make sure the old version has exited…")
                     .push(Space::with_height(Length::Fill))
-                    .push(concat!("old version: ", env!("CARGO_PKG_VERSION"))) //TODO also show new version
+                    .push(Text::new(format!("old version: {}{}", env!("CARGO_PKG_VERSION"), {
+                        #[cfg(debug_assertions)] { " (debug)" }
+                        #[cfg(not(debug_assertions))] { "" }
+                    }))) //TODO also show new version
                     .spacing(8)
                     .padding(8)
                     .into(),

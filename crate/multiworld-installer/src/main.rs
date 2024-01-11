@@ -133,7 +133,10 @@ enum Error {
 impl Error {
     fn to_markdown(&self) -> String {
         MessageBuilder::default()
-            .push_line(concat!("error while trying to install Mido's House Multiworld version ", env!("CARGO_PKG_VERSION"), ":"))
+            .push_line(format!("error while trying to install Mido's House Multiworld version {}{}:", env!("CARGO_PKG_VERSION"), {
+                #[cfg(debug_assertions)] { " (debug)" }
+                #[cfg(not(debug_assertions))] { "" }
+            }))
             .push_line_safe(self.to_string())
             .push_codeblock_safe(format!("{self:?}"), Some("rust"))
             .build()
@@ -996,7 +999,10 @@ impl Application for State {
         if let Some((btn_content, enabled)) = next_btn {
             let mut bottom_row = Row::new();
             if matches!(self.page, Page::SelectEmulator { .. }) {
-                bottom_row = bottom_row.push(Text::new(concat!("version ", env!("CARGO_PKG_VERSION"))));
+                bottom_row = bottom_row.push(Text::new(format!("version {}{}", env!("CARGO_PKG_VERSION"), {
+                    #[cfg(debug_assertions)] { " (debug)" }
+                    #[cfg(not(debug_assertions))] { "" }
+                })));
             } else {
                 bottom_row = bottom_row.push(Button::new(Text::new("Back")).on_press(Message::Back));
             }
