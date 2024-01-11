@@ -6,6 +6,7 @@ use {
         time::Duration,
     },
     async_proto::Protocol as _,
+    chrono::prelude::*,
     crossterm::{
         cursor::{
             MoveLeft,
@@ -131,7 +132,7 @@ async fn cli(Args { api_key }: Args) -> Result<(), Error> {
                     crossterm::execute!(stdout,
                         MoveToColumn(0),
                         Clear(ClearType::UntilNewLine),
-                        Print(format_args!("{msg:#?}\r\n{}> {cmd_buf}", prompt(&session_state))),
+                        Print(format_args!("{} {msg:#?}\r\n{}> {cmd_buf}", Local::now().format("%Y-%m-%d %H:%M:%S"), prompt(&session_state))),
                     )?;
                 }
                 read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_ws_owned(reader)));

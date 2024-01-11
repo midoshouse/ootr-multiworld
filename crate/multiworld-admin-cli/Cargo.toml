@@ -19,6 +19,11 @@ url = "2"
 version = "4"
 features = ["derive"]
 
+[dependencies.chrono]
+version = "0.4"
+default-features = false
+features = ["alloc", "clock"]
+
 [dependencies.crossterm]
 version = "0.27"
 features = ["event-stream"]
