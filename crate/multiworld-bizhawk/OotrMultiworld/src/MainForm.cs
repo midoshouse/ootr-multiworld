@@ -329,7 +329,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
     public override bool BlocksInputWhenFocused { get; } = false;
     protected override string WindowTitleStatic => "Mido's House Multiworld for BizHawk";
 
-    public override bool AskSaveChanges() => true; //TODO warn before leaving an active game?
+    public override bool AskSaveChanges() => true;
 
     public MainForm() {
         this.ShowInTaskbar = false;
@@ -853,7 +853,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                     }
                     if (display_area) {
                         var area = HintAreaFromRewardInfo(trackerCtxAddr, i);
-                        var world = playerID; //TODO add CFG_DUNGEON_INFO_REWARD_WORLDS_ENABLE and CFG_DUNGEON_REWARD_WORLDS to tracker context
+                        var world = playerID; //TODO add CFG_DUNGEON_INFO_REWARD_WORLDS_ENABLE and CFG_DUNGEON_REWARD_WORLDS to tracker context as part of dungeon reward shuffle PR
                         switch (reward) {
                             case 0: {
                                 emerald_area = area;

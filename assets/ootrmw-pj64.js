@@ -119,6 +119,461 @@ function handle_data(sock, state, buf) {
     }
 }
 
+var OptHintArea = {
+    Unknown: 0,
+    Root: 1,
+    HyruleField: 2,
+    LonLonRanch: 3,
+    Market: 4,
+    TempleOfTime: 5,
+    HyruleCastle: 6,
+    OutsideGanonsCastle: 7,
+    InsideGanonsCastle: 8,
+    KokiriForest: 9,
+    DekuTree: 10,
+    LostWoods: 11,
+    SacredForestMeadow: 12,
+    ForestTemple: 13,
+    DeathMountainTrail: 14,
+    DodongosCavern: 15,
+    GoronCity: 16,
+    DeathMountainCrater: 17,
+    FireTemple: 18,
+    ZoraRiver: 19,
+    ZorasDomain: 20,
+    ZorasFountain: 21,
+    JabuJabusBelly: 22,
+    IceCavern: 23,
+    LakeHylia: 24,
+    WaterTemple: 25,
+    KakarikoVillage: 26,
+    BottomOfTheWell: 27,
+    Graveyard: 28,
+    ShadowTemple: 29,
+    GerudoValley: 30,
+    GerudoFortress: 31,
+    ThievesHideout: 32,
+    GerudoTrainingGround: 33,
+    HauntedWasteland: 34,
+    DesertColossus: 35,
+    SpiritTemple: 36,
+};
+
+function hint_area_from_dungeon_idx(i) {
+    switch (i) {
+        case 0: return OptHintArea.DekuTree;
+        case 1: return OptHintArea.DodongosCavern;
+        case 2: return OptHintArea.JabuJabusBelly;
+        case 3: return OptHintArea.ForestTemple;
+        case 4: return OptHintArea.FireTemple;
+        case 5: return OptHintArea.WaterTemple;
+        case 6: return OptHintArea.SpiritTemple;
+        case 7: return OptHintArea.ShadowTemple;
+        case 8: return OptHintArea.BottomOfTheWell;
+        case 9: return OptHintArea.IceCavern;
+        case 10: return OptHintArea.InsideGanonsCastle;
+        case 11: return OptHintArea.GerudoTrainingGround;
+        case 12: return OptHintArea.ThievesHideout;
+        case 13: return OptHintArea.InsideGanonsCastle;
+        default: return OptHintArea.Unknown;
+    }
+}
+
+function hint_area_from_reward_info(trackerCtxAddr, i) {
+    var text = mem.getstring(trackerCtxAddr + 0x50 + 0x17 * i);
+    if (text == "Free                  ") return OptHintArea.Root;
+    if (text == "Hyrule Field          ") return OptHintArea.HyruleField;
+    if (text == "Lon Lon Ranch         ") return OptHintArea.LonLonRanch;
+    if (text == "Market                ") return OptHintArea.Market;
+    if (text == "Temple of Time        ") return OptHintArea.TempleOfTime;
+    if (text == "Hyrule Castle         ") return OptHintArea.HyruleCastle;
+    if (text == "Outside Ganon's Castle") return OptHintArea.OutsideGanonsCastle;
+    if (text == "Inside Ganon's Castle ") return OptHintArea.InsideGanonsCastle;
+    if (text == "Kokiri Forest         ") return OptHintArea.KokiriForest;
+    if (text == "Deku Tree             ") return OptHintArea.DekuTree;
+    if (text == "Lost Woods            ") return OptHintArea.LostWoods;
+    if (text == "Sacred Forest Meadow  ") return OptHintArea.SacredForestMeadow;
+    if (text == "Forest Temple         ") return OptHintArea.ForestTemple;
+    if (text == "Death Mountain Trail  ") return OptHintArea.DeathMountainTrail;
+    if (text == "Dodongo's Cavern      ") return OptHintArea.DodongosCavern;
+    if (text == "Goron City            ") return OptHintArea.GoronCity;
+    if (text == "Death Mountain Crater ") return OptHintArea.DeathMountainCrater;
+    if (text == "Fire Temple           ") return OptHintArea.FireTemple;
+    if (text == "Zora's River          ") return OptHintArea.ZoraRiver;
+    if (text == "Zora's Domain         ") return OptHintArea.ZorasDomain;
+    if (text == "Zora's Fountain       ") return OptHintArea.ZorasFountain;
+    if (text == "Jabu Jabu's Belly     ") return OptHintArea.JabuJabusBelly;
+    if (text == "Ice Cavern            ") return OptHintArea.IceCavern;
+    if (text == "Lake Hylia            ") return OptHintArea.LakeHylia;
+    if (text == "Water Temple          ") return OptHintArea.WaterTemple;
+    if (text == "Kakariko Village      ") return OptHintArea.KakarikoVillage;
+    if (text == "Bottom of the Well    ") return OptHintArea.BottomOfTheWell;
+    if (text == "Graveyard             ") return OptHintArea.Graveyard;
+    if (text == "Shadow Temple         ") return OptHintArea.ShadowTemple;
+    if (text == "Gerudo Valley         ") return OptHintArea.GerudoValley;
+    if (text == "Gerudo's Fortress     ") return OptHintArea.GerudoFortress;
+    if (text == "Thieves' Hideout      ") return OptHintArea.ThievesHideout;
+    if (text == "Gerudo Training Ground") return OptHintArea.GerudoTrainingGround;
+    if (text == "Haunted Wasteland     ") return OptHintArea.HauntedWasteland;
+    if (text == "Desert Colossus       ") return OptHintArea.DesertColossus;
+    if (text == "Spirit Temple         ") return OptHintArea.SpiritTemple;
+    return OptHintArea.Unknown;
+}
+
+function write_dungeon_reward_info(emerald_world, emerald_area, ruby_world, ruby_area, sapphire_world, sapphire_area, light_world, light_area, forest_world, forest_area, fire_world, fire_area, water_world, water_area, shadow_world, shadow_area, spirit_world, spirit_area, write) {
+    var emerald = emerald_world != 0 && emerald_area != OptHintArea.Unknown;
+    var ruby = ruby_world != 0 && ruby_area != OptHintArea.Unknown;
+    var sapphire = sapphire_world != 0 && sapphire_area != OptHintArea.Unknown;
+    var light = light_world != 0 && light_area != OptHintArea.Unknown;
+    var forest = forest_world != 0 && forest_area != OptHintArea.Unknown;
+    var fire = fire_world != 0 && fire_area != OptHintArea.Unknown;
+    var water = water_world != 0 && water_area != OptHintArea.Unknown;
+    var shadow = shadow_world != 0 && shadow_area != OptHintArea.Unknown;
+    var spirit = spirit_world != 0 && spirit_area != OptHintArea.Unknown;
+    if (emerald || ruby || sapphire || light || forest || fire || water || shadow || spirit) {
+        const packet = new ArrayBuffer(1 + (emerald ? 3 : 1) + (ruby ? 3 : 1) + (sapphire ? 3 : 1) + (light ? 3 : 1) + (forest ? 3 : 1) + (fire ? 3 : 1) + (water ? 3 : 1) + (shadow ? 3 : 1) + (spirit ? 3 : 1));
+        var packetView = new DataView(packet);
+        packetView.setUint8(0, 6); // message: DungeonRewardInfo
+        var offset = 1;
+        if (emerald) {
+            packetView.setUint8(offset, 1);
+            packetView.setUint8(offset + 1, emerald_world);
+            packetView.setUint8(offset + 2, emerald_area);
+            offset += 3;
+        } else {
+            packetView.setUint8(offset, 0);
+            offset += 1;
+        }
+        if (ruby) {
+            packetView.setUint8(offset, 1);
+            packetView.setUint8(offset + 1, ruby_world);
+            packetView.setUint8(offset + 2, ruby_area);
+            offset += 3;
+        } else {
+            packetView.setUint8(offset, 0);
+            offset += 1;
+        }
+        if (sapphire) {
+            packetView.setUint8(offset, 1);
+            packetView.setUint8(offset + 1, sapphire_world);
+            packetView.setUint8(offset + 2, sapphire_area);
+            offset += 3;
+        } else {
+            packetView.setUint8(offset, 0);
+            offset += 1;
+        }
+        if (light) {
+            packetView.setUint8(offset, 1);
+            packetView.setUint8(offset + 1, light_world);
+            packetView.setUint8(offset + 2, light_area);
+            offset += 3;
+        } else {
+            packetView.setUint8(offset, 0);
+            offset += 1;
+        }
+        if (forest) {
+            packetView.setUint8(offset, 1);
+            packetView.setUint8(offset + 1, forest_world);
+            packetView.setUint8(offset + 2, forest_area);
+            offset += 3;
+        } else {
+            packetView.setUint8(offset, 0);
+            offset += 1;
+        }
+        if (fire) {
+            packetView.setUint8(offset, 1);
+            packetView.setUint8(offset + 1, fire_world);
+            packetView.setUint8(offset + 2, fire_area);
+            offset += 3;
+        } else {
+            packetView.setUint8(offset, 0);
+            offset += 1;
+        }
+        if (water) {
+            packetView.setUint8(offset, 1);
+            packetView.setUint8(offset + 1, water_world);
+            packetView.setUint8(offset + 2, water_area);
+            offset += 3;
+        } else {
+            packetView.setUint8(offset, 0);
+            offset += 1;
+        }
+        if (shadow) {
+            packetView.setUint8(offset, 1);
+            packetView.setUint8(offset + 1, shadow_world);
+            packetView.setUint8(offset + 2, shadow_area);
+            offset += 3;
+        } else {
+            packetView.setUint8(offset, 0);
+            offset += 1;
+        }
+        if (spirit) {
+            packetView.setUint8(offset, 1);
+            packetView.setUint8(offset + 1, spirit_world);
+            packetView.setUint8(offset + 2, spirit_area);
+            offset += 3;
+        } else {
+            packetView.setUint8(offset, 0);
+            offset += 1;
+        }
+        write(new Buffer(new Uint8Array(packet)));
+    }
+}
+
+function send_dungeon_reward_location_info(write, playerID, cosmeticsCtxAddr, trackerCtxAddr) {
+    if (trackerCtxAddr == 0) { return; }
+    var trackerCtxVersion = mem.u32[trackerCtxAddr];
+    if (trackerCtxVersion < 4) { return; } // partial functionality is available in older rando versions, but supporting those is not worth the effort of checking rando version to disambiguate tracker context v3
+    // CAN_DRAW_DUNGEON_INFO
+    var cfg_dungeon_info_enable = mem.u8[trackerCtxAddr + 0x04];
+    if (cfg_dungeon_info_enable == 0) { return; }
+    var pause_state = mem.u16[ADDR_ANY_RDRAM.start + 0x1d8c00 + 0x01d4];
+    if (pause_state != 6) { return; }
+    var pause_screen_idx = mem.u16[ADDR_ANY_RDRAM.start + 0x1d8c00 + 0x01e8];
+    if (pause_screen_idx != 0) { return; }
+    var pause_changing = mem.u16[ADDR_ANY_RDRAM.start + 0x1d8c00 + 0x01e4];
+    if (pause_changing != 0 && pause_changing != 3) { return; }
+    // not CAN_DRAW_TRADE_DPAD
+    var pause_item_cursor = mem.s16[ADDR_ANY_RDRAM.start + 0x1d8c00 + 0x0218];
+    if (pause_item_cursor == 0x16) {
+        // Z64_SLOT_ADULT_TRADE
+        // assume CFG_ADULT_TRADE_SHUFFLE
+        //TODO check via https://github.com/OoTRandomizer/OoT-Randomizer/pull/2156
+        return;
+    } else if (pause_item_cursor == 0x17) {
+        // Z64_SLOT_CHILD_TRADE
+        // assume CFG_CHILD_TRADE_SHUFFLE
+        //TODO check via https://github.com/OoTRandomizer/OoT-Randomizer/pull/2156
+        return;
+    }
+    // draw
+    var cosmeticsCtxVersion = 0;
+    if (cosmeticsCtxAddr != 0) {
+        cosmeticsCtxVersion = mem.u32[cosmeticsCtxAddr];
+    }
+    var cfg_dpad_dungeon_info_enable = false;
+    if (cosmeticsCtxVersion >= 0x1f073fd9) {
+        cfg_dpad_dungeon_info_enable = mem.u8[cosmeticsCtxAddr + 0x0055] != 0;
+    }
+    var pad_held = mem.u16[ADDR_ANY_RDRAM.start + 0x1c84b4 + 0x0400];
+    var d_down_held = (pad_held & 0x0400) != 0;
+    var a_held = (pad_held & 0x8000) != 0;
+    if (!(cfg_dpad_dungeon_info_enable && d_down_held) && !a_held) { return; }
+    // menus
+    var cfg_dungeon_info_reward_enable = mem.u32[trackerCtxAddr + 0x10] != 0;
+    var cfg_dungeon_info_reward_need_compass = mem.u32[trackerCtxAddr + 0x14];
+    var cfg_dungeon_info_reward_need_altar = mem.u32[trackerCtxAddr + 0x18] != 0;
+    var show_stones = cfg_dungeon_info_reward_enable && (!cfg_dungeon_info_reward_need_altar || (mem.u8[ADDR_ANY_RDRAM.start + 0x11a5d0 + 0x0ef8 + 55] & 2) != 0);
+    var show_meds = cfg_dungeon_info_reward_enable && (!cfg_dungeon_info_reward_need_altar || (mem.u8[ADDR_ANY_RDRAM.start + 0x11a5d0 + 0x0ef8 + 55] & 1) != 0);
+    if (a_held && !(d_down_held && cfg_dpad_dungeon_info_enable)) {
+        // A menu
+        var cfg_dungeon_info_reward_summary_enable = mem.u32[trackerCtxAddr + 0x1c] != 0;
+        if (!cfg_dungeon_info_reward_summary_enable) { return; }
+        var emerald_world = 0;
+        var emerald_area = OptHintArea.Unknown;
+        var ruby_world = 0;
+        var ruby_area = OptHintArea.Unknown;
+        var sapphire_world = 0;
+        var sapphire_area = OptHintArea.Unknown;
+        var light_world = 0;
+        var light_area = OptHintArea.Unknown;
+        var forest_world = 0;
+        var forest_area = OptHintArea.Unknown;
+        var fire_world = 0;
+        var fire_area = OptHintArea.Unknown;
+        var water_world = 0;
+        var water_area = OptHintArea.Unknown;
+        var shadow_world = 0;
+        var shadow_area = OptHintArea.Unknown;
+        var spirit_world = 0;
+        var spirit_area = OptHintArea.Unknown;
+        for (var dungeon_idx = 0; dungeon_idx < 14; dungeon_idx++) {
+            if (cfg_dungeon_info_reward_need_compass == 0 || (mem.u8[ADDR_ANY_RDRAM.start + 0x11a5d0 + 0x00a8 + dungeon_idx] & 2) != 0) {
+                var reward = mem.u8[trackerCtxAddr + 0x20 + dungeon_idx];
+                if (reward < 0) {
+                    // none or unknown
+                } else if (reward < 3) {
+                    if (show_stones) {
+                        switch (reward) {
+                            case 0: {
+                                emerald_area = hint_area_from_dungeon_idx(dungeon_idx);
+                                emerald_world = playerID;
+                                break;
+                            }
+                            case 1: {
+                                ruby_area = hint_area_from_dungeon_idx(dungeon_idx);
+                                ruby_world = playerID;
+                                break;
+                            }
+                            case 2: {
+                                sapphire_area = hint_area_from_dungeon_idx(dungeon_idx);
+                                sapphire_world = playerID;
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    if (show_meds) {
+                        switch (reward) {
+                            case 3: {
+                                forest_area = hint_area_from_dungeon_idx(dungeon_idx);
+                                forest_world = playerID;
+                                break;
+                            }
+                            case 4: {
+                                fire_area = hint_area_from_dungeon_idx(dungeon_idx);
+                                fire_world = playerID;
+                                break;
+                            }
+                            case 5: {
+                                water_area = hint_area_from_dungeon_idx(dungeon_idx);
+                                water_world = playerID;
+                                break;
+                            }
+                            case 6: {
+                                spirit_area = hint_area_from_dungeon_idx(dungeon_idx);
+                                spirit_world = playerID;
+                                break;
+                            }
+                            case 7: {
+                                shadow_area = hint_area_from_dungeon_idx(dungeon_idx);
+                                shadow_world = playerID;
+                                break;
+                            }
+                            case 8: {
+                                light_area = hint_area_from_dungeon_idx(dungeon_idx);
+                                light_world = playerID;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        write_dungeon_reward_info(
+            emerald_world, emerald_area,
+            ruby_world, ruby_area,
+            sapphire_world, sapphire_area,
+            light_world, light_area,
+            forest_world, forest_area,
+            fire_world, fire_area,
+            water_world, water_area,
+            shadow_world, shadow_area,
+            spirit_world, spirit_area,
+            write
+        );
+    } else if (d_down_held) {
+        // D-down menu
+        var emerald_world = 0;
+        var emerald_area = OptHintArea.Unknown;
+        var ruby_world = 0;
+        var ruby_area = OptHintArea.Unknown;
+        var sapphire_world = 0;
+        var sapphire_area = OptHintArea.Unknown;
+        var light_world = 0;
+        var light_area = OptHintArea.Unknown;
+        var forest_world = 0;
+        var forest_area = OptHintArea.Unknown;
+        var fire_world = 0;
+        var fire_area = OptHintArea.Unknown;
+        var water_world = 0;
+        var water_area = OptHintArea.Unknown;
+        var shadow_world = 0;
+        var shadow_area = OptHintArea.Unknown;
+        var spirit_world = 0;
+        var spirit_area = OptHintArea.Unknown;
+        for (var i = 0; i < 9; i++) {
+            if (i < 3 ? show_stones : show_meds) {
+                var reward = REWARD_ROWS[i];
+                var display_area = true;
+                switch (cfg_dungeon_info_reward_need_compass) {
+                    case 1: {
+                        for (var dungeon_idx = 0; dungeon_idx < 8; dungeon_idx++) {
+                            if (mem.u8[trackerCtxAddr + 0x20 + dungeon_idx] == reward) {
+                                if ((mem.u8[ADDR_ANY_RDRAM.start + 0x11a5d0 + 0x00a8 + dungeon_idx] & 2) == 0) {
+                                    display_area = false;
+                                }
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                    case 2: {
+                        if (i != 3) {
+                            var dungeon_idx = REWARD_ROWS[i];
+                            display_area = (mem.u8[ADDR_ANY_RDRAM.start + 0x11a5d0 + 0x00a8 + dungeon_idx] & 2) != 0;
+                        }
+                        break;
+                    }
+                }
+                if (display_area) {
+                    var area = hint_area_from_reward_info(trackerCtxAddr, i);
+                    var world = playerID; //TODO add CFG_DUNGEON_INFO_REWARD_WORLDS_ENABLE and CFG_DUNGEON_REWARD_WORLDS to tracker context as part of dungeon reward shuffle PR
+                    switch (reward) {
+                        case 0: {
+                            emerald_area = area;
+                            emerald_world = world;
+                            break;
+                        }
+                        case 1: {
+                            ruby_area = area;
+                            ruby_world = world;
+                            break;
+                        }
+                        case 2: {
+                            sapphire_area = area;
+                            sapphire_world = world;
+                            break;
+                        }
+                        case 3: {
+                            forest_area = area;
+                            forest_world = world;
+                            break;
+                        }
+                        case 4: {
+                            fire_area = area;
+                            fire_world = world;
+                            break;
+                        }
+                        case 5: {
+                            water_area = area;
+                            water_world = world;
+                            break;
+                        }
+                        case 6: {
+                            spirit_area = area;
+                            spirit_world = world;
+                            break;
+                        }
+                        case 7: {
+                            shadow_area = area;
+                            shadow_world = world;
+                            break;
+                        }
+                        case 8: {
+                            light_area = area;
+                            light_world = world;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        write_dungeon_reward_info(
+            emerald_world, emerald_area,
+            ruby_world, ruby_area,
+            sapphire_world, sapphire_area,
+            light_world, light_area,
+            forest_world, forest_area,
+            fire_world, fire_area,
+            water_world, water_area,
+            shadow_world, shadow_area,
+            spirit_world, spirit_area,
+            write
+        );
+    }
+}
+
 function handle_frame(write, error) {
     // read player ID
     var zeldaz_rdram = mem.getblock(ADDR_ANY_RDRAM.start + 0x11a5d0 + 0x1c, 6);
@@ -169,6 +624,7 @@ function handle_frame(write, error) {
                     progressiveItemsEnable = false;
                 }
                 if (mem.u32[ADDR_ANY_RDRAM.start + 0x11a5d0 + 0x135c] == 0) { // game mode == gameplay
+                    send_dungeon_reward_location_info(write, mem.u8[newCoopContextAddr + 0x4], mem.u32[randoContextAddr + 0x4], mem.u32[randoContextAddr + 0xc]);
                     if (!normalGameplay) {
                         const saveDataPacket = new ArrayBuffer(0x1451);
                         var saveDataPacketView = new DataView(saveDataPacket);
