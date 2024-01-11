@@ -162,7 +162,7 @@ impl Task<Result<(reqwest::Client, Repo, Version), Error>> for Setup {
                     }))
                     .try_next().await?.ok_or(Error::MissingPj64ProtocolVersion)?;
                 if frontend_version != frontend::PROTOCOL_VERSION {
-                    return Err(Error::WrongPj64ProtocolVersion)
+                    return Err(Error::WrongPj64ProtocolVersion(frontend_version))
                 }
                 Ok(Err(Self::LockRust(client, repo, local_version)))
             }).await,
@@ -1076,8 +1076,8 @@ enum Error {
     SameVersion,
     #[error("the latest GitHub release has a newer version than the local crate version")]
     VersionRegression,
-    #[error("frontend protocol version mismatch between client and Project64 frontend")]
-    WrongPj64ProtocolVersion,
+    #[error("frontend protocol version mismatch: client is v{}, Project64 frontend is v{0}", frontend::PROTOCOL_VERSION)]
+    WrongPj64ProtocolVersion(u8),
 }
 
 impl wheel::CustomExit for Error {

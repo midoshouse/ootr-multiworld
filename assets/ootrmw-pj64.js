@@ -1,5 +1,5 @@
 const TCP_PORT = 24818;
-const MW_FRONTEND_PROTO_VERSION = 4;
+const MW_FRONTEND_PROTO_VERSION = 5;
 const DEFAULT_PLAYER_NAME = [0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf];
 const SRAM_START = 0xA8000000;
 
