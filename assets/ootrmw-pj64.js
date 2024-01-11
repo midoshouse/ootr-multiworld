@@ -789,7 +789,7 @@ if (typeof PJ64_JSAPI_VERSION === 'undefined') {
     console.log("This should take less than 5 seconds. If you don't see “connected” below, make sure the app is running.");
     console.log('If you need help, you can ask in #setup-support on the OoT Randomizer Discord or in #general on the OoTR MW Tournament Discord. Feel free to ping @fenhl.');
     sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
-        console.log('Connected.');
+        console.log('Connected! You can now close this window and continue in the multiworld app.');
         const handshake = new ArrayBuffer(1);
         new DataView(handshake).setUint8(0, MW_FRONTEND_PROTO_VERSION);
         sock.write(new Buffer(new Uint8Array(handshake)), function() {
