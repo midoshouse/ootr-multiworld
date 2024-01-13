@@ -85,7 +85,7 @@ impl<T: Iterator> From<itertools::ExactlyOneError<T>> for Error {
 fn prompt(session_state: &SessionState<Never>) -> Cow<'static, str> {
     match session_state {
         SessionState::Error { .. } => Cow::Borrowed("error"),
-        SessionState::Init => Cow::Borrowed("connecting"),
+        SessionState::Init { .. } => Cow::Borrowed("connecting"),
         SessionState::InitAutoRejoin { .. } => Cow::Borrowed("connecting (will auto-rejoin)"),
         SessionState::Lobby { login_state, rooms, wrong_password, .. } => Cow::Owned(format!("lobby ({} room{}{}{})",
             rooms.len(),
@@ -103,7 +103,7 @@ fn prompt(session_state: &SessionState<Never>) -> Cow<'static, str> {
             match num_unassigned_clients { 0 => Cow::Borrowed(""), 1 => Cow::Borrowed("1 unassigned client"), _ => Cow::Owned(format!("{num_unassigned_clients} unassigned clients")) },
             if item_queue.is_empty() { Cow::Borrowed("") } else if item_queue.len() == 1 { Cow::Borrowed(", 1 item") } else { Cow::Owned(format!(", {} items", item_queue.len())) },
         )),
-        SessionState::Closed => Cow::Borrowed("closed"),
+        SessionState::Closed { .. } => Cow::Borrowed("closed"),
     }
 }
 
@@ -115,7 +115,7 @@ async fn cli(Args { api_key }: Args) -> Result<(), Error> {
         ClientMessage::LoginApiKey { api_key }.write_ws(&mut websocket).await?;
     }
     let (mut writer, reader) = websocket.split();
-    let mut session_state = SessionState::<Never>::Init;
+    let mut session_state = SessionState::<Never>::default();
     let mut read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_ws_owned(reader)));
     let mut cmd_buf = String::default();
     let mut interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));

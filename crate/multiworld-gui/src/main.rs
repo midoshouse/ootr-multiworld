@@ -579,7 +579,7 @@ impl Application for State {
             login_tokens: config.login_tokens,
             refresh_tokens: config.refresh_tokens,
             last_login_url: None,
-            server_connection: SessionState::Init,
+            server_connection: SessionState::default(),
             server_writer: None,
             retry: Instant::now(),
             wait_time: Duration::from_secs(1),
@@ -1021,8 +1021,8 @@ impl Application for State {
                 self.frontend_subscription_error = None;
                 self.frontend_connection_id = self.frontend_connection_id.wrapping_add(1);
             }
-            Message::ReconnectToLobby => self.server_connection = SessionState::Init,
-            Message::ReconnectToRoom(room_id, room_password) => self.server_connection = SessionState::InitAutoRejoin { room_id, room_password },
+            Message::ReconnectToLobby => self.server_connection = SessionState::Init { maintenance: self.server_connection.maintenance() },
+            Message::ReconnectToRoom(room_id, room_password) => self.server_connection = SessionState::InitAutoRejoin { room_id, room_password, maintenance: self.server_connection.maintenance() },
             Message::SendAll => {
                 let server_writer = self.server_writer.clone().expect("SendAll button only appears when connected to server");
                 let source_world = self.send_all_world.parse().expect("SendAll button only appears when source world is valid");
@@ -1391,17 +1391,27 @@ impl Application for State {
                         .padding(8)
                         .into()
                 }
-                SessionState::Init => Column::new()
-                    .push("Connecting to server…")
-                    .push("If this takes longer than 5 seconds, check your internet connection or contact @fenhl on Discord for support.")
-                    .push(Space::with_height(Length::Fill))
-                    .push(Text::new(format!("version {}{}", env!("CARGO_PKG_VERSION"), {
-                        #[cfg(debug_assertions)] { " (debug)" }
-                        #[cfg(not(debug_assertions))] { "" }
-                    })))
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                SessionState::Init { maintenance } => {
+                    let mut col = Column::new();
+                    if let Some((start, duration)) = maintenance {
+                        col = col.push(Text::new(format!(
+                            "Maintenance on the Mido's House server is scheduled for {} (time shown in your local timezone). Mido's House Multiworld is expected to go offline for approximately {}.",
+                            start.with_timezone(&Local).format("%A, %B %e, %H:%M"),
+                            DurationFormatter(duration),
+                        )));
+                    }
+                    col
+                        .push("Connecting to server…")
+                        .push("If this takes longer than 5 seconds, check your internet connection or contact @fenhl on Discord for support.")
+                        .push(Space::with_height(Length::Fill))
+                        .push(Text::new(format!("version {}{}", env!("CARGO_PKG_VERSION"), {
+                            #[cfg(debug_assertions)] { " (debug)" }
+                            #[cfg(not(debug_assertions))] { "" }
+                        })))
+                        .spacing(8)
+                        .padding(8)
+                        .into()
+                }
                 SessionState::InitAutoRejoin { .. } => Column::new()
                     .push("Reconnecting to room…")
                     .push("If this takes longer than 5 seconds, check your internet connection or contact @fenhl on Discord for support.")
@@ -1667,12 +1677,22 @@ impl Application for State {
                         .padding(8)
                         .into()
                 }
-                SessionState::Closed => Column::new()
-                    .push("You have been disconnected.")
-                    .push(Button::new("Reconnect").on_press(Message::ReconnectToLobby))
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                SessionState::Closed { maintenance } => {
+                    let mut col = Column::new();
+                    if let Some((start, duration)) = maintenance {
+                        col = col.push(Text::new(format!(
+                            "Maintenance on the Mido's House server is scheduled for {} (time shown in your local timezone). Mido's House Multiworld is expected to go offline for approximately {}.",
+                            start.with_timezone(&Local).format("%A, %B %e, %H:%M"),
+                            DurationFormatter(duration),
+                        )));
+                    }
+                    col
+                        .push("You have been disconnected.")
+                        .push(Button::new("Reconnect").on_press(Message::ReconnectToLobby))
+                        .spacing(8)
+                        .padding(8)
+                        .into()
+                }
             }
         }
     }
@@ -1690,7 +1710,7 @@ impl Application for State {
                 Frontend::Pj64V3 => subscriptions.push(Subscription::from_recipe(subscriptions::Listener { frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id })),
                 Frontend::Pj64V4 => subscriptions.push(Subscription::from_recipe(subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id })), //TODO allow Project64 to specify port via command-line arg
             }
-            if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed) {
+            if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed { .. }) {
                 subscriptions.push(Subscription::from_recipe(subscriptions::Client { log: self.log, websocket_url: self.websocket_url.clone() }));
             }
             if let SessionState::Lobby { view: LobbyView::Login { provider, no_midos_house_account: false }, .. } = self.server_connection {

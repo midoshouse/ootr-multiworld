@@ -94,12 +94,21 @@ impl Cli {
     async fn redraw(&self) -> io::Result<()> {
         let active_tasks = lock!(self.active_tasks);
         let mut stdout = lock!(self.stdout);
-        if let Some((prefix, task)) = active_tasks.iter().next() { //TODO sort by priority (active work preferred over waiting)
-            crossterm::execute!(stdout,
-                MoveToColumn(0),
-                Clear(ClearType::UntilNewLine),
-                Print(format_args!("{} tasks, e.g.: {prefix}: {task}", active_tasks.len())),
-            )?;
+        let mut active_tasks = active_tasks.iter();
+        if let Some((prefix, task)) = active_tasks.next() { //TODO sort by priority (active work preferred over waiting)
+            if active_tasks.next().is_some() {
+                crossterm::execute!(stdout,
+                    MoveToColumn(0),
+                    Clear(ClearType::UntilNewLine),
+                    Print(format_args!("{} tasks, e.g.: {prefix}: {task}", active_tasks.len())),
+                )?;
+            } else {
+                crossterm::execute!(stdout,
+                    MoveToColumn(0),
+                    Clear(ClearType::UntilNewLine),
+                    Print(format_args!("1 task: {prefix}: {task}")),
+                )?;
+            }
         } else {
             crossterm::execute!(stdout,
                 MoveToColumn(0),
