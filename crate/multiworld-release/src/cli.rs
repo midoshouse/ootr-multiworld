@@ -94,9 +94,9 @@ impl Cli {
     async fn redraw(&self) -> io::Result<()> {
         let active_tasks = lock!(self.active_tasks);
         let mut stdout = lock!(self.stdout);
-        let mut active_tasks = active_tasks.iter();
-        if let Some((prefix, task)) = active_tasks.next() { //TODO sort by priority (active work preferred over waiting)
-            if active_tasks.next().is_some() {
+        let mut active_tasks_iter = active_tasks.iter();
+        if let Some((prefix, task)) = active_tasks_iter.next() { //TODO sort by priority (active work preferred over waiting)
+            if active_tasks_iter.next().is_some() {
                 crossterm::execute!(stdout,
                     MoveToColumn(0),
                     Clear(ClearType::UntilNewLine),
