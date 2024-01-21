@@ -1081,6 +1081,10 @@ impl Application for State {
                         self.login_tokens.remove(&login::Provider::Discord);
                         if let Some(refresh_token) = self.refresh_tokens.remove(&login::Provider::Discord) {
                             return cmd(async move {
+                                let mut config = Config::load().await?;
+                                config.login_tokens.remove(&login::Provider::Discord);
+                                config.refresh_tokens.remove(&login::Provider::Discord);
+                                config.save().await?;
                                 Ok(match login::oauth_client(login::Provider::Discord)?
                                     .exchange_refresh_token(&RefreshToken::new(refresh_token))
                                     .request_async(async_http_client).await
@@ -1107,6 +1111,10 @@ impl Application for State {
                         self.login_tokens.remove(&login::Provider::RaceTime);
                         if let Some(refresh_token) = self.refresh_tokens.remove(&login::Provider::RaceTime) {
                             return cmd(async move {
+                                let mut config = Config::load().await?;
+                                config.login_tokens.remove(&login::Provider::RaceTime);
+                                config.refresh_tokens.remove(&login::Provider::RaceTime);
+                                config.save().await?;
                                 Ok(match login::oauth_client(login::Provider::RaceTime)?
                                     .exchange_refresh_token(&RefreshToken::new(refresh_token))
                                     .request_async(async_http_client).await
