@@ -282,11 +282,6 @@ enum Error {
     #[cfg(windows)]
     #[error("user folder not found")]
     MissingHomeDir,
-    #[error("error signing in with {provider}: {source}")]
-    RequestToken {
-        provider: login::Provider,
-        source: oauth2::basic::BasicRequestTokenError<oauth2::reqwest::HttpClientError>,
-    },
     #[error("protocol version mismatch: {frontend} plugin is version {version} but we're version {}", frontend::PROTOCOL_VERSION)]
     VersionMismatch {
         frontend: Frontend,
@@ -302,17 +297,6 @@ impl IsNetworkError for Error {
             Self::Client(e) => e.is_network_error(),
             Self::Io(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),
-            Self::RequestToken { source, .. } => match source {
-                oauth2::basic::BasicRequestTokenError::ServerResponse(_) => false,
-                oauth2::basic::BasicRequestTokenError::Request(e) => match e {
-                    oauth2::reqwest::Error::Reqwest(e) => e.is_network_error(),
-                    oauth2::reqwest::Error::Http(_) => false, // this is https://docs.rs/http/0.2.9/http/struct.Error.html which does not appear to be constructed from network errors
-                    oauth2::reqwest::Error::Io(e) => e.is_network_error(),
-                    oauth2::reqwest::Error::Other(_) => false,
-                },
-                oauth2::basic::BasicRequestTokenError::Parse(_, _) => false,
-                oauth2::basic::BasicRequestTokenError::Other(_) => false,
-            },
             Self::Reqwest(e) => e.is_network_error(),
             Self::WebSocket(e) => e.is_network_error(),
             Self::Wheel(e) => e.is_network_error(),
@@ -358,6 +342,10 @@ enum Message {
     Server(ServerMessage),
     ServerConnected(Arc<Mutex<WsSink>>),
     ServerSubscriptionError(Arc<Error>),
+    SessionExpired {
+        provider: login::Provider,
+        error: Option<Arc<oauth2::basic::BasicRequestTokenError<oauth2::reqwest::HttpClientError>>>,
+    },
     SetAutoDeleteDelta(DurationFormatter),
     SetCreateNewRoom(bool),
     SetExistingRoomSelection(RoomFormatter),
@@ -472,28 +460,37 @@ impl State {
                 .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
-        } else if let SessionState::Error { ref e, .. } = self.server_connection {
-            MessageBuilder::default()
-                .push_line(if_chain! {
-                    if let SessionStateError::Connection(e) = e;
-                    if e.is_network_error();
-                    then {
-                        format!("network error in Mido's House Multiworld version {}{}:", env!("CARGO_PKG_VERSION"), {
-                            #[cfg(debug_assertions)] { " (debug)" }
-                            #[cfg(not(debug_assertions))] { "" }
-                        })
-                    } else {
-                        format!("error in Mido's House Multiworld version {}{} during communication with the server:", env!("CARGO_PKG_VERSION"), {
-                            #[cfg(debug_assertions)] { " (debug)" }
-                            #[cfg(not(debug_assertions))] { "" }
-                        })
-                    }
-                })
-                .push_line_safe(e.to_string())
-                .push_codeblock_safe(format!("{e:?}"), Some("rust"))
-                .build()
         } else {
-            return None
+            match self.server_connection {
+                SessionState::Error { ref e, .. } => MessageBuilder::default()
+                    .push_line(if_chain! {
+                        if let SessionStateError::Connection(e) = e;
+                        if e.is_network_error();
+                        then {
+                            format!("network error in Mido's House Multiworld version {}{}:", env!("CARGO_PKG_VERSION"), {
+                                #[cfg(debug_assertions)] { " (debug)" }
+                                #[cfg(not(debug_assertions))] { "" }
+                            })
+                        } else {
+                            format!("error in Mido's House Multiworld version {}{} during communication with the server:", env!("CARGO_PKG_VERSION"), {
+                                #[cfg(debug_assertions)] { " (debug)" }
+                                #[cfg(not(debug_assertions))] { "" }
+                            })
+                        }
+                    })
+                    .push_line_safe(e.to_string())
+                    .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                    .build(),
+                SessionState::Lobby { view: LobbyView::SessionExpired { provider, error: Some(ref e) }, .. } => MessageBuilder::default()
+                    .push_line(format!("error in Mido's House Multiworld version {}{} while refreshing {provider} login session:", env!("CARGO_PKG_VERSION"), {
+                        #[cfg(debug_assertions)] { " (debug)" }
+                        #[cfg(not(debug_assertions))] { "" }
+                    }))
+                    .push_line_safe(e.to_string())
+                    .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                    .build(),
+                _ => return None,
+            }
         })
     }
 }
@@ -1082,46 +1079,54 @@ impl Application for State {
                     }
                     ServerMessage::StructuredError(ServerError::SessionExpiredDiscord) => {
                         self.login_tokens.remove(&login::Provider::Discord);
-                        // refreshing Discord logins gives the following error:
-                        // RequestToken(ServerResponse(StandardErrorResponse { error: invalid_client, error_description: None, error_uri: None }))
-                        /*
                         if let Some(refresh_token) = self.refresh_tokens.remove(&login::Provider::Discord) {
                             return cmd(async move {
-                                let tokens = login::oauth_client(login::Provider::Discord)?
+                                Ok(match login::oauth_client(login::Provider::Discord)?
                                     .exchange_refresh_token(&RefreshToken::new(refresh_token))
-                                    .request_async(async_http_client).await.map_err(|source| Error::RequestToken { provider: login::Provider::Discord, source })?;
-                                Ok(Message::LoginTokens {
-                                    provider: login::Provider::Discord,
-                                    bearer_token: tokens.access_token().secret().clone(),
-                                    refresh_token: tokens.refresh_token().map(|refresh_token| refresh_token.secret().clone()),
+                                    .request_async(async_http_client).await
+                                {
+                                    Ok(tokens) => Message::LoginTokens {
+                                        provider: login::Provider::Discord,
+                                        bearer_token: tokens.access_token().secret().clone(),
+                                        refresh_token: tokens.refresh_token().map(|refresh_token| refresh_token.secret().clone()),
+                                    },
+                                    Err(e) => Message::SessionExpired {
+                                        provider: login::Provider::Discord,
+                                        error: Some(Arc::new(e)),
+                                    },
                                 })
                             })
                         } else {
-                        */
-                            if let SessionState::Lobby { ref mut view, .. } = self.server_connection {
-                                *view = LobbyView::SessionExpired(login::Provider::Discord);
-                            }
-                        /*
+                            return cmd(future::ok(Message::SessionExpired {
+                                provider: login::Provider::Discord,
+                                error: None,
+                            }))
                         }
-                        */
                     }
                     ServerMessage::StructuredError(ServerError::SessionExpiredRaceTime) => {
                         self.login_tokens.remove(&login::Provider::RaceTime);
                         if let Some(refresh_token) = self.refresh_tokens.remove(&login::Provider::RaceTime) {
                             return cmd(async move {
-                                let tokens = login::oauth_client(login::Provider::RaceTime)?
+                                Ok(match login::oauth_client(login::Provider::RaceTime)?
                                     .exchange_refresh_token(&RefreshToken::new(refresh_token))
-                                    .request_async(async_http_client).await.map_err(|source| Error::RequestToken { provider: login::Provider::RaceTime, source })?;
-                                Ok(Message::LoginTokens {
-                                    provider: login::Provider::RaceTime,
-                                    bearer_token: tokens.access_token().secret().clone(),
-                                    refresh_token: tokens.refresh_token().map(|refresh_token| refresh_token.secret().clone()),
+                                    .request_async(async_http_client).await
+                                {
+                                    Ok(tokens) => Message::LoginTokens {
+                                        provider: login::Provider::RaceTime,
+                                        bearer_token: tokens.access_token().secret().clone(),
+                                        refresh_token: tokens.refresh_token().map(|refresh_token| refresh_token.secret().clone()),
+                                    },
+                                    Err(e) => Message::SessionExpired {
+                                        provider: login::Provider::RaceTime,
+                                        error: Some(Arc::new(e)),
+                                    },
                                 })
                             })
                         } else {
-                            if let SessionState::Lobby { ref mut view, .. } = self.server_connection {
-                                *view = LobbyView::SessionExpired(login::Provider::RaceTime);
-                            }
+                            return cmd(future::ok(Message::SessionExpired {
+                                provider: login::Provider::RaceTime,
+                                error: None,
+                            }))
                         }
                     }
                     ServerMessage::EnterLobby { .. } => {
@@ -1261,6 +1266,9 @@ impl Application for State {
                         }
                     }
                 }
+            },
+            Message::SessionExpired { provider, error } => if let SessionState::Lobby { ref mut view, .. } = self.server_connection {
+                *view = LobbyView::SessionExpired { provider, error };
             },
             Message::SetAutoDeleteDelta(DurationFormatter(new_delta)) => if let Some(writer) = self.server_writer.clone() {
                 return cmd(async move {
@@ -1430,9 +1438,24 @@ impl Application for State {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                SessionState::Lobby { view: LobbyView::SessionExpired(provider), wrong_password: false, .. } => Column::new()
+                SessionState::Lobby { view: LobbyView::SessionExpired { provider, error: None }, wrong_password: false, .. } => Column::new()
                     .push(Text::new(format!("Your Mido's House user session has expired.")))
                     .push(Button::new("Sign back in").on_press(Message::SetLobbyView(LobbyView::Login { provider, no_midos_house_account: false })))
+                    .push(Space::with_width(Length::Fill))
+                    .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Normal)))
+                    .spacing(8)
+                    .padding(8)
+                    .into(),
+                SessionState::Lobby { view: LobbyView::SessionExpired { provider, error: Some(ref e) }, wrong_password: false, .. } => Column::new()
+                    .push(Text::new(format!("Failed to refresh your Mido's House user session:")))
+                    .push(Text::new(e.to_string()))
+                    .push(Button::new("Sign back in").on_press(Message::SetLobbyView(LobbyView::Login { provider, no_midos_house_account: false })))
+                    .push("If this error persists, contact @fenhl on Discord for support.")
+                    .push(Row::new()
+                        .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
+                        .push(if self.debug_info_copied { "Copied!" } else { "for pasting into Discord" })
+                        .spacing(8)
+                    )
                     .push(Space::with_width(Length::Fill))
                     .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Normal)))
                     .spacing(8)

@@ -1120,10 +1120,13 @@ impl fmt::Display for IdentityProvider {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum LobbyView {
     Normal,
-    SessionExpired(IdentityProvider),
+    SessionExpired {
+        provider: IdentityProvider,
+        error: Option<Arc<oauth2::basic::BasicRequestTokenError<oauth2::reqwest::HttpClientError>>>,
+    },
     Settings,
     Login {
         provider: IdentityProvider,
