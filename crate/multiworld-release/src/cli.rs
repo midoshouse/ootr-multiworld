@@ -23,9 +23,20 @@ use {
     log_lock::*,
 };
 
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Priority {
+    Waiting,
+    Active,
+    UserInput,
+}
+
+pub(crate) trait GetPriority {
+    fn priority(&self) -> Priority;
+}
+
 pub(crate) struct Cli {
     stdout: Arc<Mutex<Stdout>>,
-    active_tasks: Arc<Mutex<BTreeMap<String, String>>>,
+    active_tasks: Arc<Mutex<BTreeMap<String, (Priority, String)>>>,
 }
 
 impl Cli {
@@ -47,9 +58,9 @@ impl Cli {
         Ok(LineHandle { stdout: Arc::clone(&self.stdout) })
     }
 
-    pub(crate) async fn run<T>(&self, mut task: impl gres::Task<T> + fmt::Display, prefix: impl fmt::Display) -> io::Result<T> {
+    pub(crate) async fn run<T>(&self, mut task: impl gres::Task<T> + GetPriority + fmt::Display, prefix: impl fmt::Display) -> io::Result<T> {
         let prefix = prefix.to_string();
-        lock!(self.active_tasks).insert(prefix.clone(), task.to_string());
+        lock!(self.active_tasks).insert(prefix.clone(), (task.priority(), task.to_string()));
         {
             let mut stdout = lock!(self.stdout);
             crossterm::execute!(stdout,
@@ -76,7 +87,7 @@ impl Cli {
                 }
                 Err(next_task) => {
                     task = next_task;
-                    *lock!(self.active_tasks).get_mut(&prefix).expect("missing task, did you run multiple tasks with the same prefix?") = task.to_string();
+                    *lock!(self.active_tasks).get_mut(&prefix).expect("missing task, did you run multiple tasks with the same prefix?") = (task.priority(), task.to_string());
                     {
                         let mut stdout = lock!(self.stdout);
                         crossterm::execute!(stdout,
@@ -94,9 +105,8 @@ impl Cli {
     async fn redraw(&self) -> io::Result<()> {
         let active_tasks = lock!(self.active_tasks);
         let mut stdout = lock!(self.stdout);
-        let mut active_tasks_iter = active_tasks.iter();
-        if let Some((prefix, task)) = active_tasks_iter.next() { //TODO sort by priority (active work preferred over waiting)
-            if active_tasks_iter.next().is_some() {
+        if let Some((prefix, (_, task))) = active_tasks.iter().min_by(|(prefix1, (priority1, _)), (prefix2, (priority2, _))| priority2.cmp(priority1).then_with(|| prefix1.cmp(prefix2))) { // max priority, then alphabetically
+            if active_tasks.len() > 1 {
                 crossterm::execute!(stdout,
                     MoveToColumn(0),
                     Clear(ClearType::UntilNewLine),

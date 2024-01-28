@@ -58,7 +58,11 @@ use {
             Repo,
         },
     },
-    crate::cli::Cli,
+    crate::cli::{
+        Cli,
+        GetPriority,
+        Priority,
+    },
 };
 
 mod cli;
@@ -108,6 +112,19 @@ impl Progress for Setup {
             Self::LockRust(..) => 4,
             Self::UpdateRust(..) => 5,
         }, 6)
+    }
+}
+
+impl GetPriority for Setup {
+    fn priority(&self) -> Priority {
+        match self {
+            Self::CreateReqwestClient(..) => Priority::Active,
+            Self::CheckVersion(..) => Priority::Active,
+            Self::CheckBizHawkVersion(..) => Priority::Active,
+            Self::CheckPj64ProtocolVersion(..) => Priority::Active,
+            Self::LockRust(..) => Priority::Waiting,
+            Self::UpdateRust(..) => Priority::Active,
+        }
     }
 }
 
@@ -215,6 +232,17 @@ impl Progress for CreateRelease {
     }
 }
 
+impl GetPriority for CreateRelease {
+    fn priority(&self) -> Priority {
+        match self {
+            Self::CreateNotesFile(..) => Priority::Active,
+            Self::EditNotes(..) => Priority::UserInput,
+            Self::ReadNotes(..) => Priority::Active,
+            Self::Create(..) => Priority::Active,
+        }
+    }
+}
+
 #[async_trait]
 impl Task<Result<Release, Error>> for CreateRelease {
     async fn run(self) -> Result<Result<Release, Error>, Self> {
@@ -290,6 +318,14 @@ impl Progress for BuildUpdater {
     }
 }
 
+impl GetPriority for BuildUpdater {
+    fn priority(&self) -> Priority {
+        match self {
+            Self::Glow(..) => Priority::Active,
+        }
+    }
+}
+
 #[async_trait]
 impl Task<Result<(), Error>> for BuildUpdater {
     async fn run(self) -> Result<Result<(), Error>, Self> {
@@ -347,6 +383,18 @@ impl Progress for BuildGui {
             Self::WaitRelease(..) => 3,
             Self::Upload(..) => 4,
         }, 5)
+    }
+}
+
+impl GetPriority for BuildGui {
+    fn priority(&self) -> Priority {
+        match self {
+            Self::Updater(..) => Priority::Waiting,
+            Self::Glow(..) => Priority::Active,
+            Self::Read(..) => Priority::Active,
+            Self::WaitRelease(..) => Priority::Waiting,
+            Self::Upload(..) => Priority::Active,
+        }
     }
 }
 
@@ -433,6 +481,20 @@ impl Progress for BuildGuiLinux {
     }
 }
 
+impl GetPriority for BuildGuiLinux {
+    fn priority(&self) -> Priority {
+        match self {
+            Self::Sync(..) => Priority::Active,
+            Self::Updater(..) => Priority::Active,
+            Self::Gui(..) => Priority::Active,
+            Self::Copy(..) => Priority::Active,
+            Self::Read(..) => Priority::Active,
+            Self::WaitRelease(..) => Priority::Waiting,
+            Self::Upload(..) => Priority::Active,
+        }
+    }
+}
+
 #[async_trait]
 impl Task<Result<(), Error>> for BuildGuiLinux {
     async fn run(self) -> Result<Result<(), Error>, Self> {
@@ -511,6 +573,19 @@ impl Progress for BuildBizHawk {
             Self::WaitRelease(..) => 4,
             Self::Upload(..) => 5,
         }, 6)
+    }
+}
+
+impl GetPriority for BuildBizHawk {
+    fn priority(&self) -> Priority {
+        match self {
+            Self::Gui(..) => Priority::Waiting,
+            Self::CSharp(..) => Priority::Active,
+            Self::BizHawk(..) => Priority::Active,
+            Self::Zip(..) => Priority::Active,
+            Self::WaitRelease(..) => Priority::Waiting,
+            Self::Upload(..) => Priority::Active,
+        }
     }
 }
 
@@ -619,6 +694,20 @@ impl Progress for BuildBizHawkLinux {
     }
 }
 
+impl GetPriority for BuildBizHawkLinux {
+    fn priority(&self) -> Priority {
+        match self {
+            Self::Gui(..) => Priority::Waiting,
+            Self::CSharp(..) => Priority::Active,
+            Self::BizHawk(..) => Priority::Active,
+            Self::Copy(..) => Priority::Active,
+            Self::Zip(..) => Priority::Active,
+            Self::WaitRelease(..) => Priority::Waiting,
+            Self::Upload(..) => Priority::Active,
+        }
+    }
+}
+
 #[async_trait]
 impl Task<Result<(), Error>> for BuildBizHawkLinux {
     async fn run(self) -> Result<Result<(), Error>, Self> {
@@ -671,22 +760,22 @@ impl Task<Result<(), Error>> for BuildBizHawkLinux {
 }
 
 enum BuildPj64 {
-    WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>),
-    ReadJs(reqwest::Client, Repo, Release),
+    ReadJs(reqwest::Client, Repo, broadcast::Receiver<Release>),
+    WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
     UploadJs(reqwest::Client, Repo, Release, Vec<u8>),
 }
 
 impl BuildPj64 {
     fn new(client: reqwest::Client, repo: Repo, release_rx: broadcast::Receiver<Release>) -> Self {
-        Self::WaitRelease(client, repo, release_rx)
+        Self::ReadJs(client, repo, release_rx)
     }
 }
 
 impl fmt::Display for BuildPj64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
             Self::ReadJs(..) => write!(f, "reading ootrmw-pj64.js"),
+            Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
             Self::UploadJs(..) => write!(f, "uploading ootrmw-pj64.js"),
         }
     }
@@ -695,10 +784,20 @@ impl fmt::Display for BuildPj64 {
 impl Progress for BuildPj64 {
     fn progress(&self) -> Percent {
         Percent::fraction(match self {
-            Self::WaitRelease(..) => 0,
-            Self::ReadJs(..) => 1,
+            Self::ReadJs(..) => 0,
+            Self::WaitRelease(..) => 1,
             Self::UploadJs(..) => 2,
         }, 3)
+    }
+}
+
+impl GetPriority for BuildPj64 {
+    fn priority(&self) -> Priority {
+        match self {
+            Self::ReadJs(..) => Priority::Active,
+            Self::WaitRelease(..) => Priority::Waiting,
+            Self::UploadJs(..) => Priority::Active,
+        }
     }
 }
 
@@ -706,12 +805,12 @@ impl Progress for BuildPj64 {
 impl Task<Result<(), Error>> for BuildPj64 {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
-            Self::WaitRelease(client, repo, mut release_rx) => gres::transpose(async move {
-                let release = release_rx.recv().await?;
-                Ok(Err(Self::ReadJs(client, repo, release)))
-            }).await,
-            Self::ReadJs(client, repo, release) => gres::transpose(async move {
+            Self::ReadJs(client, repo, release_rx) => gres::transpose(async move {
                 let data = fs::read("assets/ootrmw-pj64.js").await?;
+                Ok(Err(Self::WaitRelease(client, repo, release_rx, data)))
+            }).await,
+            Self::WaitRelease(client, repo, mut release_rx, data) => gres::transpose(async move {
+                let release = release_rx.recv().await?;
                 Ok(Err(Self::UploadJs(client, repo, release, data)))
             }).await,
             Self::UploadJs(client, repo, release, data) => gres::transpose(async move {
@@ -760,6 +859,18 @@ impl Progress for BuildInstaller {
             Self::WaitRelease(..) => 3,
             Self::Upload(..) => 4,
         }, 5)
+    }
+}
+
+impl GetPriority for BuildInstaller {
+    fn priority(&self) -> Priority {
+        match self {
+            Self::Deps(..) => Priority::Waiting,
+            Self::Glow(..) => Priority::Active,
+            Self::Read(..) => Priority::Active,
+            Self::WaitRelease(..) => Priority::Waiting,
+            Self::Upload(..) => Priority::Active,
+        }
     }
 }
 
@@ -843,6 +954,19 @@ impl Progress for BuildInstallerLinux {
     }
 }
 
+impl GetPriority for BuildInstallerLinux {
+    fn priority(&self) -> Priority {
+        match self {
+            Self::Deps(..) => Priority::Waiting,
+            Self::Glow(..) => Priority::Active,
+            Self::Copy(..) => Priority::Active,
+            Self::Read(..) => Priority::Active,
+            Self::WaitRelease(..) => Priority::Waiting,
+            Self::Upload(..) => Priority::Active,
+        }
+    }
+}
+
 #[async_trait]
 impl Task<Result<(), Error>> for BuildInstallerLinux {
     async fn run(self) -> Result<Result<(), Error>, Self> {
@@ -923,6 +1047,22 @@ impl Progress for BuildServer {
             Self::Replace => 98,
             Self::Start => 99,
         })
+    }
+}
+
+impl GetPriority for BuildServer {
+    fn priority(&self) -> Priority {
+        match self {
+            Self::Sync(..) => Priority::Active,
+            Self::Build(..) => Priority::Active,
+            Self::Copy(..) => Priority::Active,
+            Self::Upload(..) => Priority::Active,
+            Self::WaitRestart => Priority::Waiting,
+            Self::Stop => Priority::Active,
+            Self::UpdateRepo => Priority::Active,
+            Self::Replace => Priority::Active,
+            Self::Start => Priority::Active,
+        }
     }
 }
 
