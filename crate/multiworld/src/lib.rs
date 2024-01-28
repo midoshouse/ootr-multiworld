@@ -759,7 +759,7 @@ impl<C: ClientKind> Room<C> {
         if let Some(queued_items) = queue.get(adjusted_save.inv_amounts.num_received_mw_items.into()..) {
             for &item in queued_items {
                 if let Err(()) = adjusted_save.recv_mw_item(item) {
-                    eprintln!("item {item:#04x} not supported by recv_mw_item");
+                    eprintln!("load_player: item 0x{item:04x} not supported by recv_mw_item");
                     let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
                 }
             }
@@ -853,7 +853,7 @@ impl<C: ClientKind> Room<C> {
                 if client.player.map_or(false, |p| p.world == target_world) {
                     let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     if let Err(()) = client.adjusted_save.recv_mw_item(kind) {
-                        eprintln!("item {kind:#04x} not supported by recv_mw_item");
+                        eprintln!("queue_item_inner (own world): item 0x{kind:04x} not supported by recv_mw_item");
                         let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
                     }
                     let new_progressive_items = ProgressiveItems::new(&client.adjusted_save);
@@ -872,7 +872,7 @@ impl<C: ClientKind> Room<C> {
                 if let Some((&target_client, client)) = self.clients.iter_mut().find(|(_, c)| c.player.map_or(false, |p| p.world == target_world)) {
                     let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     if let Err(()) = client.adjusted_save.recv_mw_item(kind) {
-                        eprintln!("item {kind:#04x} not supported by recv_mw_item");
+                        eprintln!("queue_item_inner (cross world): item 0x{kind:04x} not supported by recv_mw_item");
                         let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
                     }
                     let new_progressive_items = ProgressiveItems::new(&client.adjusted_save);
@@ -947,7 +947,7 @@ impl<C: ClientKind> Room<C> {
             if let Some(queued_items) = queue.get(adjusted_save.inv_amounts.num_received_mw_items.into()..) {
                 for &item in queued_items {
                     if let Err(()) = adjusted_save.recv_mw_item(item) {
-                        eprintln!("item {item:#04x} not supported by recv_mw_item");
+                        eprintln!("set_save_data: item 0x{item:04x} not supported by recv_mw_item");
                         let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
                     }
                 }
