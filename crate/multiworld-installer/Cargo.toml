@@ -104,6 +104,7 @@ features = ["gzip", "tokio"]
 [target.'cfg(target_os = "windows")'.dependencies]
 is_elevated = "0.1"
 kuchiki = "0.8"
+mslnk = "0.1"
 runas = "=1.0.0" # https://github.com/mitsuhiko/rust-runas/issues/13
 tempfile = "3"
 

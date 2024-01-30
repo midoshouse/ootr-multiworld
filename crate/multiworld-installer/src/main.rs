@@ -76,9 +76,11 @@ use {
 };
 #[cfg(target_os = "windows")] use {
     std::cmp::Ordering::*,
+    directories::BaseDirs,
     futures::stream::TryStreamExt as _,
     is_elevated::is_elevated,
     kuchiki::traits::TendrilSink as _,
+    mslnk::ShellLink,
     tokio::io::AsyncWriteExt as _,
     tokio_util::io::StreamReader,
     wheel::traits::SyncCommandOutputExt as _,
@@ -93,6 +95,7 @@ enum Error {
     #[error(transparent)] IniDe(#[from] serde_ini::de::Error),
     #[error(transparent)] IniSer(#[from] serde_ini::ser::Error),
     #[error(transparent)] Io(#[from] io::Error),
+    #[cfg(target_os = "windows")] #[error(transparent)] Lnk(#[from] mslnk::MSLinkError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
     #[error(transparent)] Url(#[from] url::ParseError),
@@ -111,6 +114,9 @@ enum Error {
     ExactlyOneMultiple,
     #[error("latest release does not have a download for this platform")]
     MissingBizHawkAsset,
+    #[cfg(target_os = "windows")]
+    #[error("desktop folder not found")]
+    MissingDesktopDir,
     #[error("user folder not found")]
     MissingHomeDir,
     #[error("no BizHawk releases found")]
@@ -173,7 +179,8 @@ enum Message {
     NewIssue,
     Nop,
     PlatformSupport,
-    SetCreateDesktopShortcut(bool),
+    SetCreateEmulatorDesktopShortcut(bool),
+    SetCreateMultiworldDesktopShortcut(bool),
     SetEmulator(Emulator),
     SetInstallEmulator(bool),
     SetOpenEmulator(bool),
@@ -260,8 +267,10 @@ enum Page {
 struct State {
     http_client: reqwest::Client,
     page: Page,
+    // Page::LocateMultiworld
+    create_multiworld_desktop_shortcut: bool,
     // Page::LocateEmulator
-    create_desktop_shortcut: bool,
+    create_emulator_desktop_shortcut: bool,
     // Page::AskLaunch
     open_emulator: bool,
 }
@@ -288,7 +297,8 @@ impl Application for State {
                 multiworld_path: None,
                 emulator,
             },
-            create_desktop_shortcut: true,
+            create_multiworld_desktop_shortcut: true,
+            create_emulator_desktop_shortcut: true,
             open_emulator: true,
         }, if emulator.is_some() {
             cmd(future::ok(Message::Continue))
@@ -525,7 +535,7 @@ impl Application for State {
                             //TODO indicate progress
                             let http_client = self.http_client.clone();
                             let emulator_path_arg = format!("/DIR={emulator_path}");
-                            let create_desktop_shortcut = self.create_desktop_shortcut;
+                            let create_desktop_shortcut = self.create_emulator_desktop_shortcut;
                             return cmd(async move {
                                 let front_page_url = Url::parse("https://www.pj64-emu.com/")?;
                                 let front_page = http_client.get(front_page_url.clone())
@@ -710,18 +720,31 @@ impl Application for State {
                 self.page = Page::InstallMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone(), config_write_failed: false };
                 match emulator {
                     Emulator::Dummy => unreachable!(),
-                    Emulator::EverDrive => return cmd(async move {
-                        let mut new_mw_config = Config::load().await?;
-                        new_mw_config.default_frontend = Some(Emulator::EverDrive);
-                        new_mw_config.save().await?;
-                        let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Project64"));
-                        fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
-                        #[cfg(all(target_os = "linux", debug_assertions))] fs::write(multiworld_path, include_bytes!("../../../target/debug/multiworld-gui")).await?;
-                        #[cfg(all(target_os = "linux", not(debug_assertions)))] fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-gui")).await?;
-                        #[cfg(all(target_os = "windows", debug_assertions))] fs::write(multiworld_path, include_bytes!("../../../target/debug/multiworld-gui.exe")).await?;
-                        #[cfg(all(target_os = "windows", not(debug_assertions)))] fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-gui.exe")).await?;
-                        Ok(Message::MultiworldInstalled)
-                    }),
+                    Emulator::EverDrive => {
+                        let create_desktop_shortcut = self.create_multiworld_desktop_shortcut;
+                        return cmd(async move {
+                            let mut new_mw_config = Config::load().await?;
+                            new_mw_config.default_frontend = Some(Emulator::EverDrive);
+                            new_mw_config.save().await?;
+                            let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Project64"));
+                            fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
+                            #[cfg(all(target_os = "linux", debug_assertions))] fs::write(&multiworld_path, include_bytes!("../../../target/debug/multiworld-gui")).await?;
+                            #[cfg(all(target_os = "linux", not(debug_assertions)))] fs::write(&multiworld_path, include_bytes!("../../../target/release/multiworld-gui")).await?;
+                            #[cfg(all(target_os = "windows", debug_assertions))] fs::write(&multiworld_path, include_bytes!("../../../target/debug/multiworld-gui.exe")).await?;
+                            #[cfg(all(target_os = "windows", not(debug_assertions)))] fs::write(&multiworld_path, include_bytes!("../../../target/release/multiworld-gui.exe")).await?;
+                            #[cfg(target_os = "windows")] {
+                                let base_dirs = BaseDirs::new().ok_or(Error::MissingHomeDir)?;
+                                ShellLink::new(&multiworld_path)?
+                                    .create_lnk(base_dirs.data_dir().join("Microsoft").join("Windows").join("Start Menu").join("Programs").join("Mido's House Multiworld.lnk"))?;
+                                if create_desktop_shortcut {
+                                    let user_dirs = UserDirs::new().ok_or(Error::MissingHomeDir)?;
+                                    ShellLink::new(multiworld_path)?
+                                        .create_lnk(user_dirs.desktop_dir().ok_or(Error::MissingDesktopDir)?.join("Mido's House Multiworld.lnk"))?;
+                                }
+                            }
+                            Ok(Message::MultiworldInstalled)
+                        })
+                    }
                     Emulator::BizHawk => return cmd(async move {
                         let mut new_mw_config = Config::load().await?;
                         new_mw_config.default_frontend = Some(Emulator::BizHawk);
@@ -743,48 +766,61 @@ impl Application for State {
                         #[cfg(not(debug_assertions))] fs::write(external_tools_dir.join("OotrMultiworld.dll"), include_bytes!("../../multiworld-bizhawk/OotrMultiworld/src/bin/Release/net48/OotrMultiworld.dll")).await?;
                         Ok(Message::MultiworldInstalled)
                     }),
-                    Emulator::Pj64V3 | Emulator::Pj64V4 => return cmd(async move {
-                        let emulator_dir = PathBuf::from(emulator_path.expect("emulator path must be set for Project64"));
-                        let multiworld_path = match emulator {
-                            Emulator::Pj64V3 => {
-                                let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Project64"));
-                                fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
-                                multiworld_path
+                    Emulator::Pj64V3 | Emulator::Pj64V4 => {
+                        let create_desktop_shortcut = self.create_multiworld_desktop_shortcut;
+                        return cmd(async move {
+                            let emulator_dir = PathBuf::from(emulator_path.expect("emulator path must be set for Project64"));
+                            let multiworld_path = match emulator {
+                                Emulator::Pj64V3 => {
+                                    let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Project64"));
+                                    fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
+                                    multiworld_path
+                                }
+                                Emulator::Pj64V4 => {
+                                    let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::MissingHomeDir)?;
+                                    let cache_dir = project_dirs.cache_dir();
+                                    fs::create_dir_all(cache_dir).await?;
+                                    cache_dir.join("gui.exe")
+                                }
+                                _ => unreachable!(),
+                            };
+                            #[cfg(all(target_os = "windows", debug_assertions))] fs::write(&multiworld_path, include_bytes!("../../../target/debug/multiworld-gui.exe")).await?;
+                            #[cfg(all(target_os = "windows", not(debug_assertions)))] fs::write(&multiworld_path, include_bytes!("../../../target/release/multiworld-gui.exe")).await?;
+                            #[cfg(target_os = "windows")] if let Emulator::Pj64V3 = emulator {
+                                let base_dirs = BaseDirs::new().ok_or(Error::MissingHomeDir)?;
+                                ShellLink::new(&multiworld_path)?
+                                    .create_lnk(base_dirs.data_dir().join("Microsoft").join("Windows").join("Start Menu").join("Programs").join("Mido's House Multiworld.lnk"))?;
+                                if create_desktop_shortcut {
+                                    let user_dirs = UserDirs::new().ok_or(Error::MissingHomeDir)?;
+                                    ShellLink::new(multiworld_path)?
+                                        .create_lnk(user_dirs.desktop_dir().ok_or(Error::MissingDesktopDir)?.join("Mido's House Multiworld.lnk"))?;
+                                }
                             }
-                            Emulator::Pj64V4 => {
-                                let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::MissingHomeDir)?;
-                                let cache_dir = project_dirs.cache_dir();
-                                fs::create_dir_all(cache_dir).await?;
-                                cache_dir.join("gui.exe")
+                            let scripts_path = emulator_dir.join("Scripts");
+                            fs::create_dir(&scripts_path).await.exist_ok()?;
+                            let script_path = scripts_path.join("ootrmw.js");
+                            fs::write(&script_path, include_bytes!("../../../assets/ootrmw-pj64.js")).await?;
+                            let mut new_mw_config = Config::load().await?;
+                            new_mw_config.default_frontend = Some(Emulator::Pj64V3);
+                            new_mw_config.pj64_script_path = Some(script_path);
+                            new_mw_config.save().await?;
+                            let config_path = emulator_dir.join("Config");
+                            fs::create_dir(&config_path).await.exist_ok()?;
+                            let config_path = config_path.join("Project64.cfg");
+                            let mut config = match tokio::fs::read_to_string(&config_path).await {
+                                Ok(config) => serde_ini::from_str(&config)?,
+                                Err(e) if e.kind() == io::ErrorKind::NotFound => Pj64Config::default(),
+                                Err(e) => return Err(e).at(&config_path).map_err(Error::from),
+                            };
+                            config.settings.basic_mode = 0;
+                            config.debugger.debugger = 1;
+                            match fs::write(config_path, serde_ini::to_vec(&config)?).await {
+                                Ok(_) => Ok(Message::MultiworldInstalled),
+                                Err(wheel::Error::Io { inner, .. }) if inner.raw_os_error() == Some(32) => Ok(Message::ConfigWriteFailed),
+                                Err(e) => Err(e.into()),
                             }
-                            _ => unreachable!(),
-                        };
-                        #[cfg(all(target_os = "windows", debug_assertions))] fs::write(multiworld_path, include_bytes!("../../../target/debug/multiworld-gui.exe")).await?;
-                        #[cfg(all(target_os = "windows", not(debug_assertions)))] fs::write(multiworld_path, include_bytes!("../../../target/release/multiworld-gui.exe")).await?;
-                        let scripts_path = emulator_dir.join("Scripts");
-                        fs::create_dir(&scripts_path).await.exist_ok()?;
-                        let script_path = scripts_path.join("ootrmw.js");
-                        fs::write(&script_path, include_bytes!("../../../assets/ootrmw-pj64.js")).await?;
-                        let mut new_mw_config = Config::load().await?;
-                        new_mw_config.default_frontend = Some(Emulator::Pj64V3);
-                        new_mw_config.pj64_script_path = Some(script_path);
-                        new_mw_config.save().await?;
-                        let config_path = emulator_dir.join("Config");
-                        fs::create_dir(&config_path).await.exist_ok()?;
-                        let config_path = config_path.join("Project64.cfg");
-                        let mut config = match tokio::fs::read_to_string(&config_path).await {
-                            Ok(config) => serde_ini::from_str(&config)?,
-                            Err(e) if e.kind() == io::ErrorKind::NotFound => Pj64Config::default(),
-                            Err(e) => return Err(e).at(&config_path).map_err(Error::from),
-                        };
-                        config.settings.basic_mode = 0;
-                        config.debugger.debugger = 1;
-                        match fs::write(config_path, serde_ini::to_vec(&config)?).await {
-                            Ok(_) => Ok(Message::MultiworldInstalled),
-                            Err(wheel::Error::Io { inner, .. }) if inner.raw_os_error() == Some(32) => Ok(Message::ConfigWriteFailed),
-                            Err(e) => Err(e.into()),
-                        }
-                    }),
+                        })
+                    }
                 }
             }
             Message::LocateMultiworld(new_emulator) => {
@@ -807,12 +843,21 @@ impl Application for State {
                     Emulator::EverDrive | Emulator::Pj64V3 => {
                         let multiworld_path = if let Some(multiworld_path) = multiworld_path {
                             multiworld_path
-                        } else if let Some(user_dirs) = UserDirs::new() {
-                            let multiworld_path = user_dirs.home_dir().join("bin").join("Mido's House Multiworld.exe");
-                            let Ok(multiworld_path) = multiworld_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
-                            multiworld_path
                         } else {
-                            String::default()
+                            #[cfg(target_os = "windows")] if let Some(base_dirs) = BaseDirs::new() {
+                                let multiworld_path = base_dirs.data_local_dir().join("Programs").join("Mido's House Multiworld.exe");
+                                let Ok(multiworld_path) = multiworld_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
+                                multiworld_path
+                            } else {
+                                String::default()
+                            }
+                            #[cfg(target_os = "linux")] if let Some(user_dirs) = UserDirs::new() {
+                                let multiworld_path = user_dirs.home_dir().join("bin").join("mhmw");
+                                let Ok(multiworld_path) = multiworld_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
+                                multiworld_path
+                            } else {
+                                String::default()
+                            }
                         };
                         self.page = Page::LocateMultiworld { multiworld_path, emulator, emulator_path };
                     }
@@ -838,7 +883,8 @@ impl Application for State {
             Message::PlatformSupport => if let Err(e) = open("https://midos.house/mw/platforms") {
                 self.page = Page::Error(Arc::new(e.into()), false);
             },
-            Message::SetCreateDesktopShortcut(create_desktop_shortcut) => self.create_desktop_shortcut = create_desktop_shortcut,
+            Message::SetCreateEmulatorDesktopShortcut(create_desktop_shortcut) => self.create_emulator_desktop_shortcut = create_desktop_shortcut,
+            Message::SetCreateMultiworldDesktopShortcut(create_desktop_shortcut) => self.create_multiworld_desktop_shortcut = create_desktop_shortcut,
             Message::SetEmulator(new_emulator) => if let Page::SelectEmulator { ref mut emulator, .. } = self.page { *emulator = Some(new_emulator) },
             Message::SetInstallEmulator(new_install_emulator) => if let Page::LocateEmulator { ref mut install_emulator, .. } = self.page { *install_emulator = new_install_emulator },
             Message::SetOpenEmulator(open_emulator) => self.open_emulator = open_emulator,
@@ -922,7 +968,7 @@ impl Application for State {
                         .spacing(8)
                     );
                     #[cfg(target_os = "windows")] if install_emulator && matches!(emulator, Emulator::Pj64V3 | Emulator::Pj64V4) {
-                        col = col.push(Checkbox::new("Create desktop shortcut", self.create_desktop_shortcut, Message::SetCreateDesktopShortcut));
+                        col = col.push(Checkbox::new("Create desktop shortcut", self.create_emulator_desktop_shortcut, Message::SetCreateEmulatorDesktopShortcut));
                     }
                     col.spacing(8).into()
                 },
@@ -946,15 +992,19 @@ impl Application for State {
             Page::InstallEmulator { update: true, emulator, .. } => (Text::new(format!("Updating {emulator}, please wait…")).into(), None),
             Page::InstallEmulator { update: false, emulator, .. } => (Text::new(format!("Installing {emulator}, please wait…")).into(), None),
             Page::LocateMultiworld { ref multiworld_path, .. } => (
-                Column::new()
-                    .push(Text::new("Install Multiworld to:"))
-                    .push(Row::new()
-                        .push(TextInput::new("Multiworld target folder", multiworld_path).on_input(Message::MultiworldPath).on_paste(Message::MultiworldPath).padding(5))
-                        .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseMultiworldPath))
-                        .spacing(8)
-                    )
-                    .spacing(8)
-                    .into(),
+                {
+                    let mut col = Column::new()
+                        .push(Text::new("Install Multiworld to:"))
+                        .push(Row::new()
+                            .push(TextInput::new("Multiworld target folder", multiworld_path).on_input(Message::MultiworldPath).on_paste(Message::MultiworldPath).padding(5))
+                            .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseMultiworldPath))
+                            .spacing(8)
+                        );
+                    #[cfg(target_os = "windows")] {
+                        col = col.push(Checkbox::new("Create desktop shortcut", self.create_multiworld_desktop_shortcut, Message::SetCreateMultiworldDesktopShortcut));
+                    }
+                    col.spacing(8).into()
+                },
                 Some((Text::new("Install Multiworld").into(), !multiworld_path.is_empty())),
             ),
             Page::InstallMultiworld { config_write_failed: true, emulator, .. } => (
