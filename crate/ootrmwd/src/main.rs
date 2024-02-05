@@ -162,7 +162,7 @@ async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http
     loop {
         let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, writer.clone(), shutdown.clone(), &mut maintenance, &mut logged_in_as_admin, &mut midos_house_user_id).await?;
         let _ = lock!(rooms.0).change_tx.send(RoomListChange::Join);
-        let (lobby_reader, end) = match room_session(rooms.clone(), room.clone(), socket_id, room_reader, writer.clone(), &mut maintenance, end_rx, shutdown.clone()).await {
+        let (lobby_reader, end) = match room_session(rooms.clone(), room.clone(), socket_id, room_reader, writer.clone(), &mut maintenance, end_rx, shutdown.clone(), logged_in_as_admin).await {
             Ok(value) => value,
             Err(e) => {
                 ping_task.abort();
@@ -516,7 +516,7 @@ async fn update_room_list<C: ClientKind>(rooms: Rooms<C>, writer: Arc<Mutex<C::W
     Ok(())
 }
 
-async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>, mut end_rx: oneshot::Receiver<EndRoomSession>, mut shutdown: rocket::Shutdown) -> Result<(NextMessage<C>, EndRoomSession), SessionError> {
+async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>, mut end_rx: oneshot::Receiver<EndRoomSession>, mut shutdown: rocket::Shutdown, logged_in_as_admin: bool) -> Result<(NextMessage<C>, EndRoomSession), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             return Err(SessionError::Server(format!($($msg)*)))
@@ -583,7 +583,7 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                         rooms.remove(id).await;
                     }
                     ClientMessage::SaveData(save) => lock!(@write room).set_save_data(socket_id, save).await?,
-                    ClientMessage::SendAll { source_world, spoiler_log } => match lock!(@write room).send_all(source_world, &spoiler_log).await {
+                    ClientMessage::SendAll { source_world, spoiler_log } => match lock!(@write room).send_all(source_world, &spoiler_log, logged_in_as_admin).await {
                         Ok(()) => {}
                         Err(multiworld::SendAllError::FileHash { server, client }) => lock!(writer).write(ServerMessage::WrongFileHash { server, client }).await?,
                         Err(e) => return Err(e.into()),

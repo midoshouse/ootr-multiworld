@@ -910,8 +910,8 @@ impl<C: ClientKind> Room<C> {
         }
     }
 
-    pub async fn send_all(&mut self, source_world: NonZeroU8, spoiler_log: &SpoilerLog) -> Result<(), SendAllError> {
-        if !self.allow_send_all {
+    pub async fn send_all(&mut self, source_world: NonZeroU8, spoiler_log: &SpoilerLog, logged_in_as_admin: bool) -> Result<(), SendAllError> {
+        if !self.allow_send_all && !logged_in_as_admin {
             return Err(SendAllError::Disallowed)
         }
         if let Some(room_hash) = self.file_hash {
