@@ -926,7 +926,7 @@ impl<C: ClientKind> Room<C> {
         let mut items_to_queue = Vec::default();
         let world_locations = spoiler_log.locations.get(usize::from(source_world.get() - 1)).ok_or(SendAllError::NoSuchWorld)?;
         for (loc, ootr_utils::spoiler::Item { player, item, model: _ }) in world_locations {
-            if let Some((key, kind)) = py_modules.override_entry(source_world, loc, *player, item).await? {
+            if let Some((key, kind)) = py_modules.override_entry(source_world, loc, *player, item, spoiler_log.settings.get(usize::from(player.get() - 1)).unwrap_or_else(|| &spoiler_log.settings[0]).keyring_give_bk).await? {
                 if kind == TRIFORCE_PIECE || *player != source_world {
                     items_to_queue.push((source_world, key, kind, *player));
                 }
