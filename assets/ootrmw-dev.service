@@ -1,12 +1,13 @@
 [Unit]
 Description=Mido's House Ocarina of Time Randomizer multiworld server, test version
+Documentation=https://github.com/midoshouse/ootr-multiworld
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Restart=always
-ExecStart=/home/fenhl/.cargo/bin/cargo run --package=ootrmwd -- --port=18820 --database=ootr_multiworld_dev
-ExecStop=/opt/git/github.com/midoshouse/ootr-multiworld/stage/target/debug/ootrmwd --port=18820 stop
+ExecStart=/usr/local/share/midos-house/bin/ootrmwd-dev --port=18824 --database=fados_house
+ExecStop=/usr/local/share/midos-house/bin/ootrmwd-dev stop
 User=mido
 Group=nogroup
 WorkingDirectory=/opt/git/github.com/midoshouse/ootr-multiworld/stage

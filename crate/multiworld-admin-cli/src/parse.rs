@@ -254,6 +254,7 @@ impl FromExpr for ClientMessage {
                     "Stop" => Ok(Self::Stop),
                     "ResetPlayerId" => Ok(Self::ResetPlayerId),
                     "DeleteRoom" => Ok(Self::DeleteRoom),
+                    "LeaveRoom" => Ok(Self::LeaveRoom),
                     _ => Err(Error::FromExpr),
                 }
             } else {
