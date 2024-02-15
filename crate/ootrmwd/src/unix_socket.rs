@@ -45,7 +45,7 @@ use {
     },
 };
 
-pub(crate) const PATH: &str = "/usr/local/share/midos-house/sock-mw";
+pub(crate) const PATH: &str = "/usr/local/share/midos-house/sock-mw"; //TODO different path for dev env
 
 #[derive(clap::Subcommand, Protocol)]
 pub(crate) enum ClientMessage {

@@ -681,13 +681,14 @@ impl<C: ClientKind> Rooms<C> {
     }
 
     async fn add(&self, room: ArcRwLock<Room<C>>) -> bool {
-        let (id, name) = {
+        let (id, name, auth) = {
             let room = lock!(@read room);
-            (room.id, room.name.clone())
+            (room.id, room.name.clone(), room.auth.clone())
         };
         let mut lock = lock!(self.0);
         for existing_room in lock.list.values() {
-            if lock!(@read existing_room).name == name {
+            let existing_room = lock!(@write existing_room);
+            if existing_room.name == name && auth.same_namespace(&existing_room.auth) {
                 return false
             }
         }
@@ -910,7 +911,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 autodelete_delta
             FROM mw_rooms"#).fetch(&db_pool);
             while let Some(row) = query.try_next().await? {
-                assert!(rooms.add(ArcRwLock::new(Room {
+                if !rooms.add(ArcRwLock::new(Room {
                     id: row.id as u64,
                     name: row.name.clone(),
                     auth: match (row.password_hash, row.password_salt) {
@@ -931,7 +932,10 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     },
                     db_pool: db_pool.clone(),
                     tracker_state: None,
-                })).await);
+                })).await {
+                    eprintln!("ignoring duplicate room name: {}", row.name);
+                    let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+                }
             }
         }
         let rocket = http::rocket(db_pool.clone(), http_client, rng.clone(), port, rooms.clone(), maintenance.clone()).await?;

@@ -455,6 +455,14 @@ impl RoomAuth {
             }
         }
     }
+
+    pub fn same_namespace(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Password { .. }, Self::Password { .. }) => true,
+            (Self::Invitational(invitees1), Self::Invitational(invitees2)) => invitees1.iter().any(|invitee1| invitees2.iter().any(|invitee2| invitee1 == invitee2)),
+            (Self::Password { .. }, Self::Invitational(_)) | (Self::Invitational(_), Self::Password { .. }) => false
+        }
+    }
 }
 
 impl fmt::Debug for RoomAuth {
