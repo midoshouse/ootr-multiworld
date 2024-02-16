@@ -17,7 +17,7 @@ warnings = "deny"
 winres = "0.1"
 
 [dependencies]
-async-proto = "0.17"
+async-proto = "0.18"
 dark-light = "1"
 enum-iterator = "1"
 futures = "0.3"

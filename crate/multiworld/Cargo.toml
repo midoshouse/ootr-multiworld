@@ -25,7 +25,7 @@ serde_json = "1"
 thiserror = "1"
 
 [dependencies.async-proto]
-version = "0.17"
+version = "0.18"
 features = ["chrono", "semver"]
 
 [dependencies.chrono]
