@@ -881,9 +881,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.0"
+version = "4.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80c21025abd42669a92efc996ef13cfb2c5c627858421ea58d5c3b331a6c134f"
+checksum = "c918d541ef2913577a0f9566e9ce27cb35b6df072075769e0b26cb5a554520da"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -891,9 +891,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.0"
+version = "4.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "458bf1f341769dfcf849846f65dffdf9146daa56bcd2a47cb4e1de9915567c99"
+checksum = "9f3e7391dad68afb0c2ede1bf619f579a3dc9c2ec67f089baa397123a2f3d1eb"
 dependencies = [
  "anstream",
  "anstyle",
@@ -4311,7 +4311,7 @@ checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 [[package]]
 name = "ootr"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#9f48ebd98d074bfc37867da8352b159d27438980"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#3fdbd421cde0e0e733301924a7b75164469042cb"
 dependencies = [
  "async-proto",
  "enum-iterator",
@@ -4374,7 +4374,7 @@ dependencies = [
 [[package]]
 name = "oottracker"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#9f48ebd98d074bfc37867da8352b159d27438980"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#3fdbd421cde0e0e733301924a7b75164469042cb"
 dependencies = [
  "async-proto",
  "async-stream",
@@ -4404,7 +4404,7 @@ dependencies = [
 [[package]]
 name = "oottracker-derive"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#9f48ebd98d074bfc37867da8352b159d27438980"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#3fdbd421cde0e0e733301924a7b75164469042cb"
 dependencies = [
  "convert_case 0.6.0",
  "itertools 0.12.1",
