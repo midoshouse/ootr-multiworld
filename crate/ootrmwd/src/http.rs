@@ -28,10 +28,7 @@ use {
     },
     rocket_ws::WebSocket,
     sqlx::PgPool,
-    tokio::{
-        process::Command,
-        sync::watch,
-    },
+    tokio::sync::watch,
     tokio_tungstenite::tungstenite,
     multiworld::{
         ClientWriter as _,
@@ -76,13 +73,13 @@ macro_rules! supported_version {
                     Err(SessionError::Shutdown) => {} // server shutting down
                     Err(SessionError::Server(msg)) => {
                         eprintln!("server error in WebSocket handler ({}): {msg}", stringify!($version));
-                        let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+                        let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("server error in WebSocket handler ({}): {msg}", stringify!($version)))).await;
                         let _ = lock!(writer).write(ServerMessage::OtherError(msg)).await;
                     }
                     Err(e) => {
                         eprintln!("error in WebSocket handler ({}): {e}", stringify!($version));
                         eprintln!("debug info: {e:?}");
-                        let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+                        let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("error in WebSocket handler ({}): {e}\ndebug info: {e:?}", stringify!($version)))).await;
                         let _ = lock!(writer).write(ServerMessage::OtherError(e.to_string())).await;
                     }
                 }
@@ -121,8 +118,9 @@ async fn not_found() -> RawHtml<String> {
 }
 
 #[rocket::catch(500)]
-async fn internal_server_error() -> RawHtml<String> {
-    html! {
+async fn internal_server_error() -> Result<RawHtml<String>, rocket_util::Error<wheel::Error>> {
+    wheel::night_report("/games/zelda/oot/mhmw/error", Some("internal server error")).await?;
+    Ok(html! {
         : Doctype;
         html {
             head {
@@ -137,7 +135,7 @@ async fn internal_server_error() -> RawHtml<String> {
                 p : "Sorry, something went wrong. Please notify Fenhl on Discord.";
             }
         }
-    }
+    })
 }
 
 pub(crate) async fn rocket(db_pool: PgPool, http_client: reqwest::Client, rng: Arc<SystemRandom>, port: u16, rooms: Rooms<WebSocket>, maintenance: Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>) -> Result<Rocket<rocket::Ignite>, crate::Error> {

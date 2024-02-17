@@ -2470,7 +2470,7 @@ dependencies = [
 [[package]]
 name = "gres"
 version = "0.2.5"
-source = "git+https://github.com/fenhl/gres?branch=main#d5103ca5f36e7994812b23e5979dc280e343dde5"
+source = "git+https://github.com/fenhl/gres?branch=main#61a0fc0e870feaa0bdde7f0d8c81e102f3d06cd9"
 dependencies = [
  "async-trait",
 ]
@@ -3691,7 +3691,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld"
-version = "15.1.0"
+version = "15.1.1"
 dependencies = [
  "async-proto",
  "async-recursion",
@@ -3730,7 +3730,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-admin-cli"
-version = "15.1.0"
+version = "15.1.1"
 dependencies = [
  "async-proto",
  "chrono",
@@ -3751,7 +3751,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-bizhawk"
-version = "15.1.0"
+version = "15.1.1"
 dependencies = [
  "lazy-regex",
  "semver",
@@ -3763,7 +3763,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-csharp"
-version = "15.1.0"
+version = "15.1.1"
 dependencies = [
  "async-proto",
  "chrono",
@@ -3785,7 +3785,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-derive"
-version = "15.1.0"
+version = "15.1.1"
 dependencies = [
  "itertools 0.12.1",
  "lazy-regex",
@@ -3797,7 +3797,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-gui"
-version = "15.1.0"
+version = "15.1.1"
 dependencies = [
  "async-proto",
  "chrono",
@@ -3841,7 +3841,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-installer"
-version = "15.1.0"
+version = "15.1.1"
 dependencies = [
  "async-compression",
  "async_zip",
@@ -3884,7 +3884,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-release"
-version = "15.1.0"
+version = "15.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3913,7 +3913,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-updater"
-version = "15.1.0"
+version = "15.1.1"
 dependencies = [
  "async-compression",
  "async_zip",
@@ -4344,7 +4344,7 @@ dependencies = [
 
 [[package]]
 name = "ootrmwd"
-version = "15.1.0"
+version = "15.1.1"
 dependencies = [
  "async-proto",
  "chrono",
@@ -4991,9 +4991,9 @@ dependencies = [
 
 [[package]]
 name = "profiling"
-version = "1.0.14"
+version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f0f7f43585c34e4fdd7497d746bc32e14458cf11c69341cc0587b1d825dde42"
+checksum = "43d84d1d7a6ac92673717f9f6d1518374ef257669c24ebc5ac25d5033828be58"
 
 [[package]]
 name = "prost"
@@ -7952,7 +7952,7 @@ dependencies = [
 [[package]]
 name = "wheel"
 version = "0.14.0"
-source = "git+https://github.com/fenhl/wheel?branch=main#efb79213a0eb3e668a7182d2bcc5c0e207423d1e"
+source = "git+https://github.com/fenhl/wheel?branch=main#3afcd0edf1fb7590d7634360fa8ce3a67e4dabac"
 dependencies = [
  "async-proto",
  "async-trait",
@@ -7973,7 +7973,7 @@ dependencies = [
 [[package]]
 name = "wheel-derive"
 version = "0.14.0"
-source = "git+https://github.com/fenhl/wheel?branch=main#efb79213a0eb3e668a7182d2bcc5c0e207423d1e"
+source = "git+https://github.com/fenhl/wheel?branch=main#3afcd0edf1fb7590d7634360fa8ce3a67e4dabac"
 dependencies = [
  "itertools 0.12.1",
  "proc-macro2",

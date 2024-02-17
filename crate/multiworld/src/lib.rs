@@ -47,7 +47,6 @@ use {
                 OwnedWriteHalf,
             },
         },
-        process::Command,
         sync::{
             broadcast,
             oneshot,
@@ -507,7 +506,7 @@ pub struct Room<C: ClientKind> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum QueueItemError {
-    #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error(transparent)] Room(#[from] RoomError),
     #[error("this room is for a different seed: server has {} but client has {}", natjoin(.server).unwrap(), natjoin(.client).unwrap())]
     FileHash {
         server: [HashIcon; 5],
@@ -519,7 +518,7 @@ pub enum QueueItemError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SetHashError {
-    #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error(transparent)] Room(#[from] RoomError),
     #[error("this room is for a different seed: server has {} but client has {}", natjoin(.server).unwrap(), natjoin(.client).unwrap())]
     FileHash {
         server: [HashIcon; 5],
@@ -540,7 +539,7 @@ pub enum SendAllError {
     #[error(transparent)] Clone(#[from] ootr_utils::CloneError),
     #[error(transparent)] Dir(#[from] ootr_utils::DirError),
     #[error(transparent)] PyJson(#[from] ootr_utils::PyJsonError),
-    #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error(transparent)] Room(#[from] RoomError),
     #[error("the SendAll command is not allowed in tournament rooms")]
     Disallowed,
     #[error("this room is for a different seed: server has {} but client has {}", natjoin(.server).unwrap(), natjoin(.client).unwrap())]
@@ -649,8 +648,14 @@ impl ProgressiveItems {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum RoomError {
+    #[error(transparent)] Wheel(#[from] wheel::Error),
+    #[error(transparent)] Write(#[from] async_proto::WriteError),
+}
+
 impl<C: ClientKind> Room<C> {
-    async fn write(&mut self, client_id: C::SessionId, msg: unversioned::ServerMessage) -> Result<(), async_proto::WriteError> {
+    async fn write(&mut self, client_id: C::SessionId, msg: unversioned::ServerMessage) -> Result<(), RoomError> {
         if let Some(client) = self.clients.get(&client_id) {
             let mut writer = lock!(client.writer);
             if let Err(e) = writer.write(msg).await {
@@ -662,7 +667,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    async fn write_all(&mut self, msg: &unversioned::ServerMessage) -> Result<(), async_proto::WriteError> {
+    async fn write_all(&mut self, msg: &unversioned::ServerMessage) -> Result<(), RoomError> {
         let mut notified = HashSet::new();
         while let Some((&client_id, client)) = self.clients.iter().find(|&(client_id, _)| !notified.contains(client_id)) {
             let mut writer = lock!(client.writer);
@@ -676,7 +681,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn add_client(&mut self, client_id: C::SessionId, writer: Arc<Mutex<C::Writer>>, end_tx: oneshot::Sender<EndRoomSession>) -> Result<(), async_proto::WriteError> {
+    pub async fn add_client(&mut self, client_id: C::SessionId, writer: Arc<Mutex<C::Writer>>, end_tx: oneshot::Sender<EndRoomSession>) -> Result<(), RoomError> {
         // the client doesn't need to be told that it has connected, so notify everyone *before* adding it
         self.write_all(&unversioned::ServerMessage::ClientConnected).await?;
         self.clients.insert(client_id, Client {
@@ -696,7 +701,7 @@ impl<C: ClientKind> Room<C> {
     }
 
     #[async_recursion]
-    pub async fn remove_client(&mut self, client_id: C::SessionId, to: EndRoomSession) -> Result<(), async_proto::WriteError> {
+    pub async fn remove_client(&mut self, client_id: C::SessionId, to: EndRoomSession) -> Result<(), RoomError> {
         if let Some(client) = self.clients.remove(&client_id) {
             let _ = client.end_tx.send(to);
             let msg = if let Some(Player { world, .. }) = client.player {
@@ -712,14 +717,14 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn delete(&mut self) -> Result<(), async_proto::WriteError> {
+    pub async fn delete(&mut self) -> Result<(), RoomError> {
         for client_id in self.clients.keys().copied().collect::<Vec<_>>() {
             self.remove_client(client_id, EndRoomSession::ToLobby).await?;
         }
         #[cfg(feature = "sqlx")] {
             if let Err(e) = sqlx::query!("DELETE FROM mw_rooms WHERE id = $1", self.id as i64).execute(&self.db_pool).await {
                 eprintln!("failed to delete room from database: {e} ({e:?})");
-                let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+                wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("failed to delete room from database: {e} ({e:?})"))).await?;
             }
         }
         if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
@@ -729,7 +734,7 @@ impl<C: ClientKind> Room<C> {
     }
 
     /// Moves a player from unloaded (no world assigned) to the given `world`.
-    pub async fn load_player(&mut self, client_id: C::SessionId, world: NonZeroU8) -> Result<bool, async_proto::WriteError> {
+    pub async fn load_player(&mut self, client_id: C::SessionId, world: NonZeroU8) -> Result<bool, RoomError> {
         if self.clients.iter().any(|(&iter_client_id, iter_client)| iter_client.player.as_ref().map_or(false, |p| p.world == world) && iter_client_id != client_id) {
             let client = self.clients.get_mut(&client_id).expect("tried to set pending world for nonexistent client");
             client.pending_world = Some(world);
@@ -768,11 +773,11 @@ impl<C: ClientKind> Room<C> {
             for &item in queued_items {
                 if let Err(()) = adjusted_save.recv_mw_item(item) {
                     eprintln!("load_player: item 0x{item:04x} not supported by recv_mw_item");
-                    let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+                    wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("load_player: item 0x{item:04x} not supported by recv_mw_item"))).await?;
                 }
             }
         } else {
-            eprintln!("save data from client has more received items than are in their queue");
+            eprintln!("save data from player {world} in room {} has more received items than are in their queue", self.name);
         }
         if let Some(client) = self.clients.get_mut(&client_id) {
             let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
@@ -791,7 +796,7 @@ impl<C: ClientKind> Room<C> {
         Ok(true)
     }
 
-    pub async fn unload_player(&mut self, client_id: C::SessionId) -> Result<(), async_proto::WriteError> {
+    pub async fn unload_player(&mut self, client_id: C::SessionId) -> Result<(), RoomError> {
         if let Some(prev_player) = self.clients.get_mut(&client_id).expect("tried to unset world for nonexistent client").player.take() {
             self.write_all(&unversioned::ServerMessage::ResetPlayerId(prev_player.world)).await?;
             if let Some((&client_id, _)) = self.clients.iter().find(|(_, iter_client)| iter_client.pending_world == Some(prev_player.world)) {
@@ -801,7 +806,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn set_player_name(&mut self, client_id: C::SessionId, name: Filename) -> Result<(), async_proto::WriteError> {
+    pub async fn set_player_name(&mut self, client_id: C::SessionId, name: Filename) -> Result<(), RoomError> {
         let client = self.clients.get_mut(&client_id).expect("tried to set filename for nonexsitent client");
         if let Some(ref mut player) = client.player {
             let world = player.world;
@@ -830,7 +835,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    async fn queue_item_inner(&mut self, source_world: NonZeroU8, key: u64, kind: u16, target_world: NonZeroU8, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str) -> Result<(), async_proto::WriteError> {
+    async fn queue_item_inner(&mut self, source_world: NonZeroU8, key: u64, kind: u16, target_world: NonZeroU8, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str) -> Result<(), RoomError> {
         if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
             oottracker::websocket::ClientMessage::MwQueueItem {
                 room: tracker_room_name.clone(),
@@ -862,7 +867,7 @@ impl<C: ClientKind> Room<C> {
                     let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     if let Err(()) = client.adjusted_save.recv_mw_item(kind) {
                         eprintln!("queue_item_inner (own world): item 0x{kind:04x} not supported by recv_mw_item");
-                        let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+                        wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("queue_item_inner (own world): item 0x{kind:04x} not supported by recv_mw_item"))).await?;
                     }
                     let new_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     if old_progressive_items != new_progressive_items {
@@ -881,7 +886,7 @@ impl<C: ClientKind> Room<C> {
                     let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     if let Err(()) = client.adjusted_save.recv_mw_item(kind) {
                         eprintln!("queue_item_inner (cross world): item 0x{kind:04x} not supported by recv_mw_item");
-                        let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+                        wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("queue_item_inner (cross world): item 0x{kind:04x} not supported by recv_mw_item"))).await?;
                     }
                     let new_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     self.write(target_client, unversioned::ServerMessage::GetItem(kind)).await?;
@@ -894,7 +899,7 @@ impl<C: ClientKind> Room<C> {
         #[cfg(feature = "sqlx")] {
             if let Err(e) = self.save(true).await {
                 eprintln!("failed to save room state while trying to queue item for room {} {context} ({}): {e} ({e:?})", self.name, self.id);
-                let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+                wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("failed to save room state while trying to queue item for room {} {context} ({}): {e} ({e:?})", self.name, self.id))).await?;
             }
         }
         Ok(())
@@ -946,7 +951,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn set_save_data(&mut self, client_id: C::SessionId, save: oottracker::Save) -> Result<(), async_proto::WriteError> {
+    pub async fn set_save_data(&mut self, client_id: C::SessionId, save: oottracker::Save) -> Result<(), RoomError> {
         let client = self.clients.get_mut(&client_id).expect("tried to set save data for nonexistent client");
         client.tracker_state.ram.save = save.clone();
         if let Some(Player { world, .. }) = client.player {
@@ -956,7 +961,7 @@ impl<C: ClientKind> Room<C> {
                 for &item in queued_items {
                     if let Err(()) = adjusted_save.recv_mw_item(item) {
                         eprintln!("set_save_data: item 0x{item:04x} not supported by recv_mw_item");
-                        let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+                        wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("set_save_data: item 0x{item:04x} not supported by recv_mw_item"))).await?;
                     }
                 }
             } else {
@@ -1054,13 +1059,13 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn set_autodelete_delta(&mut self, new_delta: Duration) -> Result<(), async_proto::WriteError> {
+    pub async fn set_autodelete_delta(&mut self, new_delta: Duration) -> Result<(), RoomError> {
         self.autodelete_delta = new_delta;
         #[cfg(feature = "sqlx")] {
             // saving also notifies the room deletion waiter
             if let Err(e) = self.save(true).await {
                 eprintln!("failed to save room state while trying to set autodelete delta for room {} ({}): {e} ({e:?})", self.name, self.id);
-                let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+                wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("failed to save room state while trying to set autodelete delta for room {} ({}): {e} ({e:?}", self.name, self.id))).await?;
             }
         }
         self.write_all(&unversioned::ServerMessage::AutoDeleteDelta(new_delta)).await?;

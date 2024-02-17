@@ -56,7 +56,6 @@ use {
     },
     tokio::{
         io,
-        process::Command,
         select,
         sync::{
             broadcast,
@@ -129,6 +128,7 @@ enum SessionError {
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Ring(#[from] ring::error::Unspecified),
+    #[error(transparent)] Room(#[from] multiworld::RoomError),
     #[error(transparent)] SendAll(#[from] SendAllError),
     #[error(transparent)] SetHash(#[from] multiworld::SetHashError),
     #[error(transparent)] Sql(#[from] sqlx::Error),
@@ -590,7 +590,7 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                     },
                     ClientMessage::SaveDataError { debug, version } => if version >= multiworld::version() {
                         eprintln!("save data error reported by Mido's House Multiworld version {version}: {debug}");
-                        let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+                        wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("save data error reported by Mido's House Multiworld version {version}: {debug}"))).await?;
                     },
                     ClientMessage::FileHash(hash) => match lock!(@write room).set_file_hash(socket_id, hash).await {
                         Ok(()) => {}
@@ -809,9 +809,10 @@ enum Error {
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Ring(#[from] ring::error::Unspecified),
     #[error(transparent)] Rocket(#[from] rocket::Error),
+    #[error(transparent)] Room(#[from] multiworld::RoomError),
     #[error(transparent)] Sql(#[from] sqlx::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
-    #[cfg(unix)] #[error(transparent)] Wheel(#[from] wheel::Error),
+    #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[cfg(unix)]
     #[error("error while creating tournament room")]
@@ -883,7 +884,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
     } else {
         let default_panic_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
-            let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+            let _ = wheel::night_report_sync("/games/zelda/oot/mhmw/error", Some("thread panic"));
             default_panic_hook(info)
         }));
         let rng = Arc::new(SystemRandom::new());
@@ -934,7 +935,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     tracker_state: None,
                 })).await {
                     eprintln!("ignoring duplicate room name: {}", row.name);
-                    let _ = Command::new("sudo").arg("-u").arg("fenhl").arg("/opt/night/bin/nightd").arg("report").arg("/games/zelda/oot/mhmw/error").spawn(); //TODO include error details in report
+                    wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("ignoring duplicate room name: {}", row.name))).await?;
                 }
             }
         }
