@@ -35,7 +35,7 @@ dark-light = "1"
 directories = "5"
 enum-iterator = "1"
 futures = "0.3"
-iced_runtime = "0.1"
+iced_runtime = "0.12"
 itertools = "0.12"
 lazy-regex = "3"
 open = "5"
@@ -53,7 +53,7 @@ version = "4"
 features = ["derive"]
 
 [dependencies.iced]
-version = "0.10"
+version = "0.12"
 default-features = false
 features = ["image", "tokio"]
 
@@ -92,7 +92,7 @@ git = "https://github.com/fenhl/wheel"
 branch = "main"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-gio = "0.18"
+gio = "0.19"
 tokio-tar = "0.3"
 which = "6"
 xdg = "2"

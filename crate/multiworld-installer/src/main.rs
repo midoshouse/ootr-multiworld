@@ -32,6 +32,7 @@ use {
         Element,
         Length,
         Settings,
+        Size,
         Theme,
         clipboard,
         widget::*,
@@ -69,7 +70,7 @@ use {
 };
 #[cfg(target_os = "linux")] use {
     std::io::Cursor,
-    gio::traits::SettingsExt as _,
+    gio::prelude::*,
     which::which,
     xdg::BaseDirectories,
     multiworld::fix_bizhawk_permissions,
@@ -691,7 +692,7 @@ impl Application for State {
                             }
                         }
                     }
-                    return window::close()
+                    return window::close(window::Id::MAIN)
                 }
             },
             Message::CopyDebugInfo => if let Page::Error(ref e, ref mut debug_info_copied) = self.page {
@@ -708,7 +709,7 @@ impl Application for State {
             },
             Message::EmulatorPath(new_path) => if let Page::LocateEmulator { ref mut emulator_path, .. } = self.page { *emulator_path = new_path },
             Message::Error(e) => self.page = Page::Error(e, false),
-            Message::Exit => return window::close(),
+            Message::Exit => return window::close(window::Id::MAIN),
             Message::InstallMultiworld => {
                 let (emulator, emulator_path, multiworld_path) = match self.page {
                     Page::LocateEmulator { emulator, ref emulator_path, ref multiworld_path, .. } |
@@ -968,7 +969,7 @@ impl Application for State {
                         .spacing(8)
                     );
                     #[cfg(target_os = "windows")] if install_emulator && matches!(emulator, Emulator::Pj64V3 | Emulator::Pj64V4) {
-                        col = col.push(Checkbox::new("Create desktop shortcut", self.create_emulator_desktop_shortcut, Message::SetCreateEmulatorDesktopShortcut));
+                        col = col.push(Checkbox::new("Create desktop shortcut", self.create_emulator_desktop_shortcut).on_toggle(Message::SetCreateEmulatorDesktopShortcut));
                     }
                     col.spacing(8).into()
                 },
@@ -1001,7 +1002,7 @@ impl Application for State {
                             .spacing(8)
                         );
                     #[cfg(target_os = "windows")] {
-                        col = col.push(Checkbox::new("Create desktop shortcut", self.create_multiworld_desktop_shortcut, Message::SetCreateMultiworldDesktopShortcut));
+                        col = col.push(Checkbox::new("Create desktop shortcut", self.create_multiworld_desktop_shortcut).on_toggle(Message::SetCreateMultiworldDesktopShortcut));
                     }
                     col.spacing(8).into()
                 },
@@ -1019,19 +1020,19 @@ impl Application for State {
                     match emulator {
                         Emulator::Dummy => unreachable!(),
                         Emulator::EverDrive => {
-                            col = col.push(Checkbox::new("Open Multiworld now", self.open_emulator, Message::SetOpenEmulator));
+                            col = col.push(Checkbox::new("Open Multiworld now", self.open_emulator).on_toggle(Message::SetOpenEmulator));
                         }
                         Emulator::BizHawk => {
                             col = col.push(Text::new("To play multiworld, in BizHawk, select Tools → External Tool → Mido's House Multiworld."));
-                            col = col.push(Checkbox::new("Open BizHawk now", self.open_emulator, Message::SetOpenEmulator));
+                            col = col.push(Checkbox::new("Open BizHawk now", self.open_emulator).on_toggle(Message::SetOpenEmulator));
                         }
                         Emulator::Pj64V3 => {
                             col = col.push(Text::new("To play multiworld, open the “Mido's House Multiworld” app and follow its instructions."));
-                            col = col.push(Checkbox::new("Open Multiworld and Project64 now", self.open_emulator, Message::SetOpenEmulator));
+                            col = col.push(Checkbox::new("Open Multiworld and Project64 now", self.open_emulator).on_toggle(Message::SetOpenEmulator));
                         }
                         Emulator::Pj64V4 => {
                             col = col.push(Text::new("To play multiworld, in Project64, select Debugger → Scripts → ootrmw.js and click Run."));
-                            col = col.push(Checkbox::new("Open Project64 now", self.open_emulator, Message::SetOpenEmulator));
+                            col = col.push(Checkbox::new("Open Project64 now", self.open_emulator).on_toggle(Message::SetOpenEmulator));
                         }
                     }
                     col.spacing(8).into()
@@ -1089,7 +1090,7 @@ enum MainError {
 fn main(args: Args) -> Result<(), MainError> {
     Ok(State::run(Settings {
         window: window::Settings {
-            size: (400, 300),
+            size: Size { width: 400.0, height: 300.0 },
             icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
             ..window::Settings::default()
         },

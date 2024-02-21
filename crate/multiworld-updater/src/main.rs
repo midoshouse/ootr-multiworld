@@ -32,6 +32,7 @@ use {
         Element,
         Length,
         Settings,
+        Size,
         Theme,
         clipboard,
         widget::*,
@@ -85,7 +86,7 @@ use {
 };
 #[cfg(windows)] use directories::ProjectDirs;
 #[cfg(target_os = "linux")] use {
-    gio::traits::SettingsExt as _,
+    gio::prelude::*,
     multiworld::fix_bizhawk_permissions,
 };
 
@@ -483,7 +484,7 @@ impl Application for App {
             },
             Message::Done => {
                 self.state = State::Done;
-                return window::close()
+                return window::close(window::Id::MAIN)
             }
             Message::DiscordInvite => if let Err(e) = open("https://discord.gg/BGRrKKn") {
                 self.state = State::Error(Arc::new(Err::<Never, _>(e).at_unknown().never_unwrap_err().into()), false);
@@ -648,7 +649,7 @@ fn main(args: Args) -> Result<(), MainError> {
     match args {
         Args::Emu(args) => Ok(App::run(Settings {
             window: window::Settings {
-                size: (320, 240),
+                size: Size { width: 320.0, height: 240.0 },
                 icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
                 ..window::Settings::default()
             },

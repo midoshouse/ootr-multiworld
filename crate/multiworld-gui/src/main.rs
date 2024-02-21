@@ -39,6 +39,7 @@ use {
         Element,
         Length,
         Settings,
+        Size,
         Subscription,
         Theme,
         clipboard,
@@ -127,7 +128,7 @@ use {
     xdg::BaseDirectories,
 };
 #[cfg(windows)] use directories::ProjectDirs;
-#[cfg(target_os = "linux")] use gio::traits::SettingsExt as _;
+#[cfg(target_os = "linux")] use gio::prelude::*;
 
 mod everdrive;
 mod login;
@@ -714,8 +715,8 @@ impl Application for State {
             Message::DismissWrongPassword => if let SessionState::Lobby { ref mut wrong_password, .. } = self.server_connection {
                 *wrong_password = false;
             },
-            Message::Event(iced::Event::Window(iced::window::Event::CloseRequested)) => if self.command_error.is_some() || self.login_error.is_some() || self.frontend_subscription_error.is_some() {
-                return window::close()
+            Message::Event(iced::Event::Window(id, iced::window::Event::CloseRequested)) => if id != window::Id::MAIN || self.command_error.is_some() || self.login_error.is_some() || self.frontend_subscription_error.is_some() {
+                return window::close(id)
             } else {
                 let frontend_writer = self.frontend_writer.take();
                 let server_writer = self.server_writer.take();
@@ -735,7 +736,7 @@ impl Application for State {
                 })
             },
             Message::Event(_) => {}
-            Message::Exit => return window::close(),
+            Message::Exit => return window::close(window::Id::MAIN),
             Message::FrontendConnected(writer) => {
                 let writer = LoggingWriter { log: self.log, context: "to frontend", inner: Arc::clone(&writer) };
                 self.frontend_writer = Some(writer.clone());
@@ -760,7 +761,7 @@ impl Application for State {
             Message::FrontendSubscriptionError(e) => {
                 if let Error::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::Io(ref e), .. }) = *e {
                     match (self.frontend.kind, e.kind()) {
-                        (Frontend::BizHawk | Frontend::Pj64V4, io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof) => return window::close(), // frontend closed
+                        (Frontend::BizHawk | Frontend::Pj64V4, io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof) => return window::close(window::Id::MAIN), // frontend closed
                         (Frontend::Pj64V3, io::ErrorKind::ConnectionReset) => {
                             self.frontend_writer = None;
                             return Command::none()
@@ -1546,7 +1547,7 @@ impl Application for State {
                             }
                         });
                     if existing_room_selection.as_ref().map_or(true, |existing_room_selection| existing_room_selection.password_required) {
-                        col = col.push(TextInput::new("Password", password).password().on_input(Message::SetPassword).on_paste(Message::SetPassword).on_submit(Message::JoinRoom).padding(5));
+                        col = col.push(TextInput::new("Password", password).secure(true).on_input(Message::SetPassword).on_paste(Message::SetPassword).on_submit(Message::JoinRoom).padding(5));
                     }
                     col
                         .push(Space::with_height(Length::Fill))
@@ -1693,7 +1694,7 @@ impl Application for State {
                                     Button::new("Kick").on_press(Message::Kick(player_id))
                                 })
                                 .into()
-                            ).collect()))
+                            ).collect_vec()))
                             .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
                             .spacing(16)
                         ));
@@ -1730,7 +1731,7 @@ impl Application for State {
 
     fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = Vec::with_capacity(4);
-        subscriptions.push(iced::subscription::events().map(Message::Event));
+        subscriptions.push(iced::event::listen().map(Message::Event));
         if self.updates_checked {
             match self.frontend.kind {
                 Frontend::Dummy => {}
@@ -1815,9 +1816,9 @@ fn main(CliArgs { frontend }: CliArgs) -> iced::Result {
         Err(e) => (None, Some(e)),
     };
     State::run(Settings {
-        exit_on_close_request: false,
         window: window::Settings {
-            size: (360, 360),
+            size: Size { width: 360.0, height: 360.0 },
+            exit_on_close_request: false,
             icon,
             ..window::Settings::default()
         },
