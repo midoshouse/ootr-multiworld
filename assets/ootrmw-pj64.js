@@ -46,6 +46,7 @@ var itemQueue = [];
 var normalGameplay = false;
 var progressiveItemsEnable = false;
 var potsanity3 = false;
+var gapCount = 0;
 
 function handle_data(sock, state, buf) {
     var newBuf = new Buffer(state.readBuf.length + buf.length);
@@ -56,9 +57,9 @@ function handle_data(sock, state, buf) {
         // check to make sure the server's protocol version matches ours
         if (state.readBuf[0] != MW_FRONTEND_PROTO_VERSION) {
             sock.close();
-            throw 'version mismatch';
+            throw 'Version mismatch';
         }
-        console.log('Connected to multiworld app');
+        console.log('Connected! You can now close this window and continue in the multiworld app.');
         state.versionChecked = true;
         state.readBuf = state.readBuf.slice(1);
     }
@@ -79,7 +80,7 @@ function handle_data(sock, state, buf) {
                         if (state.readBuf.length >= 9) {
                             if (state.readBuf.readUInt32BE(1) != 0) {
                                 sock.close();
-                                throw 'more than u32::MAX_VALUE items';
+                                throw 'More than u32::MAX_VALUE items';
                             }
                             itemQueue = [];
                             state.remainingItems = state.readBuf.readUInt32BE(5);
@@ -110,7 +111,7 @@ function handle_data(sock, state, buf) {
                         break;
                     default:
                         sock.close();
-                        throw 'unknown server command';
+                        throw 'Unknown server command';
                 }
             } else {
                 eof = true;
@@ -721,7 +722,6 @@ function handle_frame(write, error) {
             if (outgoingKeyHi = 0 && outgoingKeyLo == 0xff05ff) {
                 //Debug($"P{this.playerID}: Found an item {kind} for player {player} sent via network, ignoring");
             } else {
-                //Debug($"P{this.playerID}: Found {outgoingKey}, an item {kind} for player {player}");
                 const sendItemPacket = new ArrayBuffer(12);
                 var sendItemPacketView = new DataView(sendItemPacket);
                 sendItemPacketView.setUint8(0, 2); // message: send item
@@ -755,11 +755,15 @@ function handle_frame(write, error) {
                 var externalCount = itemQueue.length;
                 if (internalCount < externalCount) {
                     var item = itemQueue[internalCount];
-                    //Debug($"P{this.playerID}: Received an item {item} from another player");
                     mem.u16[coopContextAddr + 0x8] = item;
                     mem.u16[coopContextAddr + 0x6] = item == 0xca ? (playerID == 1 ? 2 : 1) : playerID;
                 } else if (internalCount > externalCount) {
-                    console.log('warning: gap in received items: internal count is ' + internalCount + ' but external queue is ' + itemQueue);
+                    gapCount++;
+                    if (gapCount >= 100) {
+                        console.log('warning: gap in received items: internal count is ' + internalCount + ' but external queue is ' + itemQueue);
+                    }
+                } else {
+                    gapCount = 0;
                 }
             }
         }
@@ -781,7 +785,7 @@ if (typeof PJ64_JSAPI_VERSION === 'undefined') {
             drawCallback = null;
         }
         console.log('Connection to multiworld app lost');
-        throw 'connection to multiworld app lost';
+        throw 'Connection to multiworld app lost';
     });
     // This version of PJ64's API doesn't have any way to detect a failed connection
     // (no error event handler, no setTimeout), so we have to preemptively give troubleshooting info.
@@ -789,7 +793,6 @@ if (typeof PJ64_JSAPI_VERSION === 'undefined') {
     console.log("This should take less than 5 seconds. If you don't see “connected” below, make sure the app is running.");
     console.log('If you need help, you can ask in #setup-support on the OoT Randomizer Discord or in #general on the OoTR MW Tournament Discord. Feel free to ping @fenhl.');
     sock.connect({host: "127.0.0.1", port: TCP_PORT}, function() {
-        console.log('Connected! You can now close this window and continue in the multiworld app.');
         const handshake = new ArrayBuffer(1);
         new DataView(handshake).setUint8(0, MW_FRONTEND_PROTO_VERSION);
         sock.write(new Buffer(new Uint8Array(handshake)), function() {
@@ -824,6 +827,12 @@ if (typeof PJ64_JSAPI_VERSION === 'undefined') {
             sock.on('close', function() {
                 sockets[sock_idx] = null;
                 console.log('Connection to multiworld app lost');
+                throw 'Connection to multiworld app lost';
+            });
+            sock.on('error', function(e) {
+                sockets[sock_idx] = null;
+                console.log('Error connecting to multiworld app:' + e);
+                throw 'Error connecting to multiworld app:' + e;
             });
             const handshake = new ArrayBuffer(1);
             new DataView(handshake).setUint8(0, MW_FRONTEND_PROTO_VERSION);
