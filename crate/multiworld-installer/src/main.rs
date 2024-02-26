@@ -178,8 +178,10 @@ enum Message {
     MultiworldInstalled,
     MultiworldPath(String),
     NewIssue,
+    OotmmMultiworldGuide,
     Nop,
     PlatformSupport,
+    Project64EmFound,
     SetCreateEmulatorDesktopShortcut(bool),
     SetCreateMultiworldDesktopShortcut(bool),
     SetEmulator(Emulator),
@@ -238,6 +240,10 @@ enum Page {
         multiworld_path: Option<String>,
     },
     AskBizHawkUpdate {
+        emulator_path: String,
+        multiworld_path: Option<String>,
+    },
+    Project64EmError {
         emulator_path: String,
         multiworld_path: Option<String>,
     },
@@ -333,8 +339,9 @@ impl Application for State {
             Message::Back => self.page = match self.page {
                 Page::Error(_, _) | Page::Elevated | Page::SelectEmulator { .. } => unreachable!(),
                 Page::LocateEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => Page::SelectEmulator { emulator: Some(emulator), install_emulator: Some(install_emulator), emulator_path: Some(emulator_path.clone()), multiworld_path: multiworld_path.clone() },
-                Page::InstallEmulator { .. } => unreachable!(),
                 Page::AskBizHawkUpdate { ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator: Emulator::BizHawk, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
+                Page::Project64EmError { ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator: Emulator::Pj64V3, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
+                Page::InstallEmulator { .. } => unreachable!(),
                 Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => match emulator {
                     Emulator::Dummy => unreachable!(),
                     Emulator::EverDrive => Page::SelectEmulator { emulator: Some(emulator), install_emulator: Some(false), emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
@@ -385,7 +392,7 @@ impl Application for State {
             },
             Message::ConfigWriteFailed => if let Page::InstallMultiworld { ref mut config_write_failed, .. } = self.page { *config_write_failed = true },
             Message::Continue => match self.page {
-                Page::Error(_, _) | Page::Elevated => unreachable!(),
+                Page::Error(_, _) | Page::Elevated | Page::Project64EmError { .. } => unreachable!(),
                 Page::SelectEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => {
                     let emulator = emulator.expect("emulator must be selected to continue here");
                     match emulator {
@@ -602,6 +609,16 @@ impl Application for State {
                         #[cfg(target_os = "windows")] Emulator::Pj64V3 | Emulator::Pj64V4 => {
                             let [major, minor, _, _] = match winver::get_file_version_info(PathBuf::from(emulator_path).join("Project64.exe")) {
                                 Ok(version) => version,
+                                Err(winver::Error::Io { path, source }) if source.kind() == io::ErrorKind::NotFound => {
+                                    let pj64_em_path = PathBuf::from(emulator_path).join("Project64-EM.exe");
+                                    return cmd(async move {
+                                        if fs::exists(pj64_em_path).await? {
+                                            Ok(Message::Project64EmFound)
+                                        } else {
+                                            Err(winver::Error::Io { path, source }.into())
+                                        }
+                                    })
+                                }
                                 Err(e) => return cmd(future::err(e.into())),
                             };
                             Some(match (major, minor) {
@@ -881,8 +898,14 @@ impl Application for State {
                 self.page = Page::Error(Arc::new(Error::CopyDebugInfo), false);
             },
             Message::Nop => {}
+            Message::OotmmMultiworldGuide => if let Err(e) = open("https://ootmm.com/multiworld") {
+                self.page = Page::Error(Arc::new(e.into()), false);
+            },
             Message::PlatformSupport => if let Err(e) = open("https://midos.house/mw/platforms") {
                 self.page = Page::Error(Arc::new(e.into()), false);
+            },
+            Message::Project64EmFound => if let Page::LocateEmulator { ref emulator_path, ref multiworld_path, .. } = self.page {
+                self.page = Page::Project64EmError { emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
             },
             Message::SetCreateEmulatorDesktopShortcut(create_desktop_shortcut) => self.create_emulator_desktop_shortcut = create_desktop_shortcut,
             Message::SetCreateMultiworldDesktopShortcut(create_desktop_shortcut) => self.create_multiworld_desktop_shortcut = create_desktop_shortcut,
@@ -894,7 +917,7 @@ impl Application for State {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let (top, next_btn) = match self.page {
+        let (top, prev_btn, next_btn) = match self.page {
             Page::Error(ref e, debug_info_copied) => (
                 Into::<Element<'_, Message>>::into(Column::new()
                     .push(Text::new("Error").size(24))
@@ -920,10 +943,12 @@ impl Application for State {
                     )
                     .push(Text::new("• Or post in #general on the OoTR MW Tournament Discord."))
                     .spacing(8)),
+                false,
                 None,
             ),
             Page::Elevated => (
                 Text::new("The installer has been reopened with admin permissions. Please continue there.").into(),
+                false,
                 None,
             ),
             Page::SelectEmulator { emulator, .. } => (
@@ -938,6 +963,7 @@ impl Application for State {
                     col = col.push(Button::new(Text::new("See platform support status")).on_press(Message::PlatformSupport));
                     col.spacing(8).into()
                 },
+                false,
                 Some({
                     let mut row = Row::new();
                     #[cfg(target_os = "windows")] if matches!(emulator, Some(Emulator::Pj64V3 | Emulator::Pj64V4)) && !is_elevated() {
@@ -973,6 +999,7 @@ impl Application for State {
                     }
                     col.spacing(8).into()
                 },
+                true,
                 Some({
                     let mut row = Row::new();
                     #[cfg(target_os = "windows")] if emulator == Emulator::BizHawk && install_emulator && !is_elevated() {
@@ -988,10 +1015,28 @@ impl Application for State {
                     .push("Warning: Updating BizHawk can sometimes reset BizHawk's settings. If you see an error message saying “It appears your config file (config.ini) is corrupted”, DO NOT close or click OK; make a backup of the file “config.ini” in your BizHawk folder first.")
                     .spacing(8)
                     .into(),
+                true,
                 Some((Text::new("Update BizHawk").into(), true))
             ),
-            Page::InstallEmulator { update: true, emulator, .. } => (Text::new(format!("Updating {emulator}, please wait…")).into(), None),
-            Page::InstallEmulator { update: false, emulator, .. } => (Text::new(format!("Installing {emulator}, please wait…")).into(), None),
+            Page::Project64EmError { .. } => (
+                Column::new()
+                    .push(Text::new("Error").size(24))
+                    .push("The selected folder appears to be a copy of Project64-EM, which is a modified version of Project64 and is not supported by Mido's House Multiworld.")
+                    .push(Text::new("Suggested actions").size(24))
+                    .push("• If you want to play OoTR, click “Back” and select or install a different emulator, such as regular Project64.")
+                    .push("• If you want to play OoTMM, please instead follow")
+                    .push(Row::new()
+                        .push(Button::new("the OoTMM multiworld guide").on_press(Message::OotmmMultiworldGuide))
+                        .push(".")
+                        .spacing(8)
+                    )
+                    .spacing(8)
+                    .into(),
+                true,
+                None,
+            ),
+            Page::InstallEmulator { update: true, emulator, .. } => (Text::new(format!("Updating {emulator}, please wait…")).into(), false, None),
+            Page::InstallEmulator { update: false, emulator, .. } => (Text::new(format!("Installing {emulator}, please wait…")).into(), false, None),
             Page::LocateMultiworld { ref multiworld_path, .. } => (
                 {
                     let mut col = Column::new()
@@ -1006,13 +1051,15 @@ impl Application for State {
                     }
                     col.spacing(8).into()
                 },
+                true,
                 Some((Text::new("Install Multiworld").into(), !multiworld_path.is_empty())),
             ),
             Page::InstallMultiworld { config_write_failed: true, emulator, .. } => (
                 Text::new(format!("Could not adjust {emulator} settings. Please close {emulator} and try again.")).into(),
+                true,
                 Some((Text::new("Try Again").into(), true)),
             ),
-            Page::InstallMultiworld { config_write_failed: false, .. } => (Text::new("Installing multiworld, please wait…").into(), None),
+            Page::InstallMultiworld { config_write_failed: false, .. } => (Text::new("Installing multiworld, please wait…").into(), false, None),
             Page::AskLaunch { emulator, .. } => (
                 {
                     let mut col = Column::new();
@@ -1037,34 +1084,35 @@ impl Application for State {
                     }
                     col.spacing(8).into()
                 },
+                true,
                 Some((Text::new("Finish").into(), true)),
             ),
         };
-        let mut view = Column::new()
+        Column::new()
             .push(Scrollable::new(
                 Row::new()
                     .push(top)
                     .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
                     .spacing(16)
-            ).height(Length::Fill));
-        if let Some((btn_content, enabled)) = next_btn {
-            let mut bottom_row = Row::new();
-            if matches!(self.page, Page::SelectEmulator { .. }) {
-                bottom_row = bottom_row.push(Text::new(format!("version {}{}", env!("CARGO_PKG_VERSION"), {
-                    #[cfg(debug_assertions)] { " (debug)" }
-                    #[cfg(not(debug_assertions))] { "" }
-                })));
-            } else {
-                bottom_row = bottom_row.push(Button::new(Text::new("Back")).on_press(Message::Back));
-            }
-            bottom_row = bottom_row.push(Space::with_width(Length::Fill));
-            let mut next_btn = Button::new(btn_content);
-            if enabled { next_btn = next_btn.on_press(Message::Continue) }
-            bottom_row = bottom_row.push(next_btn);
-            view = view
-                .push(bottom_row.spacing(8));
-        }
-        view
+            ).height(Length::Fill))
+            .push({
+                let mut bottom_row = Row::new()
+                    .push(if prev_btn {
+                        Element::from(Button::new(Text::new("Back")).on_press(Message::Back))
+                    } else {
+                        Text::new(format!("version {}{}", env!("CARGO_PKG_VERSION"), {
+                            #[cfg(debug_assertions)] { " (debug)" }
+                            #[cfg(not(debug_assertions))] { "" }
+                        })).into()
+                    })
+                    .push(Space::with_width(Length::Fill));
+                if let Some((btn_content, enabled)) = next_btn {
+                    let mut next_btn = Button::new(btn_content);
+                    if enabled { next_btn = next_btn.on_press(Message::Continue) }
+                    bottom_row = bottom_row.push(next_btn);
+                }
+                bottom_row.spacing(8)
+            })
             .spacing(8)
             .padding(8)
             .into()
@@ -1090,7 +1138,7 @@ enum MainError {
 fn main(args: Args) -> Result<(), MainError> {
     Ok(State::run(Settings {
         window: window::Settings {
-            size: Size { width: 400.0, height: 300.0 },
+            size: Size { width: 400.0, height: 360.0 },
             icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
             ..window::Settings::default()
         },
