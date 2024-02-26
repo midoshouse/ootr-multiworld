@@ -4,7 +4,7 @@ default-members = ["crate/ootrmwd"]
 resolver = "2"
 
 [workspace.package]
-version = "15.1.1"
+version = "15.1.2"
 authors = ["Fenhl <fenhl@fenhl.net>"]
 edition = "2021"
 
