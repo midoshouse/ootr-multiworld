@@ -184,7 +184,7 @@ impl Recipe for Client {
                                     let (stream, msg) = res??;
                                     break Some((Message::Server(msg), (stream, sink, interval)))
                                 },
-                                _ = interval.tick() => ws::ClientMessage::Ping.write_ws(&mut *lock!(sink)).await?,
+                                _ = interval.tick() => lock!(sink = sink; ws::ClientMessage::Ping.write_ws(&mut *sink).await)?,
                             }
                         })
                     }))

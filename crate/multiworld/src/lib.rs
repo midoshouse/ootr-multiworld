@@ -657,10 +657,8 @@ pub enum RoomError {
 impl<C: ClientKind> Room<C> {
     async fn write(&mut self, client_id: C::SessionId, msg: unversioned::ServerMessage) -> Result<(), RoomError> {
         if let Some(client) = self.clients.get(&client_id) {
-            let mut writer = lock!(client.writer);
-            if let Err(e) = writer.write(msg).await {
+            if let Err(e) = lock!(writer = client.writer; writer.write(msg).await) {
                 eprintln!("error sending message: {e} ({e:?})");
-                drop(writer);
                 self.remove_client(client_id, EndRoomSession::Disconnect).await?;
             }
         }
@@ -670,10 +668,8 @@ impl<C: ClientKind> Room<C> {
     async fn write_all(&mut self, msg: &unversioned::ServerMessage) -> Result<(), RoomError> {
         let mut notified = HashSet::new();
         while let Some((&client_id, client)) = self.clients.iter().find(|&(client_id, _)| !notified.contains(client_id)) {
-            let mut writer = lock!(client.writer);
-            if let Err(e) = writer.write(msg.clone()).await {
+            if let Err(e) = lock!(writer = client.writer; writer.write(msg.clone()).await) {
                 eprintln!("error sending message: {e} ({e:?})");
-                drop(writer);
                 self.remove_client(client_id, EndRoomSession::Disconnect).await?;
             }
             notified.insert(client_id);

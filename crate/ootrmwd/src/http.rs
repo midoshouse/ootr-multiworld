@@ -74,13 +74,13 @@ macro_rules! supported_version {
                     Err(SessionError::Server(msg)) => {
                         eprintln!("server error in WebSocket handler ({}): {msg}", stringify!($version));
                         let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("server error in WebSocket handler ({}): {msg}", stringify!($version)))).await;
-                        let _ = lock!(writer).write(ServerMessage::OtherError(msg)).await;
+                        let _ = lock!(writer = writer; writer.write(ServerMessage::OtherError(msg)).await);
                     }
                     Err(e) => {
                         eprintln!("error in WebSocket handler ({}): {e}", stringify!($version));
                         eprintln!("debug info: {e:?}");
                         let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("error in WebSocket handler ({}): {e}\ndebug info: {e:?}", stringify!($version)))).await;
-                        let _ = lock!(writer).write(ServerMessage::OtherError(e.to_string())).await;
+                        let _ = lock!(writer = writer; writer.write(ServerMessage::OtherError(e.to_string())).await);
                     }
                 }
                 let _ = sqlx::query!("INSERT INTO mw_versions (version, last_used) VALUES ($1, NOW()) ON CONFLICT (version) DO UPDATE SET last_used = EXCLUDED.last_used", $number).execute(&db_pool).await;

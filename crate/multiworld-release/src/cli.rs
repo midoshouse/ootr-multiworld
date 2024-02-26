@@ -49,53 +49,41 @@ impl Cli {
     }
 
     pub(crate) async fn new_line(&self, initial_text: impl fmt::Display) -> io::Result<LineHandle> {
-        {
-            let mut stdout = lock!(self.stdout);
-            crossterm::execute!(stdout,
-                Print(format_args!("{} {initial_text}\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
-            )?;
-        }
+        lock!(stdout = self.stdout; crossterm::execute!(stdout,
+            Print(format_args!("{} {initial_text}\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
+        ))?;
         Ok(LineHandle { stdout: Arc::clone(&self.stdout) })
     }
 
     pub(crate) async fn run<T>(&self, mut task: impl gres::Task<T> + GetPriority + fmt::Display, prefix: impl fmt::Display) -> io::Result<T> {
         let prefix = prefix.to_string();
-        lock!(self.active_tasks).insert(prefix.clone(), (task.priority(), task.to_string()));
-        {
-            let mut stdout = lock!(self.stdout);
-            crossterm::execute!(stdout,
-                MoveToColumn(0),
-                Clear(ClearType::UntilNewLine),
-                Print(format_args!("{} {prefix:>26}: {task}\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
-            )?;
-        }
+        lock!(active_tasks = self.active_tasks; active_tasks.insert(prefix.clone(), (task.priority(), task.to_string())));
+        lock!(stdout = self.stdout; crossterm::execute!(stdout,
+            MoveToColumn(0),
+            Clear(ClearType::UntilNewLine),
+            Print(format_args!("{} {prefix:>26}: {task}\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
+        ))?;
         self.redraw().await?;
         loop {
             match task.run().await {
                 Ok(result) => {
-                    lock!(self.active_tasks).remove(&prefix);
-                    {
-                        let mut stdout = lock!(self.stdout);
-                        crossterm::execute!(stdout,
-                            MoveToColumn(0),
-                            Clear(ClearType::UntilNewLine),
-                            Print(format_args!("{} {prefix:>26}: done\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
-                        )?;
-                    }
+                    lock!(active_tasks = self.active_tasks; active_tasks.remove(&prefix));
+                    lock!(stdout = self.stdout; crossterm::execute!(stdout,
+                        MoveToColumn(0),
+                        Clear(ClearType::UntilNewLine),
+                        Print(format_args!("{} {prefix:>26}: done\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
+                    ))?;
                     self.redraw().await?;
                     break Ok(result)
                 }
                 Err(next_task) => {
                     task = next_task;
-                    *lock!(self.active_tasks).get_mut(&prefix).expect("missing task, did you run multiple tasks with the same prefix?") = (task.priority(), task.to_string());
-                    {
-                        let mut stdout = lock!(self.stdout);
-                        crossterm::execute!(stdout,
-                            MoveToColumn(0),
-                            Clear(ClearType::UntilNewLine),
-                            Print(format_args!("{} {prefix:>26}: {task}\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
-                        )?;
-                    }
+                    lock!(active_tasks = self.active_tasks; *active_tasks.get_mut(&prefix).expect("missing task, did you run multiple tasks with the same prefix?") = (task.priority(), task.to_string()));
+                    lock!(stdout = self.stdout; crossterm::execute!(stdout,
+                        MoveToColumn(0),
+                        Clear(ClearType::UntilNewLine),
+                        Print(format_args!("{} {prefix:>26}: {task}\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
+                    ))?;
                     self.redraw().await?;
                 }
             }
@@ -103,9 +91,7 @@ impl Cli {
     }
 
     async fn redraw(&self) -> io::Result<()> {
-        let active_tasks = lock!(self.active_tasks);
-        let mut stdout = lock!(self.stdout);
-        if let Some((prefix, (_, task))) = active_tasks.iter().min_by(|(prefix1, (priority1, _)), (prefix2, (priority2, _))| priority2.cmp(priority1).then_with(|| prefix1.cmp(prefix2))) { // max priority, then alphabetically
+        lock!(active_tasks = self.active_tasks; lock!(stdout = self.stdout; if let Some((prefix, (_, task))) = active_tasks.iter().min_by(|(prefix1, (priority1, _)), (prefix2, (priority2, _))| priority2.cmp(priority1).then_with(|| prefix1.cmp(prefix2))) { // max priority, then alphabetically
             if active_tasks.len() > 1 {
                 crossterm::execute!(stdout,
                     MoveToColumn(0),
@@ -124,7 +110,7 @@ impl Cli {
                 MoveToColumn(0),
                 Clear(ClearType::UntilNewLine),
             )?;
-        }
+        }));
         Ok(())
     }
 }
@@ -142,10 +128,9 @@ pub(crate) struct LineHandle {
 
 impl LineHandle {
     pub(crate) async fn replace(&self, new_text: impl fmt::Display) -> io::Result<()> {
-        let mut stdout = lock!(self.stdout);
-        crossterm::execute!(stdout,
+        lock!(stdout = self.stdout; crossterm::execute!(stdout,
             Print(format_args!("{} {new_text}\r\n", Local::now().format("%Y-%m-%d %H:%M:%S"))),
-        )?;
+        ))?;
         Ok(())
     }
 }

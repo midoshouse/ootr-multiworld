@@ -19,7 +19,7 @@ winres = "0.1"
 [dependencies]
 async-proto = "0.18"
 dark-light = "1"
-enum-iterator = "1"
+enum-iterator = "2"
 futures = "0.3"
 iced_runtime = "0.12"
 if_chain = "1"

@@ -57,7 +57,7 @@ impl PersistentState {
     }
 
     pub(crate) async fn edit<T>(&self, f: impl FnOnce(&mut Data) -> T) -> Result<T, Error> {
-        let output = f(&mut *lock!(@write self.0));
+        let output = lock!(@write state = self.0; f(&mut *state));
         let path = {
             #[cfg(unix)] {
                 BaseDirectories::new()?.place_data_file("midos-house/multiworld-state.asyncproto")?
@@ -70,7 +70,7 @@ impl PersistentState {
         };
         let mut file = wheel::fs::File::create(path).await?;
         VERSION.write(&mut file).await?;
-        lock!(@read self.0).write(&mut file).await?;
+        lock!(@read state = self.0; state.write(&mut file).await)?;
         Ok(output)
     }
 }

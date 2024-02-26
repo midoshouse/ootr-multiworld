@@ -21,6 +21,3 @@ warnings = "deny"
 [profile.release]
 lto = true
 strip = true
-
-[patch.crates-io]
-palette = { git = "https://github.com/Ogeon/palette", branch = "issue_283_into_iterator" }
