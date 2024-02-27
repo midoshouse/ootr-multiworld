@@ -62,7 +62,10 @@ pub(crate) enum ClientMessage {
         hash5: HashIcon,
         players: Vec<u64>,
     },
-    PrepareRestart,
+    PrepareRestart {
+        #[clap(long)]
+        async_proto: bool,
+    },
 }
 
 #[derive(Protocol)]
@@ -186,7 +189,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 id, name,
                             })).await.write(&mut sock).await.expect("error writing to UNIX socket");
                         }
-                        ClientMessage::PrepareRestart => {
+                        ClientMessage::PrepareRestart { async_proto: _ } => {
                             let mut deadline = Utc::now() + chrono::Duration::days(1);
                             loop {
                                 match sqlx::query_scalar!(r#"SELECT start AS "start!" FROM races WHERE series = 'mw' AND start > $1::TIMESTAMPTZ - INTERVAL '24:00:00' AND start <= $1::TIMESTAMPTZ + INTERVAL '00:15:00' ORDER BY start DESC LIMIT 1"#, deadline).fetch_optional(&db_pool).await {

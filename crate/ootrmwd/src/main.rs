@@ -90,7 +90,13 @@ use {
     },
 };
 #[cfg(unix)] use {
-    tokio::net::UnixStream,
+    tokio::{
+        io::{
+            AsyncWriteExt as _,
+            stdout,
+        },
+        net::UnixStream,
+    },
     crate::unix_socket::{
         ClientMessage as Subcommand,
         WaitUntilInactiveMessage,
@@ -825,7 +831,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                         WaitUntilInactiveMessage::Deadline(_) => unreachable!(),
                     }
                 },
-                Subcommand::PrepareRestart => {
+                Subcommand::PrepareRestart { async_proto: false } => {
                     let mut deadline = None::<DateTime<Utc>>;
                     loop {
                         match WaitUntilInactiveMessage::read(&mut sock).await? {
@@ -852,6 +858,19 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                         }
                     }
                 },
+                Subcommand::PrepareRestart { async_proto: true } => {
+                    let mut stdout = stdout();
+                    loop {
+                        let msg = WaitUntilInactiveMessage::read(&mut sock).await.unwrap_or_else(|_| WaitUntilInactiveMessage::Error);
+                        msg.write(&mut stdout).await?;
+                        stdout.flush().await?;
+                        match msg {
+                            WaitUntilInactiveMessage::Inactive => break,
+                            WaitUntilInactiveMessage::Error => return Err(Error::WaitUntilInactive),
+                            _ => {}
+                        }
+                    }
+                }
                 Subcommand::CreateTournamentRoom { .. } => if !bool::read(&mut sock).await? {
                     return Err(Error::CreateTournamentRoom)
                 },

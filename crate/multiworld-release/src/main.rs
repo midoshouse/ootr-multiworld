@@ -1089,7 +1089,7 @@ impl Task<Result<(), Error>> for BuildServer {
             }).await,
             Self::WaitRestart => gres::transpose(async move {
                 loop {
-                    //TODO show output
+                    //TODO show output (prepare-restart --async-proto)
                     match Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /usr/local/share/midos-house/bin/ootrmwd prepare-restart; fi").check("ssh midos.house ootrmwd wait-until-inactive").await {
                         Ok(_) => break,
                         Err(wheel::Error::CommandExit { output, .. }) if std::str::from_utf8(&output.stderr).is_ok_and(|stderr| stderr.contains("Connection reset")) => continue,
