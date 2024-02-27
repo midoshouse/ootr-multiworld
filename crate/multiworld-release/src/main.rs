@@ -1093,7 +1093,12 @@ impl Task<Result<(), Error>> for BuildServer {
                     match Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /usr/local/share/midos-house/bin/ootrmwd prepare-restart; fi").check("ssh midos.house ootrmwd wait-until-inactive").await {
                         Ok(_) => break,
                         Err(wheel::Error::CommandExit { output, .. }) if std::str::from_utf8(&output.stderr).is_ok_and(|stderr| stderr.contains("Connection reset")) => continue,
-                        Err(e) => return Err(e.into()), //TODO continue normally if this fails because the server is stopped
+                        Err(e) => if Command::new("ssh").arg("midos.house").arg("systemctl is-active ootrmw").status().await?.code() == Some(3) {
+                            // prepare-restart command failed because the multiworld server was stopped
+                            break
+                        } else {
+                            return Err(e.into())
+                        },
                     }
                 }
                 Ok(Err(Self::Stop))
