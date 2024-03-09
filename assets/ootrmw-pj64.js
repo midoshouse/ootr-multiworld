@@ -181,7 +181,7 @@ function hint_area_from_dungeon_idx(i) {
 }
 
 function hint_area_from_reward_info(trackerCtxAddr, i) {
-    var text = mem.getstring(trackerCtxAddr + 0x54 + 0x17 * i);
+    var text = mem.getstring(trackerCtxAddr + 0x50 + 0x17 * i);
     if (text == "Free                  ") return OptHintArea.Root;
     if (text == "Hyrule Field          ") return OptHintArea.HyruleField;
     if (text == "Lon Lon Ranch         ") return OptHintArea.LonLonRanch;
@@ -326,7 +326,7 @@ function send_dungeon_reward_location_info(write, playerID, cosmeticsCtxAddr, tr
     var trackerCtxVersion = mem.u32[trackerCtxAddr];
     if (trackerCtxVersion < 4) { return; } // partial functionality is available in older rando versions, but supporting those is not worth the effort of checking rando version to disambiguate tracker context v3
     // CAN_DRAW_DUNGEON_INFO
-    var cfg_dungeon_info_enable = mem.u32[trackerCtxAddr + 0x04];
+    var cfg_dungeon_info_enable = mem.u8[trackerCtxAddr + 0x04];
     if (cfg_dungeon_info_enable == 0) { return; }
     var pause_state = mem.u16[ADDR_ANY_RDRAM.start + 0x1d8c00 + 0x01d4];
     if (pause_state != 6) { return; }
@@ -356,7 +356,7 @@ function send_dungeon_reward_location_info(write, playerID, cosmeticsCtxAddr, tr
     if (cosmeticsCtxVersion >= 0x1f073fd9) {
         cfg_dpad_dungeon_info_enable = mem.u8[cosmeticsCtxAddr + 0x0055] != 0;
     }
-    var pad_held = mem.u16[ADDR_ANY_RDRAM.start + 0x1c84b4];
+    var pad_held = mem.u16[ADDR_ANY_RDRAM.start + 0x1c84b4 + 0x0400];
     var d_down_held = (pad_held & 0x0400) != 0;
     var a_held = (pad_held & 0x8000) != 0;
     if (!(cfg_dpad_dungeon_info_enable && d_down_held) && !a_held) { return; }

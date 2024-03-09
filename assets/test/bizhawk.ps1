@@ -9,7 +9,7 @@ function ThrowOnNativeFailure {
 cargo build --package=multiworld-gui
 ThrowOnNativeFailure
 
-Remove-Item 'C:\Users\fenhl\AppData\Local\Fenhl\OoTR Multiworld\cache\gui.exe'
+Copy-Item -Path .\target\debug\multiworld-gui.exe -Destination 'C:\Users\fenhl\AppData\Local\Fenhl\OoTR Multiworld\cache\gui.exe'
 
 cargo build --package=multiworld-csharp
 ThrowOnNativeFailure
