@@ -9,6 +9,11 @@ ThrowOnNativeFailure
 
 Copy-Item -Path .\target\debug\multiworld-gui.exe -Destination 'C:\Users\fenhl\AppData\Local\Fenhl\OoTR Multiworld\cache\gui.exe'
 
-Copy-Item -Path .\assets\ootrmw-pj64.js -Destination 'C:\Users\fenhl\bin\Project64-Dev-4.0.0-6097-2c40d47\Scripts\ootrmw.js'
+Copy-Item -Path .\assets\ootrmw-pj64.js -Destination 'C:\Program Files (x86)\Project64 3.0\Scripts\ootrmw-dev.js'
 
-& 'C:\Users\fenhl\bin\Project64-Dev-4.0.0-6097-2c40d47\Project64.exe'
+Set-Location 'C:\Program Files (x86)\Project64 3.0\'
+
+.\Project64.exe
+
+cargo run --package=multiworld-gui
+ThrowOnNativeFailure

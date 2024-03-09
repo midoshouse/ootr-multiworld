@@ -2,6 +2,7 @@ const TCP_PORT = 24818;
 const MW_FRONTEND_PROTO_VERSION = 6;
 const DEFAULT_PLAYER_NAME = [0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf];
 const SRAM_START = 0xA8000000;
+const REWARD_ROWS = [0, 1, 2, 8, 3, 4, 5, 7, 6];
 
 var fileHash = null;
 var playerID = null;
