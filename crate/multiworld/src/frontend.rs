@@ -21,7 +21,7 @@ use {
 ///
 /// If possible, prefer having the OS select an unused port dynamically, to allow multiple instances of multiworld to run in parallel on the same computer.
 pub const PORT: u16 = 24818;
-pub const PROTOCOL_VERSION: u8 = 5;
+pub const PROTOCOL_VERSION: u8 = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Sequence, Deserialize, Serialize, clap::ValueEnum)]
 #[clap(rename_all = "lower")]
