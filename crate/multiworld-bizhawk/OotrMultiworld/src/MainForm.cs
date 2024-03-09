@@ -625,7 +625,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
     }
 
     private OptHintArea HintAreaFromRewardInfo(uint trackerCtxAddr, byte i) {
-        var text = System.Text.Encoding.UTF8.GetString(APIs.Memory.ReadByteRange(trackerCtxAddr + 0x50 + 0x17 * i, 0x16, "System Bus").ToArray());
+        var text = System.Text.Encoding.UTF8.GetString(APIs.Memory.ReadByteRange(trackerCtxAddr + 0x54 + 0x17 * i, 0x16, "System Bus").ToArray());
         if (text == "Free                  ") return OptHintArea.Root;
         if (text == "Hyrule Field          ") return OptHintArea.HyruleField;
         if (text == "Lon Lon Ranch         ") return OptHintArea.LonLonRanch;
@@ -670,7 +670,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
         var trackerCtxVersion = APIs.Memory.ReadU32(trackerCtxAddr, "System Bus");
         if (trackerCtxVersion < 4) { return; } // partial functionality is available in older rando versions, but supporting those is not worth the effort of checking rando version to disambiguate tracker context v3
         // CAN_DRAW_DUNGEON_INFO
-        var cfg_dungeon_info_enable = APIs.Memory.ReadByte(trackerCtxAddr + 0x04, "System Bus");
+        var cfg_dungeon_info_enable = APIs.Memory.ReadU32(trackerCtxAddr + 0x04, "System Bus");
         if (cfg_dungeon_info_enable == 0) { return; }
         var pause_state = APIs.Memory.ReadU16(0x1d8c00 + 0x01d4, "RDRAM");
         if (pause_state != 6) { return; }
@@ -700,7 +700,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
         if (cosmeticsCtxVersion >= 0x1f073fd9) {
             cfg_dpad_dungeon_info_enable = APIs.Memory.ReadByte(cosmeticsCtxAddr + 0x0055, "System Bus") != 0;
         }
-        var pad_held = APIs.Memory.ReadU16(0x1c84b4 + 0x0400, "RDRAM");
+        var pad_held = APIs.Memory.ReadU16(0x1c84b4, "RDRAM");
         bool d_down_held = (pad_held & 0x0400) != 0;
         bool a_held = (pad_held & 0x8000) != 0;
         if (!(cfg_dpad_dungeon_info_enable && d_down_held) && !a_held) { return; }
