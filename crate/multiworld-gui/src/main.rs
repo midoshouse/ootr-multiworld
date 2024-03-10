@@ -29,7 +29,10 @@ use {
     },
     enum_iterator::all,
     futures::{
-        future,
+        future::{
+            self,
+            FutureExt as _,
+        },
         sink::SinkExt as _,
         stream::Stream,
     },
@@ -357,16 +360,24 @@ enum Message {
     SetRoomView(RoomView),
     SetSendAllPath(String),
     SetSendAllWorld(String),
+    ToggleUpdateErrorDetails,
     UpToDate,
+    UpdateError(Arc<Error>),
 }
 
 fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) -> Command<Message> {
-    Command::single(iced_runtime::command::Action::Future(Box::pin(async move {
-        match future.await {
-            Ok(msg) => msg,
-            Err(e) => Message::CommandError(Arc::new(e.into())),
-        }
-    })))
+    Command::single(iced_runtime::command::Action::Future(
+        future.map(|res| res.unwrap_or_else(|e| Message::CommandError(Arc::new(e.into())))).boxed()
+    ))
+}
+
+enum UpdateState {
+    Pending,
+    UpToDate,
+    Error {
+        e: Arc<Error>,
+        expanded: bool,
+    },
 }
 
 struct State {
@@ -395,7 +406,7 @@ struct State {
     last_hash: Option<[HashIcon; 5]>,
     last_save: Option<oottracker::Save>,
     last_dungeon_reward_locations: HashMap<DungeonReward, (NonZeroU8, HintArea)>,
-    updates_checked: bool,
+    update_state: UpdateState,
     send_all_path: String,
     send_all_world: String,
 }
@@ -490,7 +501,22 @@ impl State {
                     .push_line_safe(e.to_string())
                     .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                     .build(),
-                _ => return None,
+                _ => if let UpdateState::Error { ref e, .. } = self.update_state {
+                    MessageBuilder::default()
+                        .push_line(format!("{}error while attempting to update Mido's House Multiworld from version {}{}:",
+                            if e.is_network_error() { "network " } else { "" },
+                            env!("CARGO_PKG_VERSION"),
+                            {
+                                #[cfg(debug_assertions)] { " (debug)" }
+                                #[cfg(not(debug_assertions))] { "" }
+                            },
+                        ))
+                        .push_line_safe(e.to_string())
+                        .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                        .build()
+                } else {
+                    return None
+                },
             }
         })
     }
@@ -586,7 +612,7 @@ impl Application for State {
             last_hash: None,
             last_save: None,
             last_dungeon_reward_locations: HashMap::default(),
-            updates_checked: false,
+            update_state: UpdateState::Pending,
             send_all_path: String::default(),
             send_all_world: String::default(),
             frontend, config_error, persistent_state_error, persistent_state,
@@ -628,6 +654,7 @@ impl Application for State {
                 *view = new_view;
             },
             Message::CheckForUpdates => {
+                self.update_state = UpdateState::Pending;
                 let frontend = self.frontend.clone();
                 return cmd(async move {
                     let http_client = reqwest::Client::builder()
@@ -685,7 +712,7 @@ impl Application for State {
                         }
                     }
                     Ok(Message::UpToDate)
-                })
+                }.map(|res| Ok(res.unwrap_or_else(|e| Message::UpdateError(Arc::new(e))))))
             }
             Message::CommandError(e) => { self.command_error.get_or_insert(e); }
             Message::ConfirmRoomDeletion => if let Some(writer) = self.server_writer.clone() {
@@ -1271,7 +1298,6 @@ impl Application for State {
                     };
                     if let Error::WebSocket(tungstenite::Error::Http(ref resp)) = *e {
                         if resp.status() == tungstenite::http::StatusCode::GONE {
-                            self.updates_checked = false;
                             return cmd(future::ok(Message::CheckForUpdates))
                         }
                     }
@@ -1293,13 +1319,15 @@ impl Application for State {
             Message::SetPassword(new_password) => if let SessionState::Lobby { ref mut password, .. } = self.server_connection { *password = new_password },
             Message::SetSendAllPath(new_path) => self.send_all_path = new_path,
             Message::SetSendAllWorld(new_world) => self.send_all_world = new_world,
-            Message::UpToDate => self.updates_checked = true,
+            Message::ToggleUpdateErrorDetails => if let UpdateState::Error { ref mut expanded, .. } = self.update_state { *expanded = !*expanded },
+            Message::UpToDate => self.update_state = UpdateState::UpToDate,
+            Message::UpdateError(e) => self.update_state = UpdateState::Error { e, expanded: false },
         }
         Command::none()
     }
 
     fn view(&self) -> Element<'_, Message> {
-        if let Some(ref e) = self.icon_error {
+        let main_view = if let Some(ref e) = self.icon_error {
             error_view("An error occurred:", e, self.debug_info_copied)
         } else if let Some(ref e) = self.config_error {
             error_view("An error occurred:", e, self.debug_info_copied)
@@ -1317,7 +1345,6 @@ impl Application for State {
                         .push(Text::new(format!("Could not connect to {} because the connection is already in use. Maybe you still have another instance of this app open?", self.frontend.kind)))
                         .push(Button::new("Retry").on_press(Message::ReconnectFrontend))
                         .spacing(8)
-                        .padding(8)
                         .into()
                 } else {
                     error_view(format!("An error occurred during communication with {}:", self.frontend.kind), e, self.debug_info_copied)
@@ -1325,7 +1352,7 @@ impl Application for State {
             } else {
                 error_view(format!("An error occurred during communication with {}:", self.frontend.kind), e, self.debug_info_copied)
             }
-        } else if !self.updates_checked {
+        } else if let UpdateState::Pending = self.update_state {
             let mut col = Column::new();
             if let SessionState::Error { auto_retry: false, e: SessionStateError::Connection(ref e), maintenance } = self.server_connection {
                 if let Error::WebSocket(tungstenite::Error::Http(ref resp)) = **e {
@@ -1341,11 +1368,7 @@ impl Application for State {
                     }
                 }
             }
-            col
-                .push("Checking for updates…")
-                .spacing(8)
-                .padding(8)
-                .into()
+            col.spacing(8)
         } else if self.frontend_writer.is_none() && self.frontend.kind != Frontend::Dummy {
             let mut col = Column::new();
             if !self.frontend.is_locked() {
@@ -1378,7 +1401,7 @@ impl Application for State {
                         .push("This should take less than 5 seconds.");
                 }
             }
-            col.spacing(8).padding(8).into()
+            col.spacing(8)
         } else {
             match self.server_connection {
                 SessionState::Error { auto_retry: false, ref e, maintenance: _ } => error_view("An error occurred during communication with the server:", e, self.debug_info_copied),
@@ -1406,8 +1429,6 @@ impl Application for State {
                             .spacing(8)
                         )
                         .spacing(8)
-                        .padding(8)
-                        .into()
                 }
                 SessionState::Init { maintenance } => {
                     let mut col = Column::new();
@@ -1427,8 +1448,6 @@ impl Application for State {
                             #[cfg(not(debug_assertions))] { "" }
                         })))
                         .spacing(8)
-                        .padding(8)
-                        .into()
                 }
                 SessionState::InitAutoRejoin { .. } => Column::new()
                     .push("Reconnecting to room…")
@@ -1438,24 +1457,18 @@ impl Application for State {
                         #[cfg(debug_assertions)] { " (debug)" }
                         #[cfg(not(debug_assertions))] { "" }
                     })))
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                    .spacing(8),
                 SessionState::Lobby { wrong_password: true, .. } => Column::new()
                     .push("wrong password")
                     .push(Space::with_height(Length::Fill))
                     .push(Button::new("OK").on_press(Message::DismissWrongPassword))
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                    .spacing(8),
                 SessionState::Lobby { view: LobbyView::SessionExpired { provider, error: None }, wrong_password: false, .. } => Column::new()
                     .push(Text::new(format!("Your Mido's House user session has expired.")))
                     .push(Button::new("Sign back in").on_press(Message::SetLobbyView(LobbyView::Login { provider, no_midos_house_account: false })))
                     .push(Space::with_width(Length::Fill))
                     .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Normal)))
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                    .spacing(8),
                 SessionState::Lobby { view: LobbyView::SessionExpired { provider, error: Some(ref e) }, wrong_password: false, .. } => Column::new()
                     .push(Text::new(format!("Failed to refresh your Mido's House user session:")))
                     .push(Text::new(e.to_string()))
@@ -1468,9 +1481,7 @@ impl Application for State {
                     )
                     .push(Space::with_width(Length::Fill))
                     .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Normal)))
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                    .spacing(8),
                 SessionState::Lobby { view: LobbyView::Settings, wrong_password: false, login_state, .. } => {
                     let mut col = Column::new()
                         .push(Row::new()
@@ -1489,7 +1500,7 @@ impl Application for State {
                             .push(Button::new("Sign in with racetime.gg").on_press(Message::SetLobbyView(LobbyView::Login { provider: login::Provider::RaceTime, no_midos_house_account: false })))
                             .push(Button::new("Sign in with Discord").on_press(Message::SetLobbyView(LobbyView::Login { provider: login::Provider::Discord, no_midos_house_account: false })));
                     }
-                    col.spacing(8).padding(8).into()
+                    col.spacing(8)
                 }
                 SessionState::Lobby { view: LobbyView::Login { provider, no_midos_house_account: true }, wrong_password: false, .. } => Column::new()
                     .push(Text::new(format!("This {provider} account is not associated with a Mido's House account.")))
@@ -1506,9 +1517,7 @@ impl Application for State {
                     )
                     .push(Space::with_height(Length::Fill))
                     .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Settings)))
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                    .spacing(8),
                 SessionState::Lobby { view: LobbyView::Login { provider, no_midos_house_account: false }, wrong_password: false, .. } => Column::new()
                     .push(Text::new(format!("Signing in with {provider}…")))
                     .push("Please continue in your web browser.")
@@ -1521,9 +1530,7 @@ impl Application for State {
                     })
                     .push(Space::with_height(Length::Fill))
                     .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Settings)))
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                    .spacing(8),
                 SessionState::Lobby { view: LobbyView::Normal, wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password, maintenance, .. } => {
                     let mut col = Column::new();
                     if let Some((start, duration)) = maintenance {
@@ -1567,17 +1574,13 @@ impl Application for State {
                             .push(Button::new("Settings").on_press(Message::SetLobbyView(LobbyView::Settings)))
                         )
                         .spacing(8)
-                        .padding(8)
-                        .into()
                 }
                 SessionState::Room { view: RoomView::ConfirmDeletion, .. } => Column::new()
                     .push("Are you sure you want to delete this room? Items that have already been sent will be lost forever!")
                     .push(Button::new("Delete").on_press(Message::ConfirmRoomDeletion))
                     .push(Space::with_height(Length::Fill))
                     .push(Button::new("Back").on_press(Message::SetRoomView(RoomView::Normal)))
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                    .spacing(8),
                 SessionState::Room { wrong_file_hash: Some([[server1, server2, server3, server4, server5], [client1, client2, client3, client4, client5]]), .. } => Column::new()
                     .push("This room is for a different seed.")
                     .push(Scrollable::new(Column::new()
@@ -1608,9 +1611,7 @@ impl Application for State {
                         .push(Button::new("Leave Room").on_press(Message::Leave))
                         .spacing(8)
                     )
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
+                    .spacing(8),
                 SessionState::Room { wrong_file_hash: None, world_taken: Some(world), .. } => Column::new()
                     .push(Text::new(format!("World {world} is already taken.")))
                     .push(Row::new()
@@ -1618,10 +1619,7 @@ impl Application for State {
                         .push(Button::new("Leave").on_press(Message::Leave))
                         .spacing(8)
                     )
-                    .spacing(8)
-                    .padding(8)
-                    .into(),
-
+                    .spacing(8),
                 SessionState::Room { view: RoomView::Options, wrong_file_hash: None, autodelete_delta, allow_send_all, .. } => {
                     let mut col = Column::new()
                         .push(Button::new("Back").on_press(Message::SetRoomView(RoomView::Normal)))
@@ -1668,7 +1666,7 @@ impl Application for State {
                             .spacing(8)
                         );
                     }
-                    col.spacing(8).padding(8).into()
+                    col.spacing(8)
                 }
                 SessionState::Room { view: RoomView::Normal, wrong_file_hash: None, ref players, num_unassigned_clients, maintenance, .. } => {
                     let (players, other) = format_room_state(players, num_unassigned_clients, self.last_world);
@@ -1686,29 +1684,22 @@ impl Application for State {
                             .push(Button::new("Options").on_press(Message::SetRoomView(RoomView::Options)))
                             .spacing(8)
                         )
-                        .push(Scrollable::new(Row::new()
-                            .push(Column::with_children(players.into_iter().map(|(player_id, player)| Row::new()
-                                .push(Text::new(player))
-                                .push(if self.last_world.map_or(false, |my_id| my_id == player_id) {
-                                    Button::new("Leave").on_press(Message::Leave)
-                                } else {
-                                    Button::new("Kick").on_press(Message::Kick(player_id))
-                                })
-                                .into()
-                            ).collect_vec()))
-                            .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
-                            .spacing(16)
-                        ));
+                        .push(Column::with_children(players.into_iter().map(|(player_id, player)| Row::new()
+                            .push(Text::new(player))
+                            .push(if self.last_world.map_or(false, |my_id| my_id == player_id) {
+                                Button::new("Leave").on_press(Message::Leave)
+                            } else {
+                                Button::new("Kick").on_press(Message::Kick(player_id))
+                            })
+                            .into()
+                        ).collect_vec()));
                     if !other.is_empty() {
                         col = col.push(Text::new(other));
                     }
                     if self.last_world.is_none() {
                         col = col.push(Button::new("Leave").on_press(Message::Leave));
                     }
-                    col
-                        .spacing(8)
-                        .padding(8)
-                        .into()
+                    col.spacing(8)
                 }
                 SessionState::Closed { maintenance } => {
                     let mut col = Column::new();
@@ -1723,17 +1714,46 @@ impl Application for State {
                         .push("You have been disconnected.")
                         .push(Button::new("Reconnect").on_press(Message::ReconnectToLobby))
                         .spacing(8)
-                        .padding(8)
-                        .into()
                 }
             }
+        };
+        let mut col = Column::new();
+        match self.update_state {
+            UpdateState::Pending => {
+                col = col.push("Checking for updates…");
+                col = col.push(Rule::horizontal(1)); //TODO hide if main_view is empty
+            }
+            UpdateState::UpToDate => {}
+            UpdateState::Error { ref e, expanded } => {
+                let is_network_error = e.is_network_error();
+                if expanded {
+                    col = col.push(error_view(if is_network_error { "Network error while checking for updates" } else { "Error while checking for updates" }, e, self.debug_info_copied));
+                } else {
+                    col = col.push(if is_network_error { "Network error while checking for updates" } else { "Error while checking for updates" });
+                }
+                col = col.push({
+                    let mut row = Row::new();
+                    if is_network_error {
+                        row = row.push(Button::new("Retry").on_press(Message::CheckForUpdates));
+                    }
+                    row
+                        .push(Button::new(if expanded { "Hide Details" } else { "Show Details" }).on_press(Message::ToggleUpdateErrorDetails))
+                        .spacing(8)
+                });
+                col = col.push(Rule::horizontal(1));
+            }
         }
+        Scrollable::new(Row::new()
+            .push(col.push(main_view).spacing(8).padding(8))
+            .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
+            .spacing(16)
+        ).into()
     }
 
     fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = Vec::with_capacity(4);
         subscriptions.push(iced::event::listen().map(Message::Event));
-        if self.updates_checked {
+        if !matches!(self.update_state, UpdateState::Pending) {
             match self.frontend.kind {
                 Frontend::Dummy => {}
                 Frontend::EverDrive => subscriptions.push(Subscription::from_recipe(everdrive::Subscription)),
@@ -1754,37 +1774,31 @@ impl Application for State {
     }
 }
 
-fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, debug_info_copied: bool) -> Element<'a, Message> {
-    Scrollable::new(Row::new()
-        .push(Column::new()
-            .push(Text::new("Error").size(24))
-            .push(Text::new(context))
-            .push(Text::new(e.to_string()))
-            .push(Row::new()
-                .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
-                .push(if debug_info_copied { "Copied!" } else { "for pasting into Discord" })
-                .spacing(8)
-            )
-            .push(Text::new("Support").size(24))
-            .push("This is a bug in Mido's House Multiworld. Please report it:")
-            .push(Row::new()
-                .push("• ")
-                .push(Button::new("Open a GitHub issue").on_press(Message::NewIssue))
-                .spacing(8)
-            )
-            .push("• Or post in #setup-support on the OoT Randomizer Discord. Please ping @fenhl in your message.")
-            .push(Row::new()
-                .push(Button::new("invite link").on_press(Message::DiscordInvite))
-                .push(Button::new("direct channel link").on_press(Message::DiscordChannel))
-                .spacing(8)
-            )
-            .push("• Or post in #general on the OoTR MW Tournament Discord.")
+fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, debug_info_copied: bool) -> Column<'a, Message> {
+    Column::new()
+        .push(Text::new("Error").size(24))
+        .push(Text::new(context))
+        .push(Text::new(e.to_string()))
+        .push(Row::new()
+            .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
+            .push(if debug_info_copied { "Copied!" } else { "for pasting into Discord" })
             .spacing(8)
-            .padding(8)
         )
-        .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
-        .spacing(16)
-    ).into()
+        .push(Text::new("Support").size(24))
+        .push("This is a bug in Mido's House Multiworld. Please report it:")
+        .push(Row::new()
+            .push("• ")
+            .push(Button::new("Open a GitHub issue").on_press(Message::NewIssue))
+            .spacing(8)
+        )
+        .push("• Or post in #setup-support on the OoT Randomizer Discord. Please ping @fenhl in your message.")
+        .push(Row::new()
+            .push(Button::new("invite link").on_press(Message::DiscordInvite))
+            .push(Button::new("direct channel link").on_press(Message::DiscordChannel))
+            .spacing(8)
+        )
+        .push("• Or post in #general on the OoTR MW Tournament Discord.")
+        .spacing(8)
 }
 
 #[derive(clap::Subcommand)]
