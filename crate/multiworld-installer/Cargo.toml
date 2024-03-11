@@ -31,75 +31,36 @@ default-features = false
 features = ["rustls-tls"]
 
 [dependencies]
+async_zip = { version = "0.0.16", features = ["full"] }
+clap = { version = "4", features = ["derive"] }
 dark-light = "1"
 directories = "5"
 enum-iterator = "2"
 futures = "0.3"
+iced = { version = "0.12", default-features = false, features = ["image", "tokio"] }
 iced_runtime = "0.12"
+image = { version = "0.24", default-features = false, features = ["ico"] } # recursive dependency of iced
 itertools = "0.12"
 lazy-regex = "3"
+multiworld = { path = "../multiworld" }
 open = "5"
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "stream"] }
 rfd = "0.14"
 semver = "1"
+serde = { version = "1", features = ["derive"] }
 serde_ini = "0.2"
+serenity = { version = "0.12", default-features = false, features = ["utils"] }
 thiserror = "1"
-
-[dependencies.async_zip]
-version = "0.0.16"
-features = ["full"]
-
-[dependencies.clap]
-version = "4"
-features = ["derive"]
-
-[dependencies.iced]
-version = "0.12"
-default-features = false
-features = ["image", "tokio"]
-
-[dependencies.image]
-version = "0.24" # recursive dependency of iced
-default-features = false
-features = ["ico"]
-
-[dependencies.multiworld]
-path = "../multiworld"
-
-[dependencies.reqwest]
-version = "0.11"
-default-features = false
-features = ["json", "rustls-tls", "stream"]
-
-[dependencies.serde]
-version = "1"
-features = ["derive"]
-
-[dependencies.serenity]
-version = "0.12"
-default-features = false
-features = ["utils"]
-
-[dependencies.tokio]
-version = "1"
-features = ["fs", "parking_lot", "process", "rt-multi-thread"]
-
-[dependencies.url]
-version = "2"
-features = ["serde"]
-
-[dependencies.wheel]
-git = "https://github.com/fenhl/wheel"
-branch = "main"
+tokio = { version = "1", features = ["fs", "parking_lot", "process", "rt-multi-thread"] }
+url = { version = "2", features = ["serde"] }
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+async-compression = { version = "0.4", features = ["gzip", "tokio"] }
 gio = "0.19"
 tokio-tar = "0.3"
 which = "6"
 xdg = "2"
-
-[target.'cfg(target_os = "linux")'.dependencies.async-compression]
-version = "0.4"
-features = ["gzip", "tokio"]
 
 [target.'cfg(target_os = "windows")'.dependencies]
 is_elevated = "0.1"
@@ -107,11 +68,5 @@ kuchiki = "0.8"
 mslnk = "0.1"
 runas = "1.2"
 tempfile = "3"
-
-[target.'cfg(target_os = "windows")'.dependencies.tokio-util]
-version = "0.7"
-features = ["io"]
-
-[target.'cfg(target_os = "windows")'.dependencies.winver]
-git = "https://github.com/fenhl/winver"
-branch = "main"
+tokio-util = { version = "0.7", features = ["io"] }
+winver = { git = "https://github.com/fenhl/winver", branch = "main" }

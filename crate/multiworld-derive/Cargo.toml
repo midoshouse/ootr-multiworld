@@ -16,7 +16,4 @@ lazy-regex = "3"
 proc-macro2 = "1"
 quote = "1"
 semver = "1"
-
-[dependencies.syn]
-version = "2"
-features = ["extra-traits", "full"]
+syn = { version = "2", features = ["extra-traits", "full"] }

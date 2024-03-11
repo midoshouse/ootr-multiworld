@@ -19,33 +19,16 @@ warnings = "deny"
 
 [dependencies]
 async-proto = "0.19"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 itertools = "0.12"
 libc = "0.2"
+multiworld = { path = "../multiworld" }
+multiworld-derive = { path = "../multiworld-derive" }
 once_cell = "1"
+ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils", branch = "main" }
+oottracker = { git = "https://github.com/fenhl/oottracker", branch = "mw" }
 thiserror = "1"
-
-[dependencies.chrono]
-version = "0.4"
-default-features = false
-features = ["clock", "std"]
-
-[dependencies.multiworld]
-path = "../multiworld"
-
-[dependencies.multiworld-derive]
-path = "../multiworld-derive"
-
-[dependencies.ootr-utils]
-git = "https://github.com/midoshouse/rust-ootr-utils"
-branch = "main"
-
-[dependencies.oottracker]
-git = "https://github.com/fenhl/oottracker"
-branch = "mw"
-
-[dependencies.wheel]
-git = "https://github.com/fenhl/wheel"
-branch = "main"
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }
 
 [target.'cfg(unix)'.dependencies]
 xdg = "2"
@@ -53,11 +36,5 @@ xdg = "2"
 [target.'cfg(windows)'.dependencies]
 directories = "5"
 semver = "1"
-
-[target.'cfg(windows)'.dependencies.windows]
-version = "0.54"
-features = ["Win32_Storage_FileSystem"]
-
-[target.'cfg(windows)'.dependencies.winver]
-git = "https://github.com/fenhl/winver"
-branch = "main"
+windows = { version = "0.54", features = ["Win32_Storage_FileSystem"] }
+winver = { git = "https://github.com/fenhl/winver", branch = "main" }

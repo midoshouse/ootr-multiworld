@@ -8,89 +8,37 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
+async-proto = { version = "0.19", features = ["chrono", "semver"] }
 async-recursion = "1"
 async-trait = "0.1"
 bitflags = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap = { version = "4", features = ["derive"] }
 derivative = "2"
 either = "1"
 enum-iterator = "2"
 futures = "0.3"
+github-app-auth = { version = "3", optional = true }
 if_chain = "1"
 itertools = "0.12"
+log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
+multiworld-derive = { path = "../multiworld-derive" }
 oauth2 = "4"
+ootr = { git = "https://github.com/fenhl/oottracker", branch = "mw" }
+ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils", branch = "main" }
+oottracker = { git = "https://github.com/fenhl/oottracker", branch = "mw" }
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "json"] }
 ring = "0.17"
 rocket_ws = "0.1"
 semver = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sqlx = { version = "0.7", default-features = false, features = ["macros", "postgres"], optional = true }
 thiserror = "1"
-
-[dependencies.async-proto]
-version = "0.19"
-features = ["chrono", "semver"]
-
-[dependencies.chrono]
-version = "0.4"
-default-features = false
-features = ["clock", "std"]
-
-[dependencies.clap]
-version = "4"
-features = ["derive"]
-
-[dependencies.github-app-auth]
-version = "3"
-optional = true
-
-[dependencies.log-lock]
-git = "https://github.com/fenhl/log-lock"
-branch = "main"
-
-[dependencies.multiworld-derive]
-path = "../multiworld-derive"
-
-[dependencies.ootr]
-git = "https://github.com/fenhl/oottracker"
-branch = "mw"
-
-[dependencies.ootr-utils]
-git = "https://github.com/midoshouse/rust-ootr-utils"
-branch = "main"
-
-[dependencies.oottracker]
-git = "https://github.com/fenhl/oottracker"
-branch = "mw"
-
-[dependencies.reqwest]
-version = "0.11"
-default-features = false
-features = ["blocking", "json"]
-
-[dependencies.serde]
-version = "1"
-features = ["derive"]
-
-[dependencies.sqlx]
-version = "0.7"
-default-features = false
-features = ["macros", "postgres"]
-optional = true
-
-[dependencies.tokio]
-version = "1"
-features = ["net", "parking_lot", "process", "sync", "time"]
-
-[dependencies.tokio-tungstenite]
-version = "0.20"
-features = ["rustls-tls-webpki-roots"]
-
-[dependencies.url]
-version = "2"
-features = ["serde"]
-
-[dependencies.wheel]
-git = "https://github.com/fenhl/wheel"
-branch = "main"
-features = ["async-proto", "reqwest", "serde", "serde_json"]
+tokio = { version = "1", features = ["net", "parking_lot", "process", "sync", "time"] }
+tokio-tungstenite = { version = "0.20", features = ["rustls-tls-webpki-roots"] }
+url = { version = "2", features = ["serde"] }
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["async-proto", "reqwest", "serde", "serde_json"] }
 
 [target.'cfg(unix)'.dependencies]
 xdg = "2"

@@ -10,18 +10,11 @@ workspace = true
 [build-dependencies]
 lazy-regex = "3"
 thiserror = "1"
-
-[build-dependencies.tokio]
-version = "1"
-features = ["parking_lot", "process"]
-
-[build-dependencies.wheel]
-git = "https://github.com/fenhl/wheel"
-branch = "main"
+tokio = { version = "1", features = ["parking_lot", "process"] }
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }
 
 [dependencies]
 semver = "1"
 
-[target.'cfg(windows)'.dependencies.winver]
-git = "https://github.com/fenhl/winver"
-branch = "main"
+[target.'cfg(windows)'.dependencies]
+winver = { git = "https://github.com/fenhl/winver", branch = "main" }

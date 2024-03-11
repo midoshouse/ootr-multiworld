@@ -9,44 +9,17 @@ workspace = true
 
 [dependencies]
 async-proto = "0.19"
+chrono = { version = "0.4", default-features = false, features = ["alloc", "clock"] }
+clap = { version = "4", features = ["derive"] }
+crossterm = { version = "0.27", features = ["event-stream"] }
 futures = "0.3"
 itertools = "0.12"
+multiworld = { path = "../multiworld" }
+ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils", branch = "main" }
 serde_json = "1"
+syn = { version = "2", features = ["full"] }
 thiserror = "1"
+tokio = { version = "1", features = ["parking_lot", "time"] }
+tokio-tungstenite = { version = "0.20", features = ["rustls-tls-webpki-roots"] }
 url = "2"
-
-[dependencies.clap]
-version = "4"
-features = ["derive"]
-
-[dependencies.chrono]
-version = "0.4"
-default-features = false
-features = ["alloc", "clock"]
-
-[dependencies.crossterm]
-version = "0.27"
-features = ["event-stream"]
-
-[dependencies.multiworld]
-path = "../multiworld"
-
-[dependencies.ootr-utils]
-git = "https://github.com/midoshouse/rust-ootr-utils"
-branch = "main"
-
-[dependencies.syn]
-version = "2"
-features = ["full"]
-
-[dependencies.tokio]
-version = "1"
-features = ["parking_lot", "time"]
-
-[dependencies.tokio-tungstenite]
-version = "0.20"
-features = ["rustls-tls-webpki-roots"]
-
-[dependencies.wheel]
-git = "https://github.com/fenhl/wheel"
-branch = "main"
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }

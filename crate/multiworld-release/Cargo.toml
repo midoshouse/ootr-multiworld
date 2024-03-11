@@ -9,62 +9,25 @@ workspace = true
 
 [dependencies]
 async-trait = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap = { version = "4", features = ["derive"] }
 crossterm = "0.27"
+dir-lock = { git = "https://github.com/fenhl/rust-dir-lock", branch = "main" }
 futures = "0.3"
 github-app-auth = "3"
 graphql_client = "0.13"
+gres = { git = "https://github.com/fenhl/gres", branch = "main" }
 itertools = "0.12"
 lazy-regex = "3"
+log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
+multiworld = { path = "../multiworld", features = ["github-app-auth"] }
+multiworld-bizhawk = { path = "../multiworld-bizhawk" }
+reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"] }
 semver = "1"
+serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 thiserror = "1"
+tokio = { version = "1", features = ["io-util", "parking_lot", "process", "sync"] }
+tokio-stream = { version = "0.1", features = ["io-util"] }
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }
 zip = "0.6"
-
-[dependencies.chrono]
-version = "0.4"
-default-features = false
-features = ["clock", "std"]
-
-[dependencies.clap]
-version = "4"
-features = ["derive"]
-
-[dependencies.dir-lock]
-git = "https://github.com/fenhl/rust-dir-lock"
-branch = "main"
-
-[dependencies.gres]
-git = "https://github.com/fenhl/gres"
-branch = "main"
-
-[dependencies.log-lock]
-git = "https://github.com/fenhl/log-lock"
-branch = "main"
-
-[dependencies.multiworld]
-path = "../multiworld"
-features = ["github-app-auth"]
-
-[dependencies.multiworld-bizhawk]
-path = "../multiworld-bizhawk"
-
-[dependencies.reqwest]
-version = "0.11"
-default-features = false
-features = ["rustls-tls"]
-
-[dependencies.serde]
-version = "1"
-features = ["derive"]
-
-[dependencies.tokio]
-version = "1"
-features = ["io-util", "parking_lot", "process", "sync"]
-
-[dependencies.tokio-stream]
-version = "0.1"
-features = ["io-util"]
-
-[dependencies.wheel]
-git = "https://github.com/fenhl/wheel"
-branch = "main"

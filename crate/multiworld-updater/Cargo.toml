@@ -17,82 +17,38 @@ warnings = "deny"
 winres = "0.1"
 
 [dependencies]
+async_zip = { version = "0.0.16", features = ["full"] }
 bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap = { version = "4", features = ["derive"] }
 dark-light = "1"
 futures = "0.3"
+iced = { version = "0.12", default-features = false, features = ["image", "tokio"] }
 iced_runtime = "0.12"
+image = { version = "0.24", default-features = false, features = ["ico"] } # recursive dependency of iced
 itertools = "0.12"
+multiworld = { path = "../multiworld" }
 open = "5"
+reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "stream"] }
 runas = "1.2"
 semver = "1"
+serenity = { version = "0.12", default-features = false, features = ["utils"] }
 sysinfo = "0.30"
 tempfile = "3"
 thiserror = "1"
+tokio = { version = "1", features = ["fs", "parking_lot", "time"] }
+tokio-util = { version = "0.7", features = ["io"] }
 url = "2"
-
-[dependencies.async_zip]
-version = "0.0.16"
-features = ["full"]
-
-[dependencies.chrono]
-version = "0.4"
-default-features = false
-features = ["clock", "std"]
-
-[dependencies.clap]
-version = "4"
-features = ["derive"]
-
-[dependencies.iced]
-version = "0.12"
-default-features = false
-features = ["image", "tokio"]
-
-[dependencies.image]
-version = "0.24" # recursive dependency of iced
-default-features = false
-features = ["ico"]
-
-[dependencies.multiworld]
-path = "../multiworld"
-
-[dependencies.reqwest]
-version = "0.11"
-default-features = false
-features = ["rustls-tls", "stream"]
-
-[dependencies.serenity]
-version = "0.12"
-default-features = false
-features = ["utils"]
-
-[dependencies.tokio]
-version = "1"
-features = ["fs", "parking_lot", "time"]
-
-[dependencies.tokio-util]
-version = "0.7"
-features = ["io"]
-
-[dependencies.wheel]
-git = "https://github.com/fenhl/wheel"
-branch = "main"
-features = ["reqwest"]
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["reqwest"] }
 
 [target.'cfg(unix)'.dependencies]
 xdg = "2"
 
 [target.'cfg(windows)'.dependencies]
 directories = "5"
-
-[target.'cfg(windows)'.dependencies.windows]
-version = "0.54"
-features = ["Win32_Storage_FileSystem"]
+windows = { version = "0.54", features = ["Win32_Storage_FileSystem"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+async-compression = { version = "0.4", features = ["gzip", "tokio"] }
 gio = "0.19"
 tokio-tar = "0.3"
-
-[target.'cfg(target_os = "linux")'.dependencies.async-compression]
-version = "0.4"
-features = ["gzip", "tokio"]
