@@ -17,7 +17,10 @@ use {
     async_recursion::async_recursion,
     async_trait::async_trait,
     bitflags::bitflags,
-    chrono::prelude::*,
+    chrono::{
+        TimeDelta,
+        prelude::*,
+    },
     derivative::Derivative,
     itertools::Itertools as _,
     log_lock::{
@@ -1009,7 +1012,7 @@ impl<C: ClientKind> Room<C> {
     }
 
     pub fn autodelete_at(&self) -> DateTime<Utc> {
-        self.last_saved + chrono::Duration::from_std(self.autodelete_delta).expect("autodelete delta too long")
+        self.last_saved + TimeDelta::from_std(self.autodelete_delta).expect("autodelete delta too long")
     }
 
     #[cfg(feature = "sqlx")]

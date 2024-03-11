@@ -10,7 +10,10 @@ use {
         ReadError,
         ReadErrorKind,
     },
-    chrono::prelude::*,
+    chrono::{
+        prelude::*,
+        TimeDelta,
+    },
     either::Either,
     futures::future,
     log_lock::{
@@ -133,8 +136,8 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 let now = Utc::now();
                                 let previous_active_rooms = mem::take(&mut active_rooms);
                                 lock!(rooms = rooms.0; for room in rooms.list.values() {
-                                    lock!(@read room = room; if room.last_saved > now - chrono::Duration::hours(1) && room.clients.values().any(|client| client.player.is_some()) {
-                                        active_rooms.insert(room.name.clone(), (room.last_saved + chrono::Duration::hours(1), room.clients.values().filter(|client| client.player.is_some()).count().try_into().expect("too many players")));
+                                    lock!(@read room = room; if room.last_saved > now - TimeDelta::try_hours(1).expect("1-hour timedelta out of bounds") && room.clients.values().any(|client| client.player.is_some()) {
+                                        active_rooms.insert(room.name.clone(), (room.last_saved + TimeDelta::try_hours(1).expect("1-hour timedelta out of bounds"), room.clients.values().filter(|client| client.player.is_some()).count().try_into().expect("too many players")));
                                     });
                                 });
                                 if active_rooms.is_empty() { break }
@@ -190,11 +193,11 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                             })).await.write(&mut sock).await.expect("error writing to UNIX socket");
                         }
                         ClientMessage::PrepareRestart { async_proto: _ } => {
-                            let mut deadline = Utc::now() + chrono::Duration::days(1);
+                            let mut deadline = Utc::now() + TimeDelta::try_days(1).expect("1-day timedelta out of bounds");
                             loop {
                                 match sqlx::query_scalar!(r#"SELECT start AS "start!" FROM races WHERE series = 'mw' AND start > $1::TIMESTAMPTZ - INTERVAL '24:00:00' AND start <= $1::TIMESTAMPTZ + INTERVAL '00:15:00' ORDER BY start DESC LIMIT 1"#, deadline).fetch_optional(&db_pool).await {
                                     Ok(Some(start)) => {
-                                        deadline = start + chrono::Duration::days(1);
+                                        deadline = start + TimeDelta::try_days(1).expect("1-day timedelta out of bounds");
                                         continue
                                     }
                                     Ok(None) => {}
@@ -205,7 +208,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 }
                                 match sqlx::query_scalar!(r#"SELECT async_start1 AS "async_start1!" FROM races WHERE series = 'mw' AND async_start1 > $1::TIMESTAMPTZ - INTERVAL '24:00:00' AND async_start1 <= $1::TIMESTAMPTZ + INTERVAL '00:15:00' ORDER BY async_start1 DESC LIMIT 1"#, deadline).fetch_optional(&db_pool).await {
                                     Ok(Some(start)) => {
-                                        deadline = start + chrono::Duration::days(1);
+                                        deadline = start + TimeDelta::try_days(1).expect("1-day timedelta out of bounds");
                                         continue
                                     }
                                     Ok(None) => {}
@@ -216,7 +219,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 }
                                 match sqlx::query_scalar!(r#"SELECT async_start2 AS "async_start2!" FROM races WHERE series = 'mw' AND async_start2 > $1::TIMESTAMPTZ - INTERVAL '24:00:00' AND async_start2 <= $1::TIMESTAMPTZ + INTERVAL '00:15:00' ORDER BY async_start2 DESC LIMIT 1"#, deadline).fetch_optional(&db_pool).await {
                                     Ok(Some(start)) => {
-                                        deadline = start + chrono::Duration::days(1);
+                                        deadline = start + TimeDelta::try_days(1).expect("1-day timedelta out of bounds");
                                         continue
                                     }
                                     Ok(None) => {}
@@ -236,8 +239,8 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 let now = Utc::now();
                                 let previous_active_rooms = mem::take(&mut active_rooms);
                                 lock!(rooms = rooms.0; for room in rooms.list.values() {
-                                    lock!(@read room = room; if room.last_saved > now - chrono::Duration::hours(1) && room.clients.values().any(|client| client.player.is_some()) {
-                                        active_rooms.insert(room.name.clone(), (room.last_saved + chrono::Duration::hours(1), room.clients.values().filter(|client| client.player.is_some()).count().try_into().expect("too many players")));
+                                    lock!(@read room = room; if room.last_saved > now - TimeDelta::try_hours(1).expect("1-hour timedelta out of bounds") && room.clients.values().any(|client| client.player.is_some()) {
+                                        active_rooms.insert(room.name.clone(), (room.last_saved + TimeDelta::try_hours(1).expect("1-hour timedelta out of bounds"), room.clients.values().filter(|client| client.player.is_some()).count().try_into().expect("too many players")));
                                     });
                                 });
                                 if active_rooms.is_empty() { break }

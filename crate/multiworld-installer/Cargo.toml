@@ -39,7 +39,7 @@ iced_runtime = "0.12"
 itertools = "0.12"
 lazy-regex = "3"
 open = "5"
-rfd = "0.13"
+rfd = "0.14"
 semver = "1"
 serde_ini = "0.2"
 thiserror = "1"
@@ -58,7 +58,7 @@ default-features = false
 features = ["image", "tokio"]
 
 [dependencies.image]
-version = "0.24"
+version = "0.24" # recursive dependency of iced
 default-features = false
 features = ["ico"]
 

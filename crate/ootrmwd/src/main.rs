@@ -90,6 +90,7 @@ use {
     },
 };
 #[cfg(unix)] use {
+    chrono::TimeDelta,
     tokio::{
         io::{
             AsyncWriteExt as _,
@@ -729,7 +730,7 @@ impl<C: ClientKind> Rooms<C> {
     #[cfg(unix)]
     async fn wait_inactive(&self, mut shutdown: rocket::Shutdown) -> Result<(), broadcast::error::RecvError> {
         let (mut inactive_at, mut inactive_rx) = lock!(rooms = self.0; (
-            stream::iter(&rooms.list).then(|(name, room)| async move { (name.clone(), lock!(@read room = room; room.last_saved) + chrono::Duration::hours(1)) }).collect::<HashMap<_, _>>().await,
+            stream::iter(&rooms.list).then(|(name, room)| async move { (name.clone(), lock!(@read room = room; room.last_saved) + TimeDelta::try_hours(1).expect("1-hour timedelta out of bounds")) }).collect::<HashMap<_, _>>().await,
             rooms.inactive_tx.subscribe(),
         ));
         Ok(loop {

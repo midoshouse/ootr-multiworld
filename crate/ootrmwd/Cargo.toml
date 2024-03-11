@@ -15,7 +15,7 @@ thiserror = "1"
 tokio-tungstenite = "0.20"
 
 [dependencies.async-proto]
-version = "0.18"
+version = "0.19"
 features = ["chrono"]
 
 [dependencies.chrono]

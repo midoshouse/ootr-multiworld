@@ -22,7 +22,10 @@ use {
         time::Duration,
     },
     async_proto::Protocol,
-    chrono::prelude::*,
+    chrono::{
+        TimeDelta,
+        prelude::*,
+    },
     dark_light::Mode::{
         Dark,
         Light,
@@ -1417,7 +1420,7 @@ impl Application for State {
                     col
                         .push("A network error occurred:")
                         .push(Text::new(e.to_string()))
-                        .push(Text::new(if let Ok(retry) = chrono::Duration::from_std(self.retry.duration_since(Instant::now())) {
+                        .push(Text::new(if let Ok(retry) = TimeDelta::from_std(self.retry.duration_since(Instant::now())) {
                             format!("Reconnecting at {}", (Local::now() + retry).format("%H:%M:%S"))
                         } else {
                             format!("Reconnecting…")
