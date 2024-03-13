@@ -1330,6 +1330,7 @@ impl Application for State {
     }
 
     fn view(&self) -> Element<'_, Message> {
+        let mut suppress_scroll = false;
         let main_view = if let Some(ref e) = self.icon_error {
             error_view("An error occurred:", e, self.debug_info_copied)
         } else if let Some(ref e) = self.config_error {
@@ -1445,7 +1446,7 @@ impl Application for State {
                     col
                         .push("Connecting to server…")
                         .push("If this takes longer than 5 seconds, check your internet connection or contact @fenhl on Discord for support.")
-                        .push(Space::with_height(Length::Fill))
+                        .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
                         .push(Text::new(format!("version {}{}", env!("CARGO_PKG_VERSION"), {
                             #[cfg(debug_assertions)] { " (debug)" }
                             #[cfg(not(debug_assertions))] { "" }
@@ -1455,7 +1456,7 @@ impl Application for State {
                 SessionState::InitAutoRejoin { .. } => Column::new()
                     .push("Reconnecting to room…")
                     .push("If this takes longer than 5 seconds, check your internet connection or contact @fenhl on Discord for support.")
-                    .push(Space::with_height(Length::Fill))
+                    .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
                     .push(Text::new(format!("version {}{}", env!("CARGO_PKG_VERSION"), {
                         #[cfg(debug_assertions)] { " (debug)" }
                         #[cfg(not(debug_assertions))] { "" }
@@ -1463,7 +1464,7 @@ impl Application for State {
                     .spacing(8),
                 SessionState::Lobby { wrong_password: true, .. } => Column::new()
                     .push("wrong password")
-                    .push(Space::with_height(Length::Fill))
+                    .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
                     .push(Button::new("OK").on_press(Message::DismissWrongPassword))
                     .spacing(8),
                 SessionState::Lobby { view: LobbyView::SessionExpired { provider, error: None }, wrong_password: false, .. } => Column::new()
@@ -1518,7 +1519,7 @@ impl Application for State {
                         .push(".")
                         .spacing(8)
                     )
-                    .push(Space::with_height(Length::Fill))
+                    .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
                     .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Settings)))
                     .spacing(8),
                 SessionState::Lobby { view: LobbyView::Login { provider, no_midos_house_account: false }, wrong_password: false, .. } => Column::new()
@@ -1531,7 +1532,7 @@ impl Application for State {
                         }
                         btn
                     })
-                    .push(Space::with_height(Length::Fill))
+                    .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
                     .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Settings)))
                     .spacing(8),
                 SessionState::Lobby { view: LobbyView::Normal, wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password, maintenance, .. } => {
@@ -1561,7 +1562,7 @@ impl Application for State {
                         col = col.push(TextInput::new("Password", password).secure(true).on_input(Message::SetPassword).on_paste(Message::SetPassword).on_submit(Message::JoinRoom).padding(5));
                     }
                     col
-                        .push(Space::with_height(Length::Fill))
+                        .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
                         .push(Row::new()
                             .push({
                                 let mut btn = Button::new("Connect");
@@ -1581,7 +1582,7 @@ impl Application for State {
                 SessionState::Room { view: RoomView::ConfirmDeletion, .. } => Column::new()
                     .push("Are you sure you want to delete this room? Items that have already been sent will be lost forever!")
                     .push(Button::new("Delete").on_press(Message::ConfirmRoomDeletion))
-                    .push(Space::with_height(Length::Fill))
+                    .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
                     .push(Button::new("Back").on_press(Message::SetRoomView(RoomView::Normal)))
                     .spacing(8),
                 SessionState::Room { wrong_file_hash: Some([[server1, server2, server3, server4, server5], [client1, client2, client3, client4, client5]]), .. } => Column::new()
@@ -1626,6 +1627,7 @@ impl Application for State {
                 SessionState::Room { view: RoomView::Options, wrong_file_hash: None, autodelete_delta, allow_send_all, .. } => {
                     let mut col = Column::new()
                         .push(Button::new("Back").on_press(Message::SetRoomView(RoomView::Normal)))
+                        .push(Rule::horizontal(1))
                         .push("Automatically delete this room if no items are sent for:")
                         .push({
                             let mut values = vec![
@@ -1639,35 +1641,37 @@ impl Application for State {
                             PickList::new(values, Some(DurationFormatter(autodelete_delta)), Message::SetAutoDeleteDelta)
                         });
                     if allow_send_all {
-                        col = col.push(Row::new()
-                            .push("Send all items from world:")
-                            .push({
-                                let mut input = TextInput::new("", &self.send_all_world).on_input(Message::SetSendAllWorld).on_paste(Message::SetSendAllWorld).width(Length::Fixed(32.0));
-                                if self.send_all_world.parse::<NonZeroU8>().is_ok() {
-                                    input = input.on_submit(Message::SendAll);
-                                }
-                                input
-                            })
-                            .spacing(8)
-                        )
-                        .push(Row::new()
-                            .push({
-                                let mut input = TextInput::new("Spoiler Log", &self.send_all_path).on_input(Message::SetSendAllPath).on_paste(Message::SetSendAllPath);
-                                if self.send_all_world.parse::<NonZeroU8>().is_ok() {
-                                    input = input.on_submit(Message::SendAll);
-                                }
-                                input
-                            })
-                            .push(Button::new("Browse…").on_press(Message::SendAllBrowse))
-                            .push({
-                                let mut btn = Button::new("Send");
-                                if self.send_all_world.parse::<NonZeroU8>().is_ok() {
-                                    btn = btn.on_press(Message::SendAll);
-                                }
-                                btn
-                            })
-                            .spacing(8)
-                        );
+                        col = col
+                            .push(Rule::horizontal(1))
+                            .push(Row::new()
+                                .push("Send all items from world:")
+                                .push({
+                                    let mut input = TextInput::new("", &self.send_all_world).on_input(Message::SetSendAllWorld).on_paste(Message::SetSendAllWorld).width(Length::Fixed(32.0));
+                                    if self.send_all_world.parse::<NonZeroU8>().is_ok() {
+                                        input = input.on_submit(Message::SendAll);
+                                    }
+                                    input
+                                })
+                                .spacing(8)
+                            )
+                            .push(Row::new()
+                                .push({
+                                    let mut input = TextInput::new("Spoiler Log", &self.send_all_path).on_input(Message::SetSendAllPath).on_paste(Message::SetSendAllPath);
+                                    if self.send_all_world.parse::<NonZeroU8>().is_ok() {
+                                        input = input.on_submit(Message::SendAll);
+                                    }
+                                    input
+                                })
+                                .push(Button::new("Browse…").on_press(Message::SendAllBrowse))
+                                .push({
+                                    let mut btn = Button::new("Send");
+                                    if self.send_all_world.parse::<NonZeroU8>().is_ok() {
+                                        btn = btn.on_press(Message::SendAll);
+                                    }
+                                    btn
+                                })
+                                .spacing(8)
+                            );
                     }
                     col.spacing(8)
                 }
@@ -1746,11 +1750,15 @@ impl Application for State {
                 col = col.push(Rule::horizontal(1));
             }
         }
-        Scrollable::new(Row::new()
-            .push(col.push(main_view).spacing(8).padding(8))
-            .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
-            .spacing(16)
-        ).into()
+        if suppress_scroll { // workaround for https://github.com/iced-rs/iced/issues/2217
+            col.push(main_view).spacing(8).padding(8).into()
+        } else {
+            Scrollable::new(Row::new()
+                .push(col.push(main_view).spacing(8).padding(8))
+                .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
+                .spacing(16)
+            ).into()
+        }
     }
 
     fn subscription(&self) -> Subscription<Message> {
