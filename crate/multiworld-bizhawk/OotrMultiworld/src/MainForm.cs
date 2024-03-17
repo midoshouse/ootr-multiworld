@@ -53,6 +53,7 @@ enum OptHintArea : byte {
 
 internal class Native {
     [DllImport("multiworld")] internal static extern void log(OwnedStringHandle msg);
+    [DllImport("multiworld")] internal static extern void log_init();
     [DllImport("multiworld")] internal static extern void error_free(IntPtr error);
     [DllImport("multiworld")] internal static extern Error error_from_string(OwnedStringHandle text);
     [DllImport("multiworld")] internal static extern StringHandle error_debug(Error error);
@@ -332,6 +333,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
     public override bool AskSaveChanges() => true;
 
     public MainForm() {
+        Native.log_init();
         this.ShowInTaskbar = false;
         this.WindowState = FormWindowState.Minimized;
         this.FormBorderStyle = FormBorderStyle.None;

@@ -278,6 +278,12 @@ impl Client {
     }
 }
 
+#[csharp_ffi] pub extern "C" fn log_init() {
+    if CONFIG.log {
+        writeln!(&*LOG, "{} starting Mido's House Multiworld {} for BizHawk", Utc::now().format("%Y-%m-%d %H:%M:%S"), multiworld::version()).expect("failed to write log entry");
+    }
+}
+
 #[csharp_ffi] pub unsafe extern "C" fn error_free(error: HandleOwned<Error>) {
     let _ = error.into_box();
 }

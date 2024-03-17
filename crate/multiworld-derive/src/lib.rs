@@ -99,7 +99,7 @@ pub fn csharp_ffi(_: TokenStream, item: TokenStream) -> TokenStream {
     TokenStream::from(quote! {
         #[no_mangle] #(#attrs)* #vis #sig {
             if CONFIG.log {
-                let mut args = Vec::with_capacity(#num_args);
+                let mut args = Vec::<String>::with_capacity(#num_args);
                 #(
                     #format_args
                 )*
