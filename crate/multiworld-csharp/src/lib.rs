@@ -82,6 +82,7 @@ static LOG: Lazy<File> = Lazy::new(|| {
     File::create(path).expect("failed to create log file")
 });
 
+#[derive(Debug)]
 #[repr(transparent)]
 pub struct FfiBool(u32);
 
