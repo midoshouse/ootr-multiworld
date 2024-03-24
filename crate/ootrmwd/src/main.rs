@@ -887,10 +887,10 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
         }));
         let rng = Arc::new(SystemRandom::new());
         let http_client = reqwest::Client::builder()
-            .user_agent(concat!("MidosHouse/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("MidosHouseMultiworld/", env!("CARGO_PKG_VERSION")))
             .timeout(Duration::from_secs(30))
             .use_rustls_tls()
-            .trust_dns(true)
+            .hickory_dns(true)
             .https_only(true)
             .build()?;
         let db_pool = PgPool::connect_with(PgConnectOptions::default().username("mido").database(&database).application_name("ootrmwd")).await?;

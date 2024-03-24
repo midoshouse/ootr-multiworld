@@ -29,7 +29,7 @@ image = { version = "0.24", default-features = false, features = ["ico"] } # rec
 itertools = "0.12"
 multiworld = { path = "../multiworld" }
 open = "5"
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "macos-system-configuration", "rustls-tls", "stream"] }
 runas = "1.2"
 semver = "1"
 serenity = { version = "0.12", default-features = false, features = ["utils"] }

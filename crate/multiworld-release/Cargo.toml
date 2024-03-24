@@ -14,7 +14,7 @@ clap = { version = "4", features = ["derive"] }
 crossterm = "0.27"
 dir-lock = { git = "https://github.com/fenhl/rust-dir-lock", branch = "main" }
 futures = "0.3"
-github-app-auth = "3"
+github-app-auth = { git = "https://github.com/fenhl/github-app-auth", branch = "deps" }
 graphql_client = "0.13"
 gres = { git = "https://github.com/fenhl/gres", branch = "main" }
 itertools = "0.12"
@@ -22,7 +22,7 @@ lazy-regex = "3"
 log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
 multiworld = { path = "../multiworld", features = ["github-app-auth"] }
 multiworld-bizhawk = { path = "../multiworld-bizhawk" }
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "macos-system-configuration", "rustls-tls"] }
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 tempfile = "3"

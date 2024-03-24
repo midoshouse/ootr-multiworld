@@ -15,7 +15,7 @@ log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
 multiworld = { path = "../multiworld", features = ["sqlx"] }
 multiworld-derive = { path = "../multiworld-derive" }
 rand = "0.8"
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "trust-dns"] }
+reqwest = { version = "0.12", default-features = false, features = ["charset", "hickory-dns", "http2", "macos-system-configuration", "rustls-tls"] }
 ring = { version = "0.17", features = ["std"] }
 rocket = "0.5"
 rocket-util = { git = "https://github.com/fenhl/rocket-util", branch = "main" }

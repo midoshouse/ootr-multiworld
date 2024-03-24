@@ -26,9 +26,9 @@ itertools = "0.12"
 path = "../multiworld"
 
 [target.'cfg(unix)'.build-dependencies.reqwest]
-version = "0.11"
+version = "0.12"
 default-features = false
-features = ["rustls-tls"]
+features = ["charset", "http2", "macos-system-configuration", "rustls-tls"]
 
 [dependencies]
 async_zip = { version = "0.0.16", features = ["full"] }
@@ -44,7 +44,7 @@ itertools = "0.12"
 lazy-regex = "3"
 multiworld = { path = "../multiworld" }
 open = "5"
-reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "json", "macos-system-configuration", "rustls-tls", "stream"] }
 rfd = "0.14"
 semver = "1"
 serde = { version = "1", features = ["derive"] }

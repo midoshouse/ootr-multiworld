@@ -14,7 +14,6 @@ use {
         time::Duration,
     },
     async_proto::Protocol,
-    async_recursion::async_recursion,
     async_trait::async_trait,
     bitflags::bitflags,
     chrono::{
@@ -699,7 +698,6 @@ impl<C: ClientKind> Room<C> {
         self.clients.contains_key(&client_id)
     }
 
-    #[async_recursion]
     pub async fn remove_client(&mut self, client_id: C::SessionId, to: EndRoomSession) -> Result<(), RoomError> {
         if let Some(client) = self.clients.remove(&client_id) {
             let _ = client.end_tx.send(to);
