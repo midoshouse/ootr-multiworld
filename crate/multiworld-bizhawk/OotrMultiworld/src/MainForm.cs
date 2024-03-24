@@ -323,6 +323,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
     private List<ushort> itemQueue = new List<ushort>();
     private bool normalGameplay = false;
     private bool potsanity3 = false;
+    private uint gapCount = 0;
 
     public ApiContainer? _apiContainer { get; set; }
     private ApiContainer APIs => _apiContainer ?? throw new NullReferenceException();
@@ -398,7 +399,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                 }
 
                 SendItem(this.client, coopContextAddr.Value);
-                ReceiveItem(this.client, coopContextAddr.Value, this.playerID.Value);
+                ReceiveItem(coopContextAddr.Value, this.playerID.Value);
             } else {
                 this.normalGameplay = false;
             }
@@ -463,7 +464,6 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
             if (outgoingKey == 0xff05ff) {
                 //Debug($"P{this.playerID}: Found an item {kind} for player {player} sent via network, ignoring");
             } else {
-                //Debug($"P{this.playerID}: Found {outgoingKey}, an item {kind} for player {player}");
                 client.SendItem(outgoingKey, kind, player);
             }
             APIs.Memory.WriteU16(coopContextAddr + 0x10, 0, "System Bus");
@@ -477,7 +477,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
         }
     }
 
-    private void ReceiveItem(Client client, uint coopContextAddr, byte playerID) {
+    private void ReceiveItem(uint coopContextAddr, byte playerID) {
         var stateLogo = APIs.Memory.ReadU32(0x11f200, "RDRAM");
         var stateMain = APIs.Memory.ReadS8(0x11b92f, "RDRAM");
         var stateMenu = APIs.Memory.ReadS8(0x1d8dd5, "RDRAM");
@@ -493,11 +493,17 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                 var externalCount = this.itemQueue.Count;
                 if (internalCount < externalCount) {
                     var item = this.itemQueue[internalCount];
-                    //Debug($"P{playerID}: Received an item {item} from player {playerID}");
                     APIs.Memory.WriteU16(coopContextAddr + 0x8, item, "System Bus");
                     APIs.Memory.WriteU16(coopContextAddr + 0x6, item == 0x00ca ? (playerID == 1 ? 2u : 1) : playerID, "System Bus");
                 } else if (internalCount > externalCount) {
-                    //Debug($"warning: gap in received items: external count is {externalCount} but internal count is {internalCount}");
+                    this.gapCount++;
+                    if (this.gapCount >= 100) {
+                        using (var logMessageHandle = new OwnedStringHandle($"warning: gap in received items: internal count is {internalCount} but external count is {externalCount}")) {
+                            Native.log(logMessageHandle);
+                        }
+                    }
+                } else {
+                    this.gapCount = 0;
                 }
             }
         }
