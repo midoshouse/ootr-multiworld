@@ -1,6 +1,7 @@
 use {
     std::{
         cmp::Ordering::*,
+        collections::HashMap,
         env,
         fmt,
         io::{
@@ -9,10 +10,15 @@ use {
         },
         path::Path,
         pin::pin,
-        process,
+        process::{
+            self,
+            Stdio,
+        },
         time::Duration,
     },
+    async_proto::Protocol as _,
     async_trait::async_trait,
+    chrono::prelude::*,
     dir_lock::DirLock,
     futures::{
         future::{
@@ -36,7 +42,11 @@ use {
             AsyncBufReadExt as _,
             BufReader,
         },
-        process::Command,
+        process::{
+            Child,
+            ChildStdout,
+            Command,
+        },
         sync::broadcast,
     },
     tokio_stream::wrappers::LinesStream,
@@ -52,6 +62,7 @@ use {
         write::FileOptions,
     },
     multiworld::{
+        WaitUntilInactiveMessage,
         frontend,
         github::{
             Release,
@@ -1005,7 +1016,13 @@ enum BuildServer {
     Build(bool),
     Copy(bool),
     Upload(bool),
-    WaitRestart,
+    WaitRestart {
+        start: DateTime<Utc>,
+        child: Option<Child>,
+        stdout: Option<ChildStdout>,
+        rooms: Option<HashMap<String, (DateTime<Utc>, u64)>>,
+        deadline: Option<DateTime<Utc>>,
+    },
     Stop,
     UpdateRepo,
     Replace,
@@ -1025,7 +1042,10 @@ impl fmt::Display for BuildServer {
             Self::Build(..) => write!(f, "building ootrmwd"),
             Self::Copy(..) => write!(f, "copying ootrmwd to Windows"),
             Self::Upload(..) => write!(f, "uploading ootrmwd to Mido's House"),
-            Self::WaitRestart => write!(f, "waiting for rooms to be inactive"),
+            Self::WaitRestart { rooms, deadline, .. } => write!(f, "waiting for {}rooms to be inactive{}",
+                if let Some(rooms) = rooms { format!("{} ", rooms.len()) } else { String::default() },
+                if let Some(deadline) = deadline { format!(" (current ETA: {})", deadline.format("%Y-%m-%d %H:%M:%S UTC")) } else { String::default() },
+            ),
             Self::Stop => write!(f, "stopping old ootrmwd"),
             Self::UpdateRepo => write!(f, "updating repo on Mido's House"),
             Self::Replace => write!(f, "replacing ootrmwd binary on Mido's House"),
@@ -1039,9 +1059,14 @@ impl Progress for BuildServer {
         Percent::new(match self {
             Self::Sync(..) => 0,
             Self::Build(..) => 10,
-            Self::Copy(..) => 80,
-            Self::Upload(..) => 85,
-            Self::WaitRestart => 90,
+            Self::Copy(..) => 40,
+            Self::Upload(..) => 45,
+            Self::WaitRestart { deadline: Some(deadline), start, .. } => {
+                let Ok(total) = (*deadline - *start).to_std() else { return Percent::new(90) };
+                let Ok(elapsed) = (Utc::now() - *start).to_std() else { return Percent::new(50) };
+                50 + (40.0 * elapsed.as_secs_f64() / total.as_secs_f64()) as u8
+            }
+            Self::WaitRestart { deadline: None, .. } => 50,
             Self::Stop => 95,
             Self::UpdateRepo => 96,
             Self::Replace => 98,
@@ -1057,7 +1082,7 @@ impl GetPriority for BuildServer {
             Self::Build(..) => Priority::Active,
             Self::Copy(..) => Priority::Active,
             Self::Upload(..) => Priority::Active,
-            Self::WaitRestart => Priority::Waiting,
+            Self::WaitRestart { .. } => Priority::Waiting,
             Self::Stop => Priority::Active,
             Self::UpdateRepo => Priority::Active,
             Self::Replace => Priority::Active,
@@ -1085,23 +1110,44 @@ impl Task<Result<(), Error>> for BuildServer {
             }).await,
             Self::Upload(wait_restart) => gres::transpose(async move {
                 Command::new("scp").arg("target/wsl/release/ootrmwd").arg("midos.house:bin/ootrmwd-next").check("scp").await?;
-                Ok(Err(if wait_restart { Self::WaitRestart } else { Self::Stop }))
+                Ok(Err(if wait_restart {
+                    Self::WaitRestart { start: Utc::now(), child: None, stdout: None, rooms: None, deadline: None }
+                } else {
+                    Self::Stop
+                }))
             }).await,
-            Self::WaitRestart => gres::transpose(async move {
-                loop {
-                    //TODO show output (prepare-restart --async-proto)
-                    match Command::new("ssh").arg("midos.house").arg("if systemctl is-active ootrmw; then sudo -u mido /usr/local/share/midos-house/bin/ootrmwd prepare-restart; fi").check("ssh midos.house ootrmwd wait-until-inactive").await {
-                        Ok(_) => break,
-                        Err(wheel::Error::CommandExit { output, .. }) if std::str::from_utf8(&output.stderr).is_ok_and(|stderr| stderr.contains("Connection reset")) => continue,
-                        Err(e) => if Command::new("ssh").arg("midos.house").arg("systemctl is-active ootrmw").status().await?.code() == Some(3) {
-                            // prepare-restart command failed because the multiworld server was stopped
-                            break
-                        } else {
-                            return Err(e.into())
-                        },
-                    }
+            Self::WaitRestart { start, child: None, .. } => gres::transpose(async move {
+                Ok(Err(if Command::new("ssh").arg("midos.house").arg("systemctl is-active ootrmw").status().await?.code() == Some(3) {
+                    Self::Stop
+                } else {
+                    let mut child = Command::new("ssh").arg("midos.house").arg("sudo -u mido /usr/local/share/midos-house/bin/ootrmwd prepare-restart --async-proto").stdout(Stdio::piped()).spawn()?;
+                    let stdout = child.stdout.take().expect("stdout was piped");
+                    Self::WaitRestart { start, child: Some(child), stdout: Some(stdout), rooms: None, deadline: None }
+                }))
+            }).await,
+            Self::WaitRestart { start, child: Some(child), stdout: Some(mut stdout), rooms, deadline } => gres::transpose(async move {
+                match WaitUntilInactiveMessage::read(&mut stdout).await {
+                    Ok(WaitUntilInactiveMessage::Error) => Err(Error::WaitUntilInactive),
+                    Ok(WaitUntilInactiveMessage::ActiveRooms(rooms)) => Ok(Err(Self::WaitRestart { start, child: Some(child), stdout: Some(stdout), rooms: Some(rooms), deadline })),
+                    Ok(WaitUntilInactiveMessage::Inactive) => Ok(Err(Self::WaitRestart { start, child: Some(child), stdout: None, rooms, deadline })),
+                    Ok(WaitUntilInactiveMessage::Deadline(deadline)) => Ok(Err(Self::WaitRestart { start, child: Some(child), stdout: Some(stdout), rooms, deadline: Some(deadline) })),
+                    Err(e) => Err(e.into()),
                 }
-                Ok(Err(Self::Stop))
+            }).await,
+            Self::WaitRestart { start, child: Some(child), stdout: None, .. } => gres::transpose(async move {
+                Ok(Err(match child.check("ssh midos.house ootrmwd prepare-restart").await {
+                    Ok(_) => Self::Stop,
+                    Err(wheel::Error::CommandExit { output, .. }) if std::str::from_utf8(&output.stderr).is_ok_and(|stderr| stderr.contains("Connection reset")) => {
+                        // try again
+                        Self::WaitRestart { start, child: None, stdout: None, rooms: None, deadline: None }
+                    }
+                    Err(e) => if Command::new("ssh").arg("midos.house").arg("systemctl is-active ootrmw").status().await?.code() == Some(3) {
+                        // prepare-restart command failed because the multiworld server was stopped
+                        Self::Stop
+                    } else {
+                        return Err(e.into())
+                    },
+                }))
             }).await,
             Self::Stop => gres::transpose(async move {
                 Command::new("ssh").arg("midos.house").arg("sudo systemctl stop ootrmw").check("ssh midos.house systemctl stop ootrmw").await?;
@@ -1199,6 +1245,7 @@ enum Error {
     #[error(transparent)] InvalidHeaderValue(#[from] reqwest::header::InvalidHeaderValue),
     #[error(transparent)] Io(#[from] tokio::io::Error),
     #[error(transparent)] ParseInt(#[from] std::num::ParseIntError),
+    #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] SemVer(#[from] semver::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
@@ -1221,6 +1268,8 @@ enum Error {
     SameVersion,
     #[error("the latest GitHub release has a newer version than the local crate version")]
     VersionRegression,
+    #[error("the ootrmwd prepare-restart command sent a generic error message")]
+    WaitUntilInactive,
     #[error("frontend protocol version mismatch: client is v{}, Project64 frontend is v{0}", frontend::PROTOCOL_VERSION)]
     WrongPj64ProtocolVersion(u8),
 }

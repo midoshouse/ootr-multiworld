@@ -41,6 +41,7 @@ use {
         ClientKind,
         Room,
         RoomAuth,
+        WaitUntilInactiveMessage,
     },
     crate::{
         RoomListChange,
@@ -69,14 +70,6 @@ pub(crate) enum ClientMessage {
         #[clap(long)]
         async_proto: bool,
     },
-}
-
-#[derive(Protocol)]
-pub(crate) enum WaitUntilInactiveMessage {
-    Error,
-    ActiveRooms(HashMap<String, (DateTime<Utc>, u64)>),
-    Inactive,
-    Deadline(DateTime<Utc>),
 }
 
 pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Rooms<C>, mut shutdown: rocket::Shutdown, maintenance: Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>) -> wheel::Result<()> {

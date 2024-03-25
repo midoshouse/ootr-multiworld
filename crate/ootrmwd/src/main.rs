@@ -98,10 +98,8 @@ use {
         },
         net::UnixStream,
     },
-    crate::unix_socket::{
-        ClientMessage as Subcommand,
-        WaitUntilInactiveMessage,
-    },
+    multiworld::WaitUntilInactiveMessage,
+    crate::unix_socket::ClientMessage as Subcommand,
 };
 
 mod http;

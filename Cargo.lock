@@ -4317,6 +4317,7 @@ dependencies = [
 name = "multiworld-release"
 version = "15.1.9"
 dependencies = [
+ "async-proto",
  "async-trait",
  "chrono",
  "clap",

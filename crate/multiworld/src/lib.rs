@@ -89,6 +89,17 @@ pub const CREDENTIAL_LEN: usize = ring::digest::SHA512_OUTPUT_LEN;
 pub fn version() -> Version { Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version") }
 pub fn proto_version() -> u8 { version().major.try_into().expect("version number does not fit into u8") }
 
+/// The server (ootrmwd) will be stopped with advance warning when a new version of the server is deployed (multiworld-release).
+/// This advance warning can be skipped if there are no active rooms.
+/// The server reports the current state to the release script using this message type.
+#[derive(Protocol)]
+pub enum WaitUntilInactiveMessage {
+    Error,
+    ActiveRooms(HashMap<String, (DateTime<Utc>, u64)>),
+    Inactive,
+    Deadline(DateTime<Utc>),
+}
+
 const TRIFORCE_PIECE: u16 = 0x00ca;
 
 fn natjoin<T: fmt::Display>(elts: impl IntoIterator<Item = T>) -> Option<String> {
@@ -703,13 +714,13 @@ impl<C: ClientKind> Room<C> {
             let _ = client.end_tx.send(to);
             let msg = if let Some(Player { world, .. }) = client.player {
                 if let Some((&client_id, _)) = self.clients.iter().find(|(_, iter_client)| iter_client.pending_world == Some(world)) {
-                    self.load_player(client_id, world).await?;
+                    Box::pin(self.load_player(client_id, world)).await?;
                 }
                 unversioned::ServerMessage::PlayerDisconnected(world)
             } else {
                 unversioned::ServerMessage::UnregisteredClientDisconnected
             };
-            self.write_all(&msg).await?;
+            Box::pin(self.write_all(&msg)).await?;
         }
         Ok(())
     }
