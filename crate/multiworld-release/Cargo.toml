@@ -16,7 +16,7 @@ crossterm = "0.27"
 dir-lock = { git = "https://github.com/fenhl/rust-dir-lock", branch = "main" }
 futures = "0.3"
 github-app-auth = { git = "https://github.com/fenhl/github-app-auth", branch = "deps" }
-graphql_client = "0.13"
+graphql_client = "0.14"
 gres = { git = "https://github.com/fenhl/gres", branch = "main" }
 itertools = "0.12"
 lazy-regex = "3"
