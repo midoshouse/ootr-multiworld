@@ -168,6 +168,8 @@ enum Message {
     ConfigWriteFailed,
     Continue,
     CopyDebugInfo,
+    DevFenhlGitHub,
+    DevFenhlWeb,
     DiscordChannel,
     DiscordInvite,
     EmulatorPath(String),
@@ -229,6 +231,12 @@ enum Page {
     Elevated,
     SelectEmulator {
         emulator: Option<Emulator>,
+        install_emulator: Option<bool>,
+        emulator_path: Option<String>,
+        multiworld_path: Option<String>,
+    },
+    EmulatorWarning {
+        emulator: Emulator,
         install_emulator: Option<bool>,
         emulator_path: Option<String>,
         multiworld_path: Option<String>,
@@ -338,13 +346,14 @@ impl Application for State {
         match msg {
             Message::Back => self.page = match self.page {
                 Page::Error(_, _) | Page::Elevated | Page::SelectEmulator { .. } => unreachable!(),
+                Page::EmulatorWarning { emulator, install_emulator, ref emulator_path, ref multiworld_path } => Page::SelectEmulator { emulator: Some(emulator), install_emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
                 Page::LocateEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => Page::SelectEmulator { emulator: Some(emulator), install_emulator: Some(install_emulator), emulator_path: Some(emulator_path.clone()), multiworld_path: multiworld_path.clone() },
                 Page::AskBizHawkUpdate { ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator: Emulator::BizHawk, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
                 Page::Project64EmError { ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator: Emulator::Pj64V3, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
                 Page::InstallEmulator { .. } => unreachable!(),
                 Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => match emulator {
                     Emulator::Dummy => unreachable!(),
-                    Emulator::EverDrive => Page::SelectEmulator { emulator: Some(emulator), install_emulator: Some(false), emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
+                    Emulator::EverDrive => Page::EmulatorWarning { emulator, install_emulator: Some(false), emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
                     Emulator::BizHawk | Emulator::Pj64V3 | Emulator::Pj64V4 => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone().expect("emulator path must be set for this emulator"), multiworld_path: Some(multiworld_path.clone()) },
                 },
                 Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path, .. } | Page::AskLaunch { emulator, ref emulator_path, ref multiworld_path } => match emulator {
@@ -396,7 +405,10 @@ impl Application for State {
                 Page::SelectEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => {
                     let emulator = emulator.expect("emulator must be selected to continue here");
                     match emulator {
-                        Emulator::EverDrive => return cmd(future::ok(Message::LocateMultiworld(None))),
+                        Emulator::EverDrive => {
+                            self.page = Page::EmulatorWarning { emulator, install_emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
+                            return Command::none()
+                        }
                         #[cfg(target_os = "linux")] Emulator::Pj64V3 | Emulator::Pj64V4 => unreachable!(),
                         #[cfg(target_os = "windows")] Emulator::Pj64V3 | Emulator::Pj64V4 if !is_elevated() => {
                             // Project64 installation and plugin installation both require admin permissions (UAC)
@@ -454,6 +466,10 @@ impl Application for State {
                     };
                     self.page = Page::LocateEmulator { emulator, install_emulator, emulator_path, multiworld_path: multiworld_path.clone() };
                 }
+                Page::EmulatorWarning { emulator, install_emulator, ref emulator_path, ref multiworld_path } => match emulator {
+                    Emulator::EverDrive => return cmd(future::ok(Message::LocateMultiworld(None))),
+                    _ => self.page = Page::LocateEmulator { emulator, install_emulator: install_emulator.expect("install_emulator should be evaludated for non-EverDrive"), emulator_path: emulator_path.clone().expect("emulator_path should be evaludated for non-EverDrive"), multiworld_path: multiworld_path.clone() },
+                },
                 Page::LocateEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => if install_emulator {
                     let emulator_path = emulator_path.clone();
                     self.page = Page::InstallEmulator { update: false, emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
@@ -718,6 +734,12 @@ impl Application for State {
             } else {
                 self.page = Page::Error(Arc::new(Error::CopyDebugInfo), false);
             },
+            Message::DevFenhlGitHub => if let Err(e) = open("https://github.com/fenhl/OoT-Randomizer") {
+                self.page = Page::Error(Arc::new(e.into()), false);
+            },
+            Message::DevFenhlWeb => if let Err(e) = open("https://ootrandomizer.com/generatorDev?version=devFenhl_") {
+                self.page = Page::Error(Arc::new(e.into()), false);
+            },
             Message::DiscordChannel => if let Err(e) = open("https://discord.com/channels/274180765816848384/476723801032491008") {
                 self.page = Page::Error(Arc::new(e.into()), false);
             },
@@ -844,8 +866,8 @@ impl Application for State {
             Message::LocateMultiworld(new_emulator) => {
                 let (emulator, emulator_path, multiworld_path) = match self.page {
                     Page::SelectEmulator { ref mut emulator, ref emulator_path, ref multiworld_path, .. } => (emulator.as_mut().expect("Continue clicked with no emulator selected"), emulator_path.clone(), multiworld_path.clone()),
-                    Page::LocateEmulator { ref mut emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, Some(emulator_path.clone()), multiworld_path.clone()),
-                    Page::InstallEmulator { ref mut emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, Some(emulator_path.clone()), multiworld_path.clone()),
+                    Page::LocateEmulator { ref mut emulator, ref emulator_path, ref multiworld_path, .. } | Page::InstallEmulator { ref mut emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, Some(emulator_path.clone()), multiworld_path.clone()),
+                    Page::EmulatorWarning { ref mut emulator, ref emulator_path, ref multiworld_path, .. } => (emulator, emulator_path.clone(), multiworld_path.clone()),
                     _ => unreachable!(),
                 };
                 if let Some(new_emulator) = new_emulator {
@@ -972,6 +994,24 @@ impl Application for State {
                     row = row.push(Text::new("Continue"));
                     (Into::<Element<'_, Message>>::into(row.spacing(8)), emulator.is_some())
                 })
+            ),
+            Page::EmulatorWarning { emulator, .. } => (
+                match emulator {
+                    Emulator::EverDrive => Column::new()
+                        .push(Text::new("Warnings").size(24))
+                        .push("• EverDrive support is currently experimental and requires Fenhl's branch of the randomizer.")
+                        .push(Row::new()
+                            .push(Button::new("Generate Seed").on_press(Message::DevFenhlWeb))
+                            .push(Button::new("GitHub Source").on_press(Message::DevFenhlGitHub))
+                            .spacing(8)
+                        )
+                        .push("• You will need an EverDrive with a USB port (EverDrive 3.0 or EverDrive X7) and a USB cable that supports data.")
+                        .spacing(8)
+                        .into(),
+                    _ => unreachable!(),
+                },
+                true,
+                Some((Text::new("Understood").into(), true))
             ),
             Page::LocateEmulator { emulator, install_emulator, ref emulator_path, .. } => (
                 {
