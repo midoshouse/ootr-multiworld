@@ -3444,6 +3444,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "io-kit-sys"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "617ee6cf8e3f66f3b4ea67a4058564628cde41901316e19f559e14c7c72c5e7b"
+dependencies = [
+ "core-foundation-sys",
+ "mach2",
+]
+
+[[package]]
 name = "io-lifetimes"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3924,6 +3934,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c41e0c4fef86961ac6d6f8a82609f55f31b05e4fce149ac5710e439df7619ba4"
 
 [[package]]
+name = "mach2"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19b955cdeb2a02b9117f121ce63aa52d08ade45de53e48fe6a38b39c10f6f709"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "malloc_buf"
 version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4095,6 +4114,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mio-serial"
+version = "5.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20a4c60ca5c9c0e114b3bd66ff4aa5f9b2b175442be51ca6c4365d687a97a2ac"
+dependencies = [
+ "log",
+ "mio",
+ "nix 0.26.4",
+ "serialport",
+ "winapi",
+]
+
+[[package]]
 name = "mslnk"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4127,7 +4159,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld"
-version = "15.1.9"
+version = "15.2.0"
 dependencies = [
  "async-proto",
  "async-trait",
@@ -4165,7 +4197,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-admin-cli"
-version = "15.1.9"
+version = "15.2.0"
 dependencies = [
  "async-proto",
  "chrono",
@@ -4186,7 +4218,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-bizhawk"
-version = "15.1.9"
+version = "15.2.0"
 dependencies = [
  "lazy-regex",
  "semver",
@@ -4198,7 +4230,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-csharp"
-version = "15.1.9"
+version = "15.2.0"
 dependencies = [
  "async-proto",
  "chrono",
@@ -4220,7 +4252,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-derive"
-version = "15.1.9"
+version = "15.2.0"
 dependencies = [
  "itertools 0.12.1",
  "lazy-regex",
@@ -4232,8 +4264,9 @@ dependencies = [
 
 [[package]]
 name = "multiworld-gui"
-version = "15.1.9"
+version = "15.2.0"
 dependencies = [
+ "arrayref",
  "async-proto",
  "chrono",
  "clap",
@@ -4266,6 +4299,7 @@ dependencies = [
  "sysinfo",
  "thiserror",
  "tokio",
+ "tokio-serial",
  "tokio-stream",
  "tokio-tungstenite 0.20.1",
  "url",
@@ -4276,7 +4310,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-installer"
-version = "15.1.9"
+version = "15.2.0"
 dependencies = [
  "async-compression",
  "async_zip",
@@ -4319,7 +4353,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-release"
-version = "15.1.9"
+version = "15.2.0"
 dependencies = [
  "async-proto",
  "async-trait",
@@ -4349,7 +4383,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-updater"
-version = "15.1.9"
+version = "15.2.0"
 dependencies = [
  "async-compression",
  "async_zip",
@@ -4455,6 +4489,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "memoffset 0.7.1",
+ "pin-utils",
 ]
 
 [[package]]
@@ -4761,7 +4796,7 @@ dependencies = [
 
 [[package]]
 name = "ootrmwd"
-version = "15.1.9"
+version = "15.2.0"
 dependencies = [
  "async-proto",
  "chrono",
@@ -6509,6 +6544,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "serialport"
+version = "4.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f5a15d0be940df84846264b09b51b10b931fb2f275becb80934e3568a016828"
+dependencies = [
+ "bitflags 2.5.0",
+ "cfg-if",
+ "core-foundation-sys",
+ "io-kit-sys",
+ "mach2",
+ "nix 0.26.4",
+ "regex",
+ "scopeguard",
+ "unescaper",
+ "winapi",
+]
+
+[[package]]
 name = "servo_arc"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7430,6 +7483,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-serial"
+version = "5.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa6e2e4cf0520a99c5f87d5abb24172b5bd220de57c3181baaaa5440540c64aa"
+dependencies = [
+ "cfg-if",
+ "futures",
+ "log",
+ "mio-serial",
+ "tokio",
+]
+
+[[package]]
 name = "tokio-stream"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7781,6 +7847,15 @@ checksum = "e1b88fcfe09e89d3866a5c11019378088af2d24c3fbd4f0543f96b479ec90697"
 dependencies = [
  "serde",
  "version_check",
+]
+
+[[package]]
+name = "unescaper"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0adf6ad32eb5b3cadff915f7b770faaac8f7ff0476633aa29eb0d9584d889d34"
+dependencies = [
+ "thiserror",
 ]
 
 [[package]]

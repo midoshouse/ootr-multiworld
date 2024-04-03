@@ -55,6 +55,7 @@ use {
     },
     crate::{
         Error,
+        FrontendWriter,
         LoggingReader,
         LoggingStream,
         Message,
@@ -91,17 +92,14 @@ impl Recipe for Connection {
                 let (reader, writer) = tcp_stream.into_split();
                 let reader = LoggingReader { context: "from frontend", inner: reader, log };
                 Ok(
-                    stream::once(future::ok(Message::FrontendConnected(Arc::new(Mutex::new(writer)))))
+                    stream::once(future::ok(Message::FrontendConnected(FrontendWriter::Tcp(Arc::new(Mutex::new(writer))))))
                         .chain(stream::try_unfold(reader, |mut reader| async move {
                             Ok(Some((Message::Plugin(Box::new(reader.read::<frontend::ClientMessage>().await?)), reader)))
                         }))
                 )
             })
             .try_flatten()
-            .map(|res| match res {
-                Ok(msg) => msg,
-                Err(e) => Message::FrontendSubscriptionError(Arc::new(e)),
-            })
+            .map(|res| res.unwrap_or_else(|e| Message::FrontendSubscriptionError(Arc::new(e))))
             .chain(stream::pending())
             .boxed()
     }
@@ -135,7 +133,7 @@ impl Recipe for Listener {
                 let (reader, writer) = tcp_stream.into_split();
                 let reader = LoggingReader { context: "from frontend", inner: reader, log };
                 Ok(Some((
-                    stream::once(future::ok(Message::FrontendConnected(Arc::new(Mutex::new(writer)))))
+                    stream::once(future::ok(Message::FrontendConnected(FrontendWriter::Tcp(Arc::new(Mutex::new(writer))))))
                     .chain(stream::try_unfold(reader, |mut reader| async move {
                         Ok(Some((Message::Plugin(Box::new(reader.read::<frontend::ClientMessage>().await?)), reader)))
                     })),
@@ -144,10 +142,7 @@ impl Recipe for Listener {
             })))
             .try_flatten()
             .try_flatten()
-            .map(|res| match res {
-                Ok(msg) => msg,
-                Err(e) => Message::FrontendSubscriptionError(Arc::new(e)),
-            })
+            .map(|res| res.unwrap_or_else(|e| Message::FrontendSubscriptionError(Arc::new(e))))
             .chain(stream::pending())
             .boxed()
     }
@@ -191,10 +186,7 @@ impl Recipe for Client {
                 )
             })
             .try_flatten()
-            .map(|res| match res {
-                Ok(msg) => msg,
-                Err(e) => Message::ServerSubscriptionError(Arc::new(e)),
-            })
+            .map(|res| res.unwrap_or_else(|e| Message::ServerSubscriptionError(Arc::new(e))))
             .chain(stream::pending())
             .boxed()
     }

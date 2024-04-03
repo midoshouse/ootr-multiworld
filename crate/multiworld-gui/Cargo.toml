@@ -17,6 +17,7 @@ warnings = "deny"
 winres = "0.1"
 
 [dependencies]
+arrayref = "0.3.7"
 async-proto = "0.19"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
@@ -47,6 +48,7 @@ serenity = { version = "0.12", default-features = false, features = ["utils"] }
 sysinfo = "0.30"
 thiserror = "1"
 tokio = { version = "1", features = ["fs", "io-util", "net", "parking_lot", "sync", "time"] }
+tokio-serial = "5.4.4"
 tokio-stream = "0.1"
 tokio-tungstenite = { version = "0.20", features = ["rustls-tls-webpki-roots"] }
 url = "2"

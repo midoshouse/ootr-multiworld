@@ -89,6 +89,7 @@ use {
             OwnedReadHalf,
             OwnedWriteHalf,
         },
+        sync::mpsc,
         time::{
             Instant,
             sleep_until,
@@ -194,21 +195,29 @@ impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin 
 }
 
 #[derive(Clone)]
-struct LoggingWriter {
+struct LoggingFrontendWriter {
     log: bool,
-    context: &'static str,
-    inner: Arc<Mutex<OwnedWriteHalf>>,
+    inner: FrontendWriter,
 }
 
-impl LoggingWriter {
-    async fn write(&self, msg: impl Protocol + fmt::Debug) -> Result<(), async_proto::WriteError> {
+#[derive(Debug, Clone)]
+enum FrontendWriter {
+    Mpsc(mpsc::Sender<frontend::ServerMessage>),
+    Tcp(Arc<Mutex<OwnedWriteHalf>>),
+}
+
+impl LoggingFrontendWriter {
+    async fn write(&self, msg: frontend::ServerMessage) -> Result<(), Error> {
         if self.log {
-            lock!(log = LOG; writeln!(&*log, "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)).map_err(|e| async_proto::WriteError {
-                context: async_proto::ErrorContext::Custom(format!("multiworld-gui::LoggingWriter::write")),
+            lock!(log = LOG; writeln!(&*log, "{} to frontend: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"))).map_err(|e| async_proto::WriteError {
+                context: async_proto::ErrorContext::Custom(format!("multiworld-gui::LoggingFrontendWriter::write")),
                 kind: e.into(),
             })?;
         }
-        lock!(inner = self.inner; msg.write(&mut *inner).await)
+        Ok(match self.inner {
+            FrontendWriter::Mpsc(ref tx) => tx.send(msg).await?,
+            FrontendWriter::Tcp(ref inner) => lock!(inner = inner; msg.write(&mut *inner).await)?,
+        })
     }
 }
 
@@ -273,8 +282,10 @@ enum Error {
     #[error(transparent)] Client(#[from] multiworld::ClientError),
     #[error(transparent)] Config(#[from] multiworld::config::Error),
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
+    #[error(transparent)] EverDrive(#[from] everdrive::Error),
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] Json(#[from] serde_json::Error),
+    #[error(transparent)] MpscFrontendSend(#[from] mpsc::error::SendError<frontend::ServerMessage>),
     #[error(transparent)] PersistentState(#[from] persistent_state::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
@@ -300,7 +311,7 @@ impl IsNetworkError for Error {
     fn is_network_error(&self) -> bool {
         match self {
             Self::Elapsed(_) => true,
-            Self::Config(_) | Self::Json(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::CopyDebugInfo | Self::VersionMismatch { .. } => false,
+            Self::Config(_) | Self::EverDrive(_) | Self::Json(_) | Self::MpscFrontendSend(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::CopyDebugInfo | Self::VersionMismatch { .. } => false,
             Self::Client(e) => e.is_network_error(),
             Self::Io(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),
@@ -325,8 +336,10 @@ enum Message {
     DiscordInvite,
     DismissWrongPassword,
     Event(iced::Event),
+    EverDriveScanFailed(Arc<Vec<everdrive::ConnectError>>),
+    EverDriveTimeout,
     Exit,
-    FrontendConnected(Arc<Mutex<OwnedWriteHalf>>),
+    FrontendConnected(FrontendWriter),
     FrontendSubscriptionError(Arc<Error>),
     JoinRoom,
     Kick(NonZeroU8),
@@ -394,7 +407,7 @@ struct State {
     login_error: Option<Arc<login::Error>>,
     frontend_subscription_error: Option<Arc<Error>>,
     frontend_connection_id: u8,
-    frontend_writer: Option<LoggingWriter>,
+    frontend_writer: Option<LoggingFrontendWriter>,
     log: bool,
     login_tokens: BTreeMap<login::Provider, String>,
     refresh_tokens: BTreeMap<login::Provider, String>,
@@ -534,9 +547,23 @@ struct BizHawkState {
 }
 
 #[derive(Debug, Clone)]
+enum EverDriveState {
+    Searching(Arc<Vec<everdrive::ConnectError>>),
+    Connected,
+    Timeout,
+}
+
+impl Default for EverDriveState {
+    fn default() -> Self {
+        Self::Searching(Arc::default())
+    }
+}
+
+#[derive(Debug, Clone)]
 struct FrontendState {
     kind: Frontend,
     bizhawk: Option<BizHawkState>,
+    everdrive: EverDriveState,
 }
 
 impl FrontendState {
@@ -592,6 +619,7 @@ impl Application for State {
             } else {
                 None
             },
+            everdrive: EverDriveState::default(),
         };
         (Self {
             debug_info_copied: false,
@@ -752,7 +780,9 @@ impl Application for State {
                 let server_writer = self.server_writer.take();
                 return cmd(async move {
                     if let Some(frontend_writer) = frontend_writer {
-                        lock!(writer = frontend_writer.inner; writer.shutdown().await)?;
+                        if let FrontendWriter::Tcp(writer) = frontend_writer.inner {
+                            lock!(writer = writer; writer.shutdown().await)?;
+                        }
                     }
                     if let Some(server_writer) = server_writer {
                         lock!(server_writer = server_writer.inner; {
@@ -767,9 +797,24 @@ impl Application for State {
                 })
             },
             Message::Event(_) => {}
+            Message::EverDriveScanFailed(errors) => {
+                self.frontend.everdrive = EverDriveState::Searching(errors);
+                if let Frontend::EverDrive = self.frontend.kind {
+                    self.frontend_writer = None;
+                }
+            }
+            Message::EverDriveTimeout => {
+                self.frontend.everdrive = EverDriveState::Timeout;
+                if let Frontend::EverDrive = self.frontend.kind {
+                    self.frontend_writer = None;
+                }
+            }
             Message::Exit => return window::close(window::Id::MAIN),
-            Message::FrontendConnected(writer) => {
-                let writer = LoggingWriter { log: self.log, context: "to frontend", inner: Arc::clone(&writer) };
+            Message::FrontendConnected(inner) => {
+                if let Frontend::EverDrive = self.frontend.kind {
+                    self.frontend.everdrive = EverDriveState::Connected;
+                }
+                let writer = LoggingFrontendWriter { log: self.log, inner };
                 self.frontend_writer = Some(writer.clone());
                 if let SessionState::Room { ref players, ref item_queue, .. } = self.server_connection {
                     let players = players.clone();
@@ -1380,11 +1425,23 @@ impl Application for State {
             }
             match self.frontend.kind {
                 Frontend::Dummy => unreachable!(),
-                Frontend::EverDrive => {
-                    col = col
+                Frontend::EverDrive => match self.frontend.everdrive {
+                    EverDriveState::Searching(ref errors) => col = col
                         .push("Looking for EverDrives…")
-                        .push("Make sure your console is turned on and connected, and your USB cable supports data.");
-                }
+                        .push(if errors.is_empty() {
+                            "No USB devices found. Make sure your console is turned on and connected, and your USB cable supports data."
+                        } else if errors.iter().any(|error| matches!(error, everdrive::ConnectError::MainMenu)) {
+                            "Connected to EverDrive main menu. Please start the game."
+                        } else {
+                            "Make sure your console is turned on and connected, and your USB cable supports data." //TODO button to show error details?
+                        }),
+                    EverDriveState::Connected => col = col
+                        .push("Waiting for EverDrive…")
+                        .push("This should take less than 5 seconds."),
+                    EverDriveState::Timeout => col = col
+                        .push("Connection to EverDrive lost")
+                        .push("Retrying in 5 seconds…"),
+                },
                 Frontend::BizHawk => if self.frontend.bizhawk.is_some() {
                     col = col
                         .push("Waiting for BizHawk…")
