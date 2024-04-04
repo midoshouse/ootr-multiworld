@@ -145,6 +145,7 @@ enum SessionError {
 }
 
 async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, shutdown: rocket::Shutdown, maintenance: Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>) -> Result<(), SessionError> {
+    let verbose_logging = sqlx::query_scalar!("SELECT verbose_logging FROM mw_config").fetch_one(&db_pool).await?;
     let mut maintenance = maintenance.subscribe();
     let ping_writer = Arc::clone(&writer);
     let ping_task = tokio::spawn(async move {
@@ -164,9 +165,9 @@ async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http
         }
     }
     loop {
-        let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, writer.clone(), shutdown.clone(), &mut maintenance, &mut logged_in_as_admin, &mut midos_house_user_id).await?;
+        let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, verbose_logging, writer.clone(), shutdown.clone(), &mut maintenance, &mut logged_in_as_admin, &mut midos_house_user_id).await?;
         let _ = lock!(rooms = rooms.0; rooms.change_tx.send(RoomListChange::Join));
-        let (lobby_reader, end) = match room_session(rooms.clone(), room.clone(), socket_id, room_reader, writer.clone(), &mut maintenance, end_rx, shutdown.clone(), logged_in_as_admin).await {
+        let (lobby_reader, end) = match room_session(rooms.clone(), room.clone(), socket_id, room_reader, verbose_logging, writer.clone(), &mut maintenance, end_rx, shutdown.clone(), logged_in_as_admin).await {
             Ok(value) => value,
             Err(e) => {
                 ping_task.abort();
@@ -194,7 +195,7 @@ fn next_message<C: ClientKind>(reader: C::Reader) -> NextMessage<C> {
     Box::pin(timeout(Duration::from_secs(60), reader.read_owned()))
 }
 
-async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, mut read: NextMessage<C>, writer: Arc<Mutex<C::Writer>>, mut shutdown: rocket::Shutdown, maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>, logged_in_as_admin: &mut bool, midos_house_user_id: &mut Option<u64>) -> Result<(C::Reader, ArcRwLock<Room<C>>, oneshot::Receiver<EndRoomSession>), SessionError> {
+async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, mut read: NextMessage<C>, verbose_logging: bool, writer: Arc<Mutex<C::Writer>>, mut shutdown: rocket::Shutdown, maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>, logged_in_as_admin: &mut bool, midos_house_user_id: &mut Option<u64>) -> Result<(C::Reader, ArcRwLock<Room<C>>, oneshot::Receiver<EndRoomSession>), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             return Err(SessionError::Server(format!($($msg)*)))
@@ -273,6 +274,9 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
             }
             res = &mut read => {
                 let (reader, msg) = res??;
+                if verbose_logging {
+                    println!("lobby received client message: {msg:?}");
+                }
                 match msg {
                     ClientMessage::Ping => {}
                     ClientMessage::JoinRoom { ref room, password } => if let Some(room_arc) = rooms.get_arc(room).await {
@@ -533,7 +537,7 @@ async fn update_room_list<C: ClientKind>(rooms: Rooms<C>, writer: Arc<Mutex<C::W
     Ok(())
 }
 
-async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>, mut end_rx: oneshot::Receiver<EndRoomSession>, mut shutdown: rocket::Shutdown, logged_in_as_admin: bool) -> Result<(NextMessage<C>, EndRoomSession), SessionError> {
+async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, socket_id: C::SessionId, reader: C::Reader, verbose_logging: bool, writer: Arc<Mutex<C::Writer>>, maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>, mut end_rx: oneshot::Receiver<EndRoomSession>, mut shutdown: rocket::Shutdown, logged_in_as_admin: bool) -> Result<(NextMessage<C>, EndRoomSession), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             return Err(SessionError::Server(format!($($msg)*)))
@@ -553,6 +557,9 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
             end_res = &mut end_rx => break (read, end_res?),
             res = &mut read => {
                 let (reader, msg) = res??;
+                if verbose_logging {
+                    println!("lobby received client message: {msg:?}");
+                }
                 match msg {
                     ClientMessage::Ping => {}
                     ClientMessage::JoinRoom { room: Either::Left(id), .. } => if lock!(@read room = room; id != room.id) {
