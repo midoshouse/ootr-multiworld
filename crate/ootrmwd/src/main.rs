@@ -582,7 +582,7 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                     },
                     ClientMessage::ResetPlayerId => lock!(@write room = room; room.unload_player(socket_id).await)?,
                     ClientMessage::PlayerName(name) => lock!(@write room = room; room.set_player_name(socket_id, name).await)?,
-                    ClientMessage::SendItem { key, kind, target_world } => match lock!(@write room = room; room.queue_item(socket_id, key, kind, target_world, verbose_logging && key == 34538496 && kind == 197 && target_world.get() == 3).await) {
+                    ClientMessage::SendItem { key, kind, target_world } => match lock!(@write room = room; room.queue_item(socket_id, key, kind, target_world, verbose_logging).await) {
                         Ok(()) => {}
                         Err(multiworld::QueueItemError::FileHash { server, client }) => lock!(writer = writer; writer.write(ServerMessage::WrongFileHash { server, client }).await)?,
                         Err(e) => return Err(e.into()),

@@ -895,10 +895,17 @@ impl<C: ClientKind> Room<C> {
             // don't send own item back to sender
         } else {
             if verbose_logging { println!("regular item send") }
-            if !self.player_queues.get(&target_world).map_or(false, |queue| queue.iter().any(|item| item.source == source_world && item.key == key)) {
+            if let Some(&Item { kind: existing_kind, .. }) = self.player_queues.get(&target_world).and_then(|queue| queue.iter().find(|item| item.source == source_world && item.key == key)) {
+                if kind == existing_kind {
+                    if verbose_logging { println!("item is a duplicate") }
+                } else {
+                    eprintln!("conflicting item kinds at location 0x{key:016x} from world {source_world}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}");
+                    wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("conflicting item kinds at location 0x{key:016x} from world {source_world}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}"))).await?;
+                }
+            } else {
                 if verbose_logging { println!("item not a duplicate") }
                 self.player_queues.entry(target_world).or_insert_with(|| self.base_queue.clone()).push(Item { source: source_world, key, kind });
-                if let Some((&target_client, client)) = self.clients.iter_mut().find(|(_, c)| c.player.map_or(false, |p| p.world == target_world)) {
+                if let Some((&target_client, client)) = self.clients.iter_mut().find(|(_, c)| c.player.is_some_and(|p| p.world == target_world)) {
                     if verbose_logging { println!("target is connected") }
                     let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     if let Err(()) = client.adjusted_save.recv_mw_item(kind) {
@@ -916,8 +923,6 @@ impl<C: ClientKind> Room<C> {
                 } else {
                     if verbose_logging { println!("target not connected") }
                 }
-            } else {
-                if verbose_logging { println!("item is a duplicate") }
             }
         }
         #[cfg(feature = "sqlx")] {
