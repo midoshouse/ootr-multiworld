@@ -843,14 +843,19 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    async fn queue_item_inner(&mut self, source_world: NonZeroU8, key: u64, kind: u16, target_world: NonZeroU8, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str) -> Result<(), RoomError> {
+    async fn queue_item_inner(&mut self, source_world: NonZeroU8, key: u64, kind: u16, target_world: NonZeroU8, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str, verbose_logging: bool) -> Result<(), RoomError> {
         if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
+            if verbose_logging { println!("updating tracker") }
             oottracker::websocket::ClientMessage::MwQueueItem {
                 room: tracker_room_name.clone(),
                 source_world, key, kind, target_world,
             }.write_ws(sock).await?;
+            if verbose_logging { println!("tracker updated") }
+        } else {
+            if verbose_logging { println!("no tracker room") }
         }
         if kind == TRIFORCE_PIECE {
+            if verbose_logging { println!("is Triforce piece") }
             if !self.base_queue.iter().any(|item| item.source == source_world && item.key == key) {
                 self.player_queues.entry(source_world).or_insert_with(|| self.base_queue.clone()); // make sure the sender doesn't get a duplicate of this piece from the base queue
                 let item = Item { source: source_world, key, kind };
@@ -869,6 +874,7 @@ impl<C: ClientKind> Room<C> {
                 }
             }
         } else if source_world == target_world {
+            if verbose_logging { println!("is own world") }
             let mut changed_progressive_items = Vec::default();
             for client in self.clients.values_mut() {
                 if client.player.map_or(false, |p| p.world == target_world) {
@@ -888,9 +894,12 @@ impl<C: ClientKind> Room<C> {
             }
             // don't send own item back to sender
         } else {
+            if verbose_logging { println!("regular item send") }
             if !self.player_queues.get(&target_world).map_or(false, |queue| queue.iter().any(|item| item.source == source_world && item.key == key)) {
+                if verbose_logging { println!("item not a duplicate") }
                 self.player_queues.entry(target_world).or_insert_with(|| self.base_queue.clone()).push(Item { source: source_world, key, kind });
                 if let Some((&target_client, client)) = self.clients.iter_mut().find(|(_, c)| c.player.map_or(false, |p| p.world == target_world)) {
+                    if verbose_logging { println!("target is connected") }
                     let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     if let Err(()) = client.adjusted_save.recv_mw_item(kind) {
                         eprintln!("queue_item_inner (cross world): item 0x{kind:04x} not supported by recv_mw_item");
@@ -899,21 +908,30 @@ impl<C: ClientKind> Room<C> {
                     let new_progressive_items = ProgressiveItems::new(&client.adjusted_save);
                     self.write(target_client, unversioned::ServerMessage::GetItem(kind)).await?;
                     if old_progressive_items != new_progressive_items {
+                        if verbose_logging { println!("updating progressive items") }
                         self.write_all(&unversioned::ServerMessage::ProgressiveItems { world: target_world, state: new_progressive_items.bits() }).await?;
+                    } else {
+                        if verbose_logging { println!("no progressive items change") }
                     }
+                } else {
+                    if verbose_logging { println!("target not connected") }
                 }
+            } else {
+                if verbose_logging { println!("item is a duplicate") }
             }
         }
         #[cfg(feature = "sqlx")] {
             if let Err(e) = self.save(true).await {
                 eprintln!("failed to save room state while trying to queue item for room {} {context} ({}): {e} ({e:?})", self.name, self.id);
                 wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("failed to save room state while trying to queue item for room {} {context} ({}): {e} ({e:?})", self.name, self.id))).await?;
+            } else {
+                if verbose_logging { println!("database updated") }
             }
         }
         Ok(())
     }
 
-    pub async fn queue_item(&mut self, source_client: C::SessionId, key: u64, kind: u16, target_world: NonZeroU8) -> Result<(), QueueItemError> {
+    pub async fn queue_item(&mut self, source_client: C::SessionId, key: u64, kind: u16, target_world: NonZeroU8, verbose_logging: bool) -> Result<(), QueueItemError> {
         if let Some(source) = self.clients.get(&source_client).expect("tried to queue item from nonexistent client").player {
             if let Some(player_hash) = source.file_hash {
                 if let Some(room_hash) = self.file_hash {
@@ -924,7 +942,7 @@ impl<C: ClientKind> Room<C> {
                     self.file_hash = Some(player_hash);
                 }
             }
-            self.queue_item_inner(source.world, key, kind, target_world, "while queueing an item").await?;
+            self.queue_item_inner(source.world, key, kind, target_world, "while queueing an item", verbose_logging).await?;
             Ok(())
         } else {
             Err(QueueItemError::NoSourceWorld)
@@ -954,7 +972,7 @@ impl<C: ClientKind> Room<C> {
             }
         }
         for (source_world, key, kind, target_world) in items_to_queue {
-            self.queue_item_inner(source_world, key, kind, target_world, "while sending all items").await?;
+            self.queue_item_inner(source_world, key, kind, target_world, "while sending all items", false).await?;
         }
         Ok(())
     }

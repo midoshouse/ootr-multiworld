@@ -1176,7 +1176,7 @@ enum CliArgs {
     /// Update both the server and the client
     Both {
         /// Don't wait for the server to be inactive before restarting it
-        #[clap(long, conflicts_with("no_server"))]
+        #[clap(long)]
         force: bool,
         /// Create the GitHub release as a draft
         #[clap(short = 'P', long)]
@@ -1197,7 +1197,7 @@ enum CliArgs {
     /// Only update the server
     Server {
         /// Don't wait for the server to be inactive before restarting it
-        #[clap(long, conflicts_with("no_server"))]
+        #[clap(long)]
         force: bool,
     },
 }
