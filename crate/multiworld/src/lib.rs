@@ -279,7 +279,7 @@ impl Filename {
                 let hundreds = n / 100;
                 let tens = (n % 100) / 10;
                 let ones = n % 10;
-                Self([0xba, 0xd0, 0xc5, 0xdd, 0xd6, hundreds, tens, ones]) //PlayrNNN
+                Self([0xba, 0xd0, 0xc5, 0xdd, 0xd6, hundreds, tens, ones]) // PlayrNNN
             }
         }
     }
