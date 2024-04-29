@@ -646,3 +646,8 @@ impl TryFrom<OptHintArea> for HintArea {
         spirit: if let (Some(world), Ok(area)) = (NonZeroU8::new(spirit_world), HintArea::try_from(spirit_area)) { Some((world, area)) } else { None },
     }))
 }
+
+#[csharp_ffi] pub unsafe extern "C" fn client_send_current_scene(client: *mut Client, current_scene: u8) -> HandleOwned<Result<(), Error>> {
+    let client = &mut *client;
+    HandleOwned::new(client.write(ClientMessage::CurrentScene(current_scene)))
+}

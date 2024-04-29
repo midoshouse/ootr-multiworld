@@ -96,6 +96,8 @@ pub enum ClientMessage {
         world: NonZeroU8,
         area: HintArea,
     },
+    /// Gives info on where the player currently is in the game. Only used for regional voice chat.
+    CurrentScene(u8),
 }
 
 #[derive(Debug, Clone)]

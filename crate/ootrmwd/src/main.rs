@@ -55,6 +55,7 @@ use {
     },
     tokio::{
         io,
+        process::Command,
         select,
         sync::{
             broadcast,
@@ -68,7 +69,10 @@ use {
             timeout,
         },
     },
-    wheel::traits::ReqwestResponseExt as _,
+    wheel::traits::{
+        AsyncCommandOutputExt as _,
+        ReqwestResponseExt as _,
+    },
     multiworld::{
         CREDENTIAL_LEN,
         ClientKind,
@@ -144,8 +148,14 @@ enum SessionError {
     Shutdown,
 }
 
+#[derive(Clone, Copy)]
+struct Config {
+    verbose_logging: bool,
+    regional_vc: bool,
+}
+
 async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, shutdown: rocket::Shutdown, maintenance: Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>) -> Result<(), SessionError> {
-    let verbose_logging = sqlx::query_scalar!("SELECT verbose_logging FROM mw_config").fetch_one(&db_pool).await?;
+    let config = sqlx::query_as!(Config, "SELECT * FROM mw_config").fetch_one(&db_pool).await?;
     let mut maintenance = maintenance.subscribe();
     let ping_writer = Arc::clone(&writer);
     let ping_task = tokio::spawn(async move {
@@ -165,9 +175,9 @@ async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http
         }
     }
     loop {
-        let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, verbose_logging, writer.clone(), shutdown.clone(), &mut maintenance, &mut logged_in_as_admin, &mut midos_house_user_id).await?;
+        let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, config, writer.clone(), shutdown.clone(), &mut maintenance, &mut logged_in_as_admin, &mut midos_house_user_id).await?;
         let _ = lock!(rooms = rooms.0; rooms.change_tx.send(RoomListChange::Join));
-        let (lobby_reader, end) = match room_session(rooms.clone(), room.clone(), socket_id, room_reader, verbose_logging, writer.clone(), &mut maintenance, end_rx, shutdown.clone(), logged_in_as_admin).await {
+        let (lobby_reader, end) = match room_session(rooms.clone(), room.clone(), socket_id, room_reader, config, writer.clone(), &mut maintenance, end_rx, shutdown.clone(), logged_in_as_admin, midos_house_user_id).await {
             Ok(value) => value,
             Err(e) => {
                 ping_task.abort();
@@ -195,7 +205,7 @@ fn next_message<C: ClientKind>(reader: C::Reader) -> NextMessage<C> {
     Box::pin(timeout(Duration::from_secs(60), reader.read_owned()))
 }
 
-async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, mut read: NextMessage<C>, verbose_logging: bool, writer: Arc<Mutex<C::Writer>>, mut shutdown: rocket::Shutdown, maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>, logged_in_as_admin: &mut bool, midos_house_user_id: &mut Option<u64>) -> Result<(C::Reader, ArcRwLock<Room<C>>, oneshot::Receiver<EndRoomSession>), SessionError> {
+async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, mut read: NextMessage<C>, config: Config, writer: Arc<Mutex<C::Writer>>, mut shutdown: rocket::Shutdown, maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>, logged_in_as_admin: &mut bool, midos_house_user_id: &mut Option<u64>) -> Result<(C::Reader, ArcRwLock<Room<C>>, oneshot::Receiver<EndRoomSession>), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             return Err(SessionError::Server(format!($($msg)*)))
@@ -274,7 +284,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
             }
             res = &mut read => {
                 let (reader, msg) = res??;
-                if verbose_logging {
+                if config.verbose_logging {
                     println!("lobby received client message: {msg:?}");
                 }
                 match msg {
@@ -501,6 +511,15 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                     ClientMessage::AutoDeleteDelta(_) => error!("received an AutoDeleteDelta message, which only works in a room, but you're in the lobby"),
                     ClientMessage::LeaveRoom => {}
                     ClientMessage::DungeonRewardInfo { .. } => error!("received a DungeonRewardInfo message, which only works in a room, but you're in the lobby"),
+                    ClientMessage::CurrentScene(scene) => if config.regional_vc {
+                        if let Some(midos_house_user_id) = *midos_house_user_id {
+                            let mut cmd = Command::new("/usr/local/share/midos-house/bin/midos-house");
+                            cmd.arg("update-regional-vc");
+                            cmd.arg(midos_house_user_id.to_string());
+                            cmd.arg(scene.to_string());
+                            cmd.check("midos-house update-regional-vc").await?;
+                        }
+                    },
                 }
                 read = next_message::<C>(reader);
             }
@@ -537,7 +556,7 @@ async fn update_room_list<C: ClientKind>(rooms: Rooms<C>, writer: Arc<Mutex<C::W
     Ok(())
 }
 
-async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, socket_id: C::SessionId, reader: C::Reader, verbose_logging: bool, writer: Arc<Mutex<C::Writer>>, maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>, mut end_rx: oneshot::Receiver<EndRoomSession>, mut shutdown: rocket::Shutdown, logged_in_as_admin: bool) -> Result<(NextMessage<C>, EndRoomSession), SessionError> {
+async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, socket_id: C::SessionId, reader: C::Reader, config: Config, writer: Arc<Mutex<C::Writer>>, maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>, mut end_rx: oneshot::Receiver<EndRoomSession>, mut shutdown: rocket::Shutdown, logged_in_as_admin: bool, midos_house_user_id: Option<u64>) -> Result<(NextMessage<C>, EndRoomSession), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             return Err(SessionError::Server(format!($($msg)*)))
@@ -557,7 +576,7 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
             end_res = &mut end_rx => break (read, end_res?),
             res = &mut read => {
                 let (reader, msg) = res??;
-                if verbose_logging {
+                if config.verbose_logging {
                     lock!(@read room = room; println!("room {} received client message: {msg:?}", room.name));
                 }
                 match msg {
@@ -582,7 +601,7 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                     },
                     ClientMessage::ResetPlayerId => lock!(@write room = room; room.unload_player(socket_id).await)?,
                     ClientMessage::PlayerName(name) => lock!(@write room = room; room.set_player_name(socket_id, name).await)?,
-                    ClientMessage::SendItem { key, kind, target_world } => match lock!(@write room = room; room.queue_item(socket_id, key, kind, target_world, verbose_logging).await) {
+                    ClientMessage::SendItem { key, kind, target_world } => match lock!(@write room = room; room.queue_item(socket_id, key, kind, target_world, config.verbose_logging).await) {
                         Ok(()) => {}
                         Err(multiworld::QueueItemError::FileHash { server, client }) => lock!(writer = writer; writer.write(ServerMessage::WrongFileHash { server, client }).await)?,
                         Err(e) => return Err(e.into()),
@@ -621,6 +640,15 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                     ClientMessage::LeaveRoom => lock!(@write room = room; room.remove_client(socket_id, EndRoomSession::ToLobby).await)?,
                     ClientMessage::DungeonRewardInfo { reward, world, area } => if let Ok(location) = area.try_into() {
                         lock!(@write room = room; room.add_dungeon_reward_info(socket_id, reward, world, location).await)?;
+                    },
+                    ClientMessage::CurrentScene(scene) => if config.regional_vc {
+                        if let Some(midos_house_user_id) = midos_house_user_id {
+                            let mut cmd = Command::new("/usr/local/share/midos-house/bin/midos-house");
+                            cmd.arg("update-regional-vc");
+                            cmd.arg(midos_house_user_id.to_string());
+                            cmd.arg(scene.to_string());
+                            cmd.check("midos-house update-regional-vc").await?;
+                        }
                     },
                 }
                 read = next_message::<C>(reader);

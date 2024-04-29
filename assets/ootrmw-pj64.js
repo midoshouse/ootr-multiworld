@@ -1,5 +1,5 @@
 const TCP_PORT = 24818;
-const MW_FRONTEND_PROTO_VERSION = 6;
+const MW_FRONTEND_PROTO_VERSION = 7;
 const DEFAULT_PLAYER_NAME = [0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf];
 const SRAM_START = 0xA8000000;
 const REWARD_ROWS = [0, 1, 2, 8, 3, 4, 5, 7, 6];
@@ -48,6 +48,7 @@ var normalGameplay = false;
 var progressiveItemsEnable = false;
 var potsanity3 = false;
 var gapCount = 0;
+var lastScene = null;
 
 function handle_data(sock, state, buf) {
     var newBuf = new Buffer(state.readBuf.length + buf.length);
@@ -741,11 +742,20 @@ function handle_frame(write, error) {
                 mem.u32[coopContextAddr + 0xc] = 0;
             }
         }
+        // send current scene
+        var currentScene = mem.u8[ADDR_ANY_RDRAM.start + 0x1c8545];
+        if (lastScene === null || currentScene != lastScene) {
+            const currentScenePacket = new ArrayBuffer(2);
+            var currentScenePacketView = new DataView(currentScenePacket);
+            currentScenePacketView.setUint8(0, 7); // message: current scene changed
+            currentScenePacketView.setUint8(1, currentScene);
+            write(new Buffer(new Uint8Array(currentScenePacket)));
+            lastScene = currentScene;
+        }
         // receive item
         var stateLogo = mem.u32[ADDR_ANY_RDRAM.start + 0x11f200];
         var stateMain = mem.s8[ADDR_ANY_RDRAM.start + 0x11b92f];
         var stateMenu = mem.s8[ADDR_ANY_RDRAM.start + 0x1d8dd5];
-        var currentScene = mem.u8[ADDR_ANY_RDRAM.start + 0x1c8545];
         if (
             stateLogo != 0x802c5880 && stateLogo != 0 && stateMain != 1 && stateMain != 2 && stateMenu == 0 && (
                 (currentScene < 0x2c || currentScene > 0x33) && currentScene != 0x42 && currentScene != 0x4b // don't receive items in shops to avoid a softlock when buying an item at the same time as receiving one

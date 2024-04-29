@@ -84,6 +84,7 @@ internal class Native {
     [DllImport("multiworld")] internal static extern Error opt_message_result_unwrap_err(IntPtr opt_msg_res);
     [DllImport("multiworld")] internal static extern UnitResult client_send_item(Client client, ulong key, ushort kind, byte target_world);
     [DllImport("multiworld")] internal static extern UnitResult client_send_dungeon_reward_info(byte emerald_world, OptHintArea emerald_area, byte ruby_world, OptHintArea ruby_area, byte sapphire_world, OptHintArea sapphire_area, byte light_world, OptHintArea light_area, byte forest_world, OptHintArea forest_area, byte fire_world, OptHintArea fire_area, byte water_world, OptHintArea water_area, byte shadow_world, OptHintArea shadow_area, byte spirit_world, OptHintArea spirit_area, Client client);
+    [DllImport("multiworld")] internal static extern UnitResult client_send_current_scene(Client client, byte current_scene);
 }
 
 internal class StringHandle : SafeHandle {
@@ -188,7 +189,8 @@ internal class Client : SafeHandle {
     }
 
     internal OptMessageResult TryRecv() => Native.client_try_recv_message(this);
-    internal void SendItem(ulong key, ushort kind, byte targetWorld) => Native.client_send_item(this, key, kind, targetWorld);
+    internal UnitResult SendItem(ulong key, ushort kind, byte targetWorld) => Native.client_send_item(this, key, kind, targetWorld);
+    internal UnitResult SendCurrentScene(byte currentScene) => Native.client_send_current_scene(this, currentScene);
 }
 
 internal class Error : SafeHandle {
@@ -324,6 +326,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
     private bool normalGameplay = false;
     private bool potsanity3 = false;
     private uint gapCount = 0;
+    private byte? lastScene = null;
 
     public ApiContainer? _apiContainer { get; set; }
     private ApiContainer APIs => _apiContainer ?? throw new NullReferenceException();
@@ -399,7 +402,8 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                 }
 
                 SendItem(this.client, coopContextAddr.Value);
-                ReceiveItem(coopContextAddr.Value, this.playerID.Value);
+                var currentScene = SendCurrentScene(this.client);
+                ReceiveItem(coopContextAddr.Value, this.playerID.Value, currentScene);
             } else {
                 this.normalGameplay = false;
             }
@@ -477,11 +481,20 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
         }
     }
 
-    private void ReceiveItem(uint coopContextAddr, byte playerID) {
+    private byte SendCurrentScene(Client client) {
+        // send current scene
+        var currentScene = (byte) APIs.Memory.ReadU8(0x1c8545, "RDRAM");
+        if (this.lastScene == null || currentScene != this.lastScene) {
+            client.SendCurrentScene(currentScene);
+            this.lastScene = currentScene;
+        }
+        return currentScene;
+    }
+
+    private void ReceiveItem(uint coopContextAddr, byte playerID, byte currentScene) {
         var stateLogo = APIs.Memory.ReadU32(0x11f200, "RDRAM");
         var stateMain = APIs.Memory.ReadS8(0x11b92f, "RDRAM");
         var stateMenu = APIs.Memory.ReadS8(0x1d8dd5, "RDRAM");
-        var currentScene = APIs.Memory.ReadU8(0x1c8545, "RDRAM");
         // The following conditional will be made redundant by https://github.com/OoTRandomizer/OoT-Randomizer/pull/1867. Keep it for back-compat for now.
         if (
             stateLogo != 0x802c_5880 && stateLogo != 0 && stateMain != 1 && stateMain != 2 && stateMenu == 0 && (

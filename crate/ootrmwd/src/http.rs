@@ -96,6 +96,7 @@ supported_version!("/v12", v12, V12, 12);
 supported_version!("/v13", v13, V13, 13);
 supported_version!("/v14", v14, V14, 14);
 supported_version!("/v15", v15, V15, 15);
+supported_version!("/v16", v16, V16, 16);
 
 #[rocket::catch(404)]
 async fn not_found() -> RawHtml<String> {

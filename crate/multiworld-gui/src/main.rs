@@ -1090,6 +1090,13 @@ impl Application for State {
                         }
                     }
                 }
+                frontend::ClientMessage::CurrentScene(scene) => if let Some(ref writer) = self.server_writer {
+                    let writer = writer.clone();
+                    return cmd(async move {
+                        writer.write(ClientMessage::CurrentScene(scene)).await?;
+                        Ok(Message::Nop)
+                    })
+                },
             },
             Message::ReconnectFrontend => {
                 self.frontend_subscription_error = None;
