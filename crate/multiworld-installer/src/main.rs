@@ -69,7 +69,10 @@ use {
     },
 };
 #[cfg(target_os = "linux")] use {
-    std::io::Cursor,
+    std::{
+        io::Cursor,
+        os::unix::fs::PermissionsExt as _,
+    },
     gio::prelude::*,
     which::which,
     xdg::BaseDirectories,
@@ -485,6 +488,9 @@ impl Application for State {
                                     if which("apt").is_ok() && which("zenity").is_ok() {
                                         let password_prompt = BaseDirectories::new()?.place_cache_file("midos-house/password-prompt.sh")?;
                                         fs::write(&password_prompt, include_bytes!("../../../assets/password-prompt.sh")).await?;
+                                        let mut perms = fs::metadata(&password_prompt).await?.permissions();
+                                        perms.set_mode(0o755);
+                                        fs::set_permissions(&password_prompt, perms).await?;
                                         tokio::process::Command::new("sudo")
                                             .arg("--askpass")
                                             .arg("apt")
