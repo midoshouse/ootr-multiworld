@@ -899,8 +899,8 @@ impl<C: ClientKind> Room<C> {
                 if kind == existing_kind {
                     if verbose_logging { println!("item is a duplicate") }
                 } else {
-                    eprintln!("conflicting item kinds at location 0x{key:016x} from world {source_world}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}");
-                    wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("conflicting item kinds at location 0x{key:016x} from world {source_world}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}"))).await?;
+                    eprintln!("conflicting item kinds at location 0x{key:016x} from world {source_world} in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name);
+                    wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("conflicting item kinds at location 0x{key:016x} from world {source_world} in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name))).await?;
                 }
             } else {
                 if verbose_logging { println!("item not a duplicate") }
