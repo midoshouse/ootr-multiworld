@@ -1,3 +1,5 @@
+⚠️ **Please try using [the installer](https://github.com/midoshouse/ootr-multiworld/releases/latest/download/multiworld-installer.exe) first!** It performs these steps for you automatically.
+
 # Manual install instructinos
 
 If you can't use [the installer](https://github.com/midoshouse/ootr-multiworld/releases/latest/download/multiworld-installer.exe) due to antivirus software blocking it, you can follow these manual install instructions.
