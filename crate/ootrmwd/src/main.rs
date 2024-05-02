@@ -376,13 +376,14 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             base_queue: Vec::default(),
                             player_queues: HashMap::default(),
                             last_saved: Utc::now(),
+                            deleted: false,
                             allow_send_all: true,
                             autodelete_tx: lock!(rooms = rooms.0; rooms.autodelete_tx.clone()),
                             db_pool: db_pool.clone(),
                             tracker_state: None,
                             id, clients, autodelete_delta,
                         });
-                        if !rooms.add(room.clone()).await {
+                        if !rooms.add(room.clone()).await? {
                             lock!(writer = writer; writer.write(ServerMessage::StructuredError(ServerError::RoomExists)).await)?;
                         }
                         lock!(writer = writer; writer.write(ServerMessage::EnterRoom {
@@ -707,19 +708,20 @@ impl<C: ClientKind> Rooms<C> {
         }
     }
 
-    async fn add(&self, room: ArcRwLock<Room<C>>) -> bool {
+    async fn add(&self, room: ArcRwLock<Room<C>>) -> sqlx::Result<bool> {
         let (id, name, auth) = lock!(@read room = room; (room.id, room.name.clone(), room.auth.clone()));
         lock!(rooms = self.0; {
             for existing_room in rooms.list.values() {
                 if lock!(@write existing_room = existing_room; existing_room.name == name && auth.same_namespace(&existing_room.auth)) {
-                    return false
+                    return Ok(false)
                 }
             }
-            let hash_map::Entry::Vacant(entry) = rooms.list.entry(id) else { return false };
+            let hash_map::Entry::Vacant(entry) = rooms.list.entry(id) else { return Ok(false) };
             entry.insert(room.clone());
-            let _ = rooms.change_tx.send(RoomListChange::New(room));
+            let _ = rooms.change_tx.send(RoomListChange::New(room.clone()));
         });
-        true
+        lock!(@write room = room; room.save(true).await)?;
+        Ok(true)
     }
 
     async fn remove(&self, id: u64) {
@@ -956,12 +958,13 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     base_queue: Vec::read_sync(&mut &*row.base_queue)?,
                     player_queues: HashMap::read_sync(&mut &*row.player_queues)?,
                     last_saved: row.last_saved,
+                    deleted: false,
                     allow_send_all: row.allow_send_all,
                     autodelete_delta: decode_pginterval(row.autodelete_delta)?,
                     autodelete_tx: lock!(rooms = rooms.0; rooms.autodelete_tx.clone()),
                     db_pool: db_pool.clone(),
                     tracker_state: None,
-                })).await {
+                })).await? {
                     eprintln!("ignoring duplicate room name: {}", row.name);
                     wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("ignoring duplicate room name: {}", row.name))).await?;
                 }

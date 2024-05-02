@@ -508,6 +508,7 @@ pub struct Room<C: ClientKind> {
     pub file_hash: Option<[HashIcon; 5]>,
     pub base_queue: Vec<Item>,
     pub player_queues: HashMap<NonZeroU8, Vec<Item>>,
+    pub deleted: bool,
     pub last_saved: DateTime<Utc>,
     pub allow_send_all: bool,
     pub autodelete_delta: Duration,
@@ -726,6 +727,7 @@ impl<C: ClientKind> Room<C> {
     }
 
     pub async fn delete(&mut self) -> Result<(), RoomError> {
+        self.deleted = true;
         for client_id in self.clients.keys().copied().collect::<Vec<_>>() {
             self.remove_client(client_id, EndRoomSession::ToLobby).await?;
         }
@@ -1049,6 +1051,7 @@ impl<C: ClientKind> Room<C> {
 
     #[cfg(feature = "sqlx")]
     pub async fn save(&mut self, update_last_saved: bool) -> sqlx::Result<()> {
+        if self.deleted { return Ok(()) }
         let mut base_queue = Vec::default();
         self.base_queue.write_sync(&mut base_queue).expect("failed to write base queue to buffer");
         let mut player_queues = Vec::default();
