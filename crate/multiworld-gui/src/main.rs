@@ -400,7 +400,7 @@ struct State {
     persistent_state: PersistentState,
     frontend: FrontendState,
     debug_info_copied: bool,
-    icon_error: Option<Arc<iced::window::icon::Error>>,
+    icon_error: Option<Arc<icon::Error>>,
     config_error: Option<Arc<multiworld::config::Error>>,
     persistent_state_error: Option<Arc<persistent_state::Error>>,
     command_error: Option<Arc<Error>>,
@@ -594,7 +594,7 @@ impl Application for State {
     type Executor = iced::executor::Default;
     type Message = Message;
     type Theme = Theme;
-    type Flags = (Option<iced::window::icon::Error>, Result<Config, multiworld::config::Error>, Result<PersistentState, persistent_state::Error>, Option<FrontendArgs>);
+    type Flags = (Option<icon::Error>, Result<Config, multiworld::config::Error>, Result<PersistentState, persistent_state::Error>, Option<FrontendArgs>);
 
     fn new((icon_error, config, persistent_state, frontend): Self::Flags) -> (Self, Command<Message>) {
         let (config, config_error) = match config {
@@ -715,7 +715,7 @@ impl Application for State {
                             #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
                             fs::write(&updater_path, updater_data).await?;
                             #[cfg(unix)] fs::set_permissions(&updater_path, fs::Permissions::from_mode(0o755)).await?;
-                            let mut cmd = std::process::Command::new(updater_path);
+                            let mut cmd = process::Command::new(updater_path);
                             match frontend.kind {
                                 Frontend::Dummy => return Ok(Message::UpToDate),
                                 Frontend::EverDrive => {
@@ -773,7 +773,7 @@ impl Application for State {
             Message::DismissWrongPassword => if let SessionState::Lobby { ref mut wrong_password, .. } = self.server_connection {
                 *wrong_password = false;
             },
-            Message::Event(iced::Event::Window(id, iced::window::Event::CloseRequested)) => if id != window::Id::MAIN || self.command_error.is_some() || self.login_error.is_some() || self.frontend_subscription_error.is_some() {
+            Message::Event(iced::Event::Window(id, window::Event::CloseRequested)) => if id != window::Id::MAIN || self.command_error.is_some() || self.login_error.is_some() || self.frontend_subscription_error.is_some() {
                 return window::close(id)
             } else {
                 let frontend_writer = self.frontend_writer.take();

@@ -1175,7 +1175,7 @@ struct Args {
 #[derive(Debug, thiserror::Error)]
 enum MainError {
     #[error(transparent)] Iced(#[from] iced::Error),
-    #[error(transparent)] Icon(#[from] iced::window::icon::Error),
+    #[error(transparent)] Icon(#[from] icon::Error),
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] Wheel(#[from] wheel::Error),
 }

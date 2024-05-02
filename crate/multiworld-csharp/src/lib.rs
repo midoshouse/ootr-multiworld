@@ -312,7 +312,7 @@ impl Client {
         tcp_listener.set_nonblocking(true).at_unknown()?;
         let gui_path = {
             #[cfg(unix)] {
-                xdg::BaseDirectories::new()?.place_cache_file("midos-house/multiworld-gui").at_unknown()?
+                BaseDirectories::new()?.place_cache_file("midos-house/multiworld-gui").at_unknown()?
             }
             #[cfg(windows)] {
                 let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");

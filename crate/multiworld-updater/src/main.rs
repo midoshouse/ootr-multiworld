@@ -637,7 +637,7 @@ enum Args {
 enum MainError {
     #[error(transparent)] Config(#[from] multiworld::config::Error),
     #[error(transparent)] Iced(#[from] iced::Error),
-    #[error(transparent)] Icon(#[from] iced::window::icon::Error),
+    #[error(transparent)] Icon(#[from] icon::Error),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[cfg(windows)]
     #[error("user folder not found")]

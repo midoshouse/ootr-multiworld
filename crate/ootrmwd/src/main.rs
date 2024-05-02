@@ -625,7 +625,7 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                     ClientMessage::SaveData(save) => lock!(@write room = room; room.set_save_data(socket_id, save).await)?,
                     ClientMessage::SendAll { source_world, spoiler_log } => match lock!(@write room = room; room.send_all(source_world, &spoiler_log, logged_in_as_admin).await) {
                         Ok(()) => {}
-                        Err(multiworld::SendAllError::FileHash { server, client }) => lock!(writer = writer; writer.write(ServerMessage::WrongFileHash { server, client }).await)?,
+                        Err(SendAllError::FileHash { server, client }) => lock!(writer = writer; writer.write(ServerMessage::WrongFileHash { server, client }).await)?,
                         Err(e) => return Err(e.into()),
                     },
                     ClientMessage::SaveDataError { debug, version } => if version >= multiworld::version() {
