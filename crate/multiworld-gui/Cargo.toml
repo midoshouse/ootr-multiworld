@@ -18,7 +18,7 @@ winres = "0.1"
 
 [dependencies]
 arrayref = "0.3.7"
-async-proto = "0.19"
+async-proto = "0.21"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
 dark-light = "1"

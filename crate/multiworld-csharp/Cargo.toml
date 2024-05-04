@@ -18,7 +18,7 @@ unused_qualifications = "deny"
 warnings = "deny"
 
 [dependencies]
-async-proto = "0.19"
+async-proto = "0.21"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 itertools = "0.12"
 libc = "0.2"
@@ -36,5 +36,5 @@ xdg = "2"
 [target.'cfg(windows)'.dependencies]
 directories = "5"
 semver = "1"
-windows = { version = "0.54", features = ["Win32_Storage_FileSystem"] }
+windows = { version = "0.56", features = ["Win32_Storage_FileSystem"] }
 winver = { git = "https://github.com/fenhl/winver", branch = "main" }

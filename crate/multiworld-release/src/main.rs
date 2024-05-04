@@ -4,10 +4,7 @@ use {
         collections::HashMap,
         env,
         fmt,
-        io::{
-            Cursor,
-            prelude::*,
-        },
+        io::prelude::*,
         path::Path,
         pin::pin,
         process::{
@@ -18,6 +15,11 @@ use {
     },
     async_proto::Protocol as _,
     async_trait::async_trait,
+    async_zip::{
+        Compression,
+        ZipEntryBuilder,
+        tokio::write::ZipFileWriter,
+    },
     chrono::prelude::*,
     dir_lock::DirLock,
     futures::{
@@ -39,6 +41,7 @@ use {
     tempfile::NamedTempFile,
     tokio::{
         io::{
+            self,
             AsyncBufReadExt as _,
             BufReader,
         },
@@ -50,16 +53,13 @@ use {
         sync::broadcast,
     },
     tokio_stream::wrappers::LinesStream,
+    tokio_util::compat::FuturesAsyncWriteCompatExt as _,
     wheel::{
         fs::{
             self,
             File,
         },
         traits::AsyncCommandOutputExt as _,
-    },
-    zip::{
-        ZipWriter,
-        write::FileOptions,
     },
     multiworld::{
         WaitUntilInactiveMessage,
@@ -634,19 +634,17 @@ impl Task<Result<(), Error>> for BuildBizHawk {
                 })
             }).await,
             Self::Zip(client, repo, release_rx, version) => gres::transpose(async move {
-                let zip_data = tokio::task::spawn_blocking(move || {
-                    let mut buf = Cursor::<Vec<_>>::default();
-                    {
-                        let mut zip = ZipWriter::new(&mut buf); //TODO replace with an async zip writer
-                        zip.start_file("README.txt", FileOptions::default())?;
-                        write!(&mut zip, include_str!("../../../assets/bizhawk-readme-windows.txt"), version)?;
-                        zip.start_file("OotrMultiworld.dll", FileOptions::default())?;
-                        std::io::copy(&mut std::fs::File::open("crate/multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/OotrMultiworld.dll")?, &mut zip)?;
-                        zip.start_file("multiworld.dll", FileOptions::default())?;
-                        std::io::copy(&mut std::fs::File::open("crate/multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/multiworld.dll")?, &mut zip)?;
-                    }
-                    Ok::<_, Error>(buf.into_inner())
-                }).await??;
+                let zip_data = {
+                    let mut zip = ZipFileWriter::with_tokio(Vec::default());
+                    zip.write_entry_whole(ZipEntryBuilder::new("README.txt".into(), Compression::Deflate), format!(include_str!("../../../assets/bizhawk-readme-windows.txt"), version).as_ref()).await?;
+                    let mut ootrmultiworld_dll_writer = zip.write_entry_stream(ZipEntryBuilder::new("OotrMultiworld.dll".into(), Compression::Deflate)).await?.compat_write();
+                    io::copy(&mut File::open("crate/multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/OotrMultiworld.dll").await?, &mut ootrmultiworld_dll_writer).await?;
+                    ootrmultiworld_dll_writer.into_inner().close().await?;
+                    let mut multiworld_dll_writer = zip.write_entry_stream(ZipEntryBuilder::new("multiworld.dll".into(), Compression::Deflate)).await?.compat_write();
+                    io::copy(&mut File::open("crate/multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/multiworld.dll").await?, &mut multiworld_dll_writer).await?;
+                    multiworld_dll_writer.into_inner().close().await?;
+                    zip.close().await?.into_inner()
+                };
                 Ok(Err(Self::WaitRelease(client, repo, release_rx, zip_data)))
             }).await,
             Self::WaitRelease(client, repo, mut release_rx, zip_data) => gres::transpose(async move {
@@ -743,19 +741,17 @@ impl Task<Result<(), Error>> for BuildBizHawkLinux {
                 Ok(Err(Self::Zip(client, repo, release_rx, version)))
             }).await,
             Self::Zip(client, repo, release_rx, version) => gres::transpose(async move {
-                let zip_data = tokio::task::spawn_blocking(move || {
-                    let mut buf = Cursor::<Vec<_>>::default();
-                    {
-                        let mut zip = ZipWriter::new(&mut buf); //TODO replace with an async zip writer
-                        zip.start_file("README.txt", FileOptions::default())?;
-                        write!(&mut zip, include_str!("../../../assets/bizhawk-readme-linux.txt"), version)?;
-                        zip.start_file("OotrMultiworld.dll", FileOptions::default())?;
-                        std::io::copy(&mut std::fs::File::open("target/wsl/release/OotrMultiworld.dll")?, &mut zip)?;
-                        zip.start_file("libmultiworld.so", FileOptions::default())?;
-                        std::io::copy(&mut std::fs::File::open("target/wsl/release/libmultiworld.so")?, &mut zip)?;
-                    }
-                    Ok::<_, Error>(buf.into_inner())
-                }).await??;
+                let zip_data = {
+                    let mut zip = ZipFileWriter::with_tokio(Vec::default());
+                    zip.write_entry_whole(ZipEntryBuilder::new("README.txt".into(), Compression::Deflate), format!(include_str!("../../../assets/bizhawk-readme-linux.txt"), version).as_ref()).await?;
+                    let mut ootrmultiworld_dll_writer = zip.write_entry_stream(ZipEntryBuilder::new("OotrMultiworld.dll".into(), Compression::Deflate)).await?.compat_write();
+                    io::copy(&mut File::open("target/wsl/release/OotrMultiworld.dll").await?, &mut ootrmultiworld_dll_writer).await?;
+                    ootrmultiworld_dll_writer.into_inner().close().await?;
+                    let mut libmultiworld_so_writer = zip.write_entry_stream(ZipEntryBuilder::new("libmultiworld.so".into(), Compression::Deflate)).await?.compat_write();
+                    io::copy(&mut File::open("target/wsl/release/libmultiworld.so").await?, &mut libmultiworld_so_writer).await?;
+                    libmultiworld_so_writer.into_inner().close().await?;
+                    zip.close().await?.into_inner()
+                };
                 Ok(Err(Self::WaitRelease(client, repo, release_rx, zip_data)))
             }).await,
             Self::WaitRelease(client, repo, mut release_rx, zip_data) => gres::transpose(async move {
@@ -1244,14 +1240,14 @@ enum Error {
     #[error(transparent)] GitHub(#[from] multiworld::github::Error),
     #[error(transparent)] GitHubAppAuth(#[from] github_app_auth::AuthError),
     #[error(transparent)] InvalidHeaderValue(#[from] reqwest::header::InvalidHeaderValue),
-    #[error(transparent)] Io(#[from] tokio::io::Error),
+    #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] ParseInt(#[from] std::num::ParseIntError),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] SemVer(#[from] semver::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
     #[error(transparent)] Wheel(#[from] wheel::Error),
-    #[error(transparent)] Zip(#[from] zip::result::ZipError),
+    #[error(transparent)] Zip(#[from] async_zip::error::ZipError),
     #[error("BizHawk is outdated ({local} installed, {latest} available)")]
     BizHawkOutdated {
         latest: Version,

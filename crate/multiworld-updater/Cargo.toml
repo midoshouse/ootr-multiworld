@@ -17,7 +17,7 @@ warnings = "deny"
 winres = "0.1"
 
 [dependencies]
-async_zip = { version = "0.0.16", features = ["full"] }
+async_zip = { version = "0.0.17", features = ["full"] }
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
@@ -46,7 +46,7 @@ xdg = "2"
 
 [target.'cfg(windows)'.dependencies]
 directories = "5"
-windows = { version = "0.54", features = ["Win32_Storage_FileSystem"] }
+windows = { version = "0.56", features = ["Win32_Storage_FileSystem"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }

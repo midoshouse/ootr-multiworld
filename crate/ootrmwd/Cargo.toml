@@ -5,7 +5,7 @@ authors.workspace = true
 edition.workspace = true
 
 [dependencies]
-async-proto = { version = "0.19", features = ["chrono"] }
+async-proto = { version = "0.21", features = ["chrono"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
 derivative = "2"

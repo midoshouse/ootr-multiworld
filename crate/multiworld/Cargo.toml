@@ -8,7 +8,7 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-async-proto = { version = "0.19", features = ["chrono", "semver"] }
+async-proto = { version = "0.21", features = ["chrono", "semver"] }
 async-trait = "0.1"
 bitflags = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

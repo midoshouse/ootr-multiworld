@@ -8,8 +8,9 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-async-proto = "0.19.2"
+async-proto = "0.21"
 async-trait = "0.1"
+async_zip = { version = "0.0.17", features = ["full"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
 crossterm = "0.27"
@@ -30,5 +31,5 @@ tempfile = "3"
 thiserror = "1"
 tokio = { version = "1", features = ["io-util", "parking_lot", "process", "sync"] }
 tokio-stream = { version = "0.1", features = ["io-util"] }
+tokio-util = { version = "0.7.10", features = ["compat"] }
 wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }
-zip = "0.6"

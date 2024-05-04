@@ -31,7 +31,7 @@ default-features = false
 features = ["charset", "http2", "macos-system-configuration", "rustls-tls"]
 
 [dependencies]
-async_zip = { version = "0.0.16", features = ["full"] }
+async_zip = { version = "0.0.17", features = ["full"] }
 clap = { version = "4", features = ["derive"] }
 dark-light = "1"
 directories = "5"

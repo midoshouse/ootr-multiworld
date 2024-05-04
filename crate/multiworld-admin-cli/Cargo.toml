@@ -8,7 +8,7 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-async-proto = "0.19"
+async-proto = "0.21"
 chrono = { version = "0.4", default-features = false, features = ["alloc", "clock"] }
 clap = { version = "4", features = ["derive"] }
 crossterm = { version = "0.27", features = ["event-stream"] }
