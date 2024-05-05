@@ -6,7 +6,6 @@ use {
     },
     async_proto::Protocol,
     chrono::prelude::*,
-    either::Either,
     futures::{
         Sink,
         stream::Stream,
@@ -109,7 +108,7 @@ impl TryFrom<ClientMessage> for unversioned::ClientMessage {
     fn try_from(msg: ClientMessage) -> Result<Self, async_proto::ReadError> {
         Ok(match msg {
             ClientMessage::Ping => unversioned::ClientMessage::Ping,
-            ClientMessage::JoinRoom { id, password } => unversioned::ClientMessage::JoinRoom { room: Either::Left(id), password },
+            ClientMessage::JoinRoom { id, password } => unversioned::ClientMessage::JoinRoom { id, password },
             ClientMessage::CreateRoom { name, password } => unversioned::ClientMessage::CreateRoom { name, password },
             ClientMessage::LoginApiKey { api_key } => unversioned::ClientMessage::LoginApiKey { api_key },
             ClientMessage::Stop => unversioned::ClientMessage::Stop,
@@ -119,7 +118,7 @@ impl TryFrom<ClientMessage> for unversioned::ClientMessage {
             ClientMessage::SendItem { key, kind, target_world } => unversioned::ClientMessage::SendItem { key, kind, target_world },
             ClientMessage::KickPlayer(world) => unversioned::ClientMessage::KickPlayer(world),
             ClientMessage::DeleteRoom => unversioned::ClientMessage::DeleteRoom,
-            ClientMessage::Track { mw_room, tracker_room_name, world_count } => unversioned::ClientMessage::Track { mw_room: Either::Left(mw_room), tracker_room_name, world_count },
+            ClientMessage::Track { mw_room, tracker_room_name, world_count } => unversioned::ClientMessage::Track { mw_room, tracker_room_name, world_count },
             ClientMessage::SaveData(save) => unversioned::ClientMessage::SaveData(save),
             ClientMessage::SendAll { source_world, spoiler_log } => unversioned::ClientMessage::SendAll { source_world, spoiler_log: spoiler_log.into() },
             ClientMessage::SaveDataError { debug, version } => unversioned::ClientMessage::SaveDataError { debug, version },
@@ -196,7 +195,7 @@ impl From<unversioned::ServerMessage> for Option<ServerMessage> {
             unversioned::ServerMessage::OtherError(e) => Some(ServerMessage::OtherError(e)),
             unversioned::ServerMessage::EnterLobby { rooms } => Some(ServerMessage::EnterLobby { rooms }),
             unversioned::ServerMessage::NewRoom { id, name, password_required } => Some(ServerMessage::NewRoom { id, name, password_required }),
-            unversioned::ServerMessage::DeleteRoom { id, name: _ } => Some(ServerMessage::DeleteRoom(id)),
+            unversioned::ServerMessage::DeleteRoom(id) => Some(ServerMessage::DeleteRoom(id)),
             unversioned::ServerMessage::EnterRoom { room_id, players, num_unassigned_clients, autodelete_delta, allow_send_all } => Some(ServerMessage::EnterRoom { room_id, players, num_unassigned_clients, autodelete_delta, allow_send_all }),
             unversioned::ServerMessage::PlayerId(world) => Some(ServerMessage::PlayerId(world)),
             unversioned::ServerMessage::ResetPlayerId(world) => Some(ServerMessage::ResetPlayerId(world)),
@@ -206,7 +205,7 @@ impl From<unversioned::ServerMessage> for Option<ServerMessage> {
             unversioned::ServerMessage::PlayerName(world, filename) => Some(ServerMessage::PlayerName(world, filename)),
             unversioned::ServerMessage::ItemQueue(items) => Some(ServerMessage::ItemQueue(items)),
             unversioned::ServerMessage::GetItem(item) => Some(ServerMessage::GetItem(item)),
-            unversioned::ServerMessage::AdminLoginSuccess { active_connections } => Some(ServerMessage::AdminLoginSuccess { active_connections: active_connections.into_iter().map(|(id, (_, players, num_unassigned_clients))| (id, (players, num_unassigned_clients))).collect() }),
+            unversioned::ServerMessage::AdminLoginSuccess { active_connections } => Some(ServerMessage::AdminLoginSuccess { active_connections }),
             unversioned::ServerMessage::Goodbye => Some(ServerMessage::Goodbye),
             unversioned::ServerMessage::PlayerFileHash(world, hash) => Some(ServerMessage::PlayerFileHash(world, hash)),
             unversioned::ServerMessage::AutoDeleteDelta(delta) => Some(ServerMessage::AutoDeleteDelta(delta)),

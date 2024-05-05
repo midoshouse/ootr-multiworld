@@ -4025,7 +4025,6 @@ dependencies = [
  "clap",
  "derivative",
  "directories",
- "either",
  "enum-iterator",
  "futures",
  "github-app-auth",

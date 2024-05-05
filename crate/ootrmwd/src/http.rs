@@ -16,6 +16,7 @@ use {
     rocket::{
         Rocket,
         State,
+        http::Status,
         response::{
             Redirect,
             content::RawHtml,
@@ -90,9 +91,18 @@ macro_rules! supported_version {
     };
 }
 
-supported_version!("/v10", v10, V10, 10);
-supported_version!("/v11", v11, V11, 11);
-supported_version!("/v12", v12, V12, 12);
+macro_rules! unsupported_version {
+    ($endpoint:literal, $version:ident) => {
+        #[rocket::get($endpoint)]
+        async fn $version() -> Status {
+            Status::Gone
+        }
+    };
+}
+
+unsupported_version!("/v10", v10);
+unsupported_version!("/v11", v11);
+unsupported_version!("/v12", v12);
 supported_version!("/v13", v13, V13, 13);
 supported_version!("/v14", v14, V14, 14);
 supported_version!("/v15", v15, V15, 15);

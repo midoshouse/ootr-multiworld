@@ -9,7 +9,6 @@ async-proto = { version = "0.21", features = ["chrono"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
 derivative = "2"
-either = "1"
 futures = "0.3"
 log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
 multiworld = { path = "../multiworld", features = ["sqlx"] }
@@ -29,4 +28,5 @@ tokio-tungstenite = "0.20"
 wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["reqwest", "rocket", "serde", "serde_json"] }
 
 [target.'cfg(unix)'.dependencies]
+either = "1"
 ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils", branch = "main" }

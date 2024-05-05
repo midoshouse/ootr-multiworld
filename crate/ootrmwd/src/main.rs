@@ -19,7 +19,6 @@ use {
     async_proto::Protocol as _,
     chrono::prelude::*,
     derivative::Derivative,
-    either::Either,
     futures::{
         future::{
             self,
@@ -256,13 +255,13 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             }).await)?;
                         }
                     }),
-                    Ok(RoomListChange::Delete { id, name, auth }) => {
+                    Ok(RoomListChange::Delete { id, auth }) => {
                         let visible = match auth.availability(*logged_in_as_admin, *midos_house_user_id) {
                             RoomAvailability::Open | RoomAvailability::PasswordRequired => true,
                             RoomAvailability::Invisible => false,
                         };
                         if visible {
-                            lock!(writer = writer; writer.write(ServerMessage::DeleteRoom { id, name }).await)?;
+                            lock!(writer = writer; writer.write(ServerMessage::DeleteRoom(id)).await)?;
                         }
                     }
                     Ok(RoomListChange::Join | RoomListChange::Leave) => {}
@@ -289,7 +288,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                 }
                 match msg {
                     ClientMessage::Ping => {}
-                    ClientMessage::JoinRoom { ref room, password } => if let Some(room_arc) = rooms.get_arc(room).await {
+                    ClientMessage::JoinRoom { id, password } => if let Some(room_arc) = rooms.get_arc(id).await {
                         lock!(@write room = room_arc; {
                             let authorized = *logged_in_as_admin || match &room.auth {
                                 RoomAuth::Password { hash, salt } => password.map_or(false, |password| pbkdf2::verify(
@@ -327,10 +326,7 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             }
                         });
                     } else {
-                        match room {
-                            Either::Left(_) => error!("there is no room with this ID"),
-                            Either::Right(name) => error!("there is no room named {name:?}"),
-                        }
+                        error!("there is no room with this ID")
                     },
                     ClientMessage::CreateRoom { name, password } => {
                         //TODO disallow creating new rooms if preparing for reboot? (or at least warn)
@@ -460,27 +456,11 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                         error!("Stop command requires admin login")
                     },
                     ClientMessage::Track { mw_room, tracker_room_name, world_count } => if *logged_in_as_admin {
-                        match mw_room {
-                            Either::Left(room_id) => lock!(rooms = rooms.0; if let Some(room) = rooms.list.get(&room_id) {
-                                lock!(@write room = room; room.init_tracker(tracker_room_name, world_count).await)?;
-                            } else {
-                                error!("no such room")
-                            }),
-                            Either::Right(room_name) => {
-                                let mut found = false;
-                                lock!(rooms = rooms.0; for room in rooms.list.values() {
-                                    lock!(@write room = room; if room.name == room_name {
-                                        room.init_tracker(tracker_room_name, world_count).await?;
-                                        found = true;
-                                        unlock!();
-                                        break
-                                    });
-                                });
-                                if !found {
-                                    error!("no such room")
-                                }
-                            }
-                        }
+                        lock!(rooms = rooms.0; if let Some(room) = rooms.list.get(&mw_room) {
+                            lock!(@write room = room; room.init_tracker(tracker_room_name, world_count).await)?;
+                        } else {
+                            error!("no such room")
+                        });
                     } else {
                         error!("Track command requires admin login")
                     },
@@ -546,10 +526,7 @@ async fn update_room_list<C: ClientKind>(rooms: Rooms<C>, writer: Arc<Mutex<C::W
                         password_required,
                     }
                 } else {
-                    ServerMessage::DeleteRoom {
-                        id: *id,
-                        name: room.name.clone(),
-                    }
+                    ServerMessage::DeleteRoom(*id)
                 }).await)?;
             }
         });
@@ -582,10 +559,7 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                 }
                 match msg {
                     ClientMessage::Ping => {}
-                    ClientMessage::JoinRoom { room: Either::Left(id), .. } => if lock!(@read room = room; id != room.id) {
-                        error!("received a JoinRoom message, which only works in the lobby, but you're in a room")
-                    },
-                    ClientMessage::JoinRoom { room: Either::Right(name), .. } => if lock!(@read room = room; name != room.name) {
+                    ClientMessage::JoinRoom { id, .. } => if lock!(@read room = room; id != room.id) {
                         error!("received a JoinRoom message, which only works in the lobby, but you're in a room")
                     },
                     ClientMessage::CreateRoom { name, .. } => if lock!(@read room = room; name != room.name) {
@@ -666,7 +640,6 @@ enum RoomListChange<C: ClientKind> {
     /// A room has been deleted.
     Delete {
         id: u64,
-        name: String,
         auth: RoomAuth,
     },
     /// A player has joined a room.
@@ -688,24 +661,8 @@ struct RoomsInner<C: ClientKind> {
 struct Rooms<C: ClientKind>(Arc<Mutex<RoomsInner<C>>>);
 
 impl<C: ClientKind> Rooms<C> {
-    async fn get_arc(&self, room: &Either<u64, String>) -> Option<ArcRwLock<Room<C>>> {
-        match room {
-            &Either::Left(room_id) => lock!(rooms = self.0; if let Some(room) = rooms.list.get(&room_id) {
-                Some(room.clone())
-            } else {
-                None
-            }),
-            Either::Right(room_name) => {
-                lock!(rooms = self.0; for room in rooms.list.values() {
-                    let room = room.clone();
-                    if lock!(@read room = room; room.name == *room_name) {
-                        unlock!();
-                        return Some(room)
-                    }
-                });
-                None
-            }
-        }
+    async fn get_arc(&self, room_id: u64) -> Option<ArcRwLock<Room<C>>> {
+        lock!(rooms = self.0; rooms.list.get(&room_id).cloned())
     }
 
     async fn add(&self, room: ArcRwLock<Room<C>>) -> sqlx::Result<bool> {
@@ -727,9 +684,8 @@ impl<C: ClientKind> Rooms<C> {
     async fn remove(&self, id: u64) {
         lock!(rooms = self.0; if let Some(room) = rooms.list.remove(&id) {
             lock!(@read room = room; {
-                let name = room.name.clone();
                 let auth = room.auth.clone();
-                let _ = rooms.change_tx.send(RoomListChange::Delete { id, name, auth });
+                let _ = rooms.change_tx.send(RoomListChange::Delete { id, auth });
             });
         });
     }

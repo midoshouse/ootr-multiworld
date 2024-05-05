@@ -14,7 +14,6 @@ bitflags = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
 derivative = "2"
-either = "1"
 enum-iterator = "2"
 futures = "0.3"
 github-app-auth = { git = "https://github.com/fenhl/github-app-auth", branch = "deps", optional = true }

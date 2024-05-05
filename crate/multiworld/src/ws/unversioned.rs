@@ -5,7 +5,6 @@ use {
         time::Duration,
     },
     chrono::prelude::*,
-    either::Either,
     ootr::model::DungeonReward,
     ootr_utils::spoiler::{
         HashIcon,
@@ -26,7 +25,7 @@ pub enum ClientMessage {
     Ping,
     /// Only works after [`ServerMessage::EnterLobby`].
     JoinRoom {
-        room: Either<u64, String>,
+        id: u64,
         password: Option<String>,
     },
     /// Only works after [`ServerMessage::EnterLobby`].
@@ -58,7 +57,7 @@ pub enum ClientMessage {
     DeleteRoom,
     /// Configures the given room to be visible on oottracker.fenhl.net. Only works after [`ServerMessage::AdminLoginSuccess`].
     Track {
-        mw_room: Either<u64, String>,
+        mw_room: u64,
         tracker_room_name: String, //TODO remove this parameter, generate a random name instead and reply with it
         world_count: NonZeroU8, //TODO this parameter can also be removed if oottracker is changed to use the base queue system
     },
@@ -120,10 +119,7 @@ pub enum ServerMessage {
         password_required: bool,
     },
     /// A room has been deleted.
-    DeleteRoom {
-        id: u64,
-        name: String,
-    },
+    DeleteRoom(u64),
     /// You have created or joined a room.
     EnterRoom {
         room_id: u64,
@@ -152,7 +148,7 @@ pub enum ServerMessage {
     GetItem(u16),
     /// You have successfully logged in as an admin. Sent after [`ServerMessage::LoginSuccess`].
     AdminLoginSuccess {
-        active_connections: BTreeMap<u64, (String, Vec<Player>, u8)>,
+        active_connections: BTreeMap<u64, (Vec<Player>, u8)>,
     },
     /// The client will now be disconnected.
     Goodbye,
