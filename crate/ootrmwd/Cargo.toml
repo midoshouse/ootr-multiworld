@@ -30,3 +30,7 @@ wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["
 [target.'cfg(unix)'.dependencies]
 either = "1"
 ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils", branch = "main" }
+
+[build-dependencies]
+git2 = "0.18.3"
+semver = "1.0.22"

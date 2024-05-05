@@ -105,6 +105,8 @@ use {
     crate::unix_socket::ClientMessage as Subcommand,
 };
 
+include!(concat!(env!("OUT_DIR"), "/version.rs"));
+
 mod http;
 #[cfg(unix)] mod unix_socket;
 
@@ -761,7 +763,7 @@ impl<C: ClientKind> Default for Rooms<C> {
 }
 
 #[derive(clap::Parser)]
-#[clap(version)]
+#[clap(version = CLAP_VERSION)]
 struct Args {
     #[clap(short, long, default_value = "midos_house")]
     database: String,
