@@ -13,10 +13,7 @@ use {
         Sink,
         stream::Stream,
     },
-    ootr_utils::spoiler::{
-        HashIcon,
-        SpoilerLog,
-    },
+    ootr_utils::spoiler::HashIcon,
     semver::Version,
     tokio_tungstenite::tungstenite,
     crate::{
@@ -25,6 +22,7 @@ use {
         ws::{
             ServerError,
             unversioned,
+            v16::SpoilerLog,
         },
     },
 };
@@ -95,7 +93,7 @@ impl TryFrom<ClientMessage> for unversioned::ClientMessage {
             ClientMessage::DeleteRoom => unversioned::ClientMessage::DeleteRoom,
             ClientMessage::Track { mw_room_name, tracker_room_name, world_count } => unversioned::ClientMessage::Track { mw_room: Either::Right(mw_room_name), tracker_room_name, world_count },
             ClientMessage::SaveData(save) => unversioned::ClientMessage::SaveData(save),
-            ClientMessage::SendAll { source_world, spoiler_log } => unversioned::ClientMessage::SendAll { source_world, spoiler_log },
+            ClientMessage::SendAll { source_world, spoiler_log } => unversioned::ClientMessage::SendAll { source_world, spoiler_log: spoiler_log.into() },
             ClientMessage::SaveDataError { debug, version } => unversioned::ClientMessage::SaveDataError { debug, version },
             ClientMessage::FileHash(hash) => unversioned::ClientMessage::FileHash(hash),
             ClientMessage::AutoDeleteDelta(delta) => unversioned::ClientMessage::AutoDeleteDelta(delta),

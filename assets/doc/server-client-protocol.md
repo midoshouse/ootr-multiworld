@@ -256,6 +256,14 @@ Requests that all remaining items from the given world be distributed. Useful wh
     * `item`: The name of the item, a [string](#string)
     * `model`: An [optional](#optional) [string](#string), present if this item is an ice trap in a location where the cloak is relevant, defining the item it is cloaked as
 
+Some of these fields are unused and will be removed in a future version. As of now, they still need to be present and have valid values. The following fields are actually used:
+
+* `source_world`
+* `file_hash`
+* `:version`
+* the `keyring_give_bk` setting
+* `locations`
+
 ## `0x0e` SaveDataError
 
 Should not be sent by third-party clients.

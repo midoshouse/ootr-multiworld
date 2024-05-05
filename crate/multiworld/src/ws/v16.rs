@@ -12,11 +12,9 @@ use {
         stream::Stream,
     },
     ootr::model::DungeonReward,
-    ootr_utils::spoiler::{
-        HashIcon,
-        SpoilerLog,
-    },
+    ootr_utils::spoiler::HashIcon,
     semver::Version,
+    serde::Deserialize,
     tokio_tungstenite::tungstenite,
     crate::{
         Filename,
@@ -28,6 +26,25 @@ use {
         },
     },
 };
+
+#[derive(Debug, Deserialize, Protocol)]
+pub struct SpoilerLog {
+    pub file_hash: [HashIcon; 5],
+    #[serde(rename = ":version")]
+    pub version: ootr_utils::Version,
+    #[serde(deserialize_with = "ootr_utils::spoiler::deserialize_multiworld")]
+    pub settings: Vec<ootr_utils::spoiler::Settings>,
+    #[serde(deserialize_with = "ootr_utils::spoiler::deserialize_multiworld")]
+    pub randomized_settings: Vec<ootr_utils::spoiler::RandomizedSettings>,
+    #[serde(deserialize_with = "ootr_utils::spoiler::deserialize_multiworld")]
+    pub locations: Vec<BTreeMap<String, ootr_utils::spoiler::Item>>,
+}
+
+impl From<SpoilerLog> for ootr_utils::spoiler::SpoilerLog {
+    fn from(SpoilerLog { file_hash, version, settings, randomized_settings, locations }: SpoilerLog) -> Self {
+        Self { file_hash, version, settings, randomized_settings, locations }
+    }
+}
 
 #[derive(Debug, Protocol)]
 pub enum ClientMessage {
@@ -104,7 +121,7 @@ impl TryFrom<ClientMessage> for unversioned::ClientMessage {
             ClientMessage::DeleteRoom => unversioned::ClientMessage::DeleteRoom,
             ClientMessage::Track { mw_room, tracker_room_name, world_count } => unversioned::ClientMessage::Track { mw_room: Either::Left(mw_room), tracker_room_name, world_count },
             ClientMessage::SaveData(save) => unversioned::ClientMessage::SaveData(save),
-            ClientMessage::SendAll { source_world, spoiler_log } => unversioned::ClientMessage::SendAll { source_world, spoiler_log },
+            ClientMessage::SendAll { source_world, spoiler_log } => unversioned::ClientMessage::SendAll { source_world, spoiler_log: spoiler_log.into() },
             ClientMessage::SaveDataError { debug, version } => unversioned::ClientMessage::SaveDataError { debug, version },
             ClientMessage::FileHash(hash) => unversioned::ClientMessage::FileHash(hash),
             ClientMessage::AutoDeleteDelta(delta) => unversioned::ClientMessage::AutoDeleteDelta(delta),

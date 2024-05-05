@@ -5,10 +5,7 @@ use {
         time::Duration,
     },
     itertools::Itertools as _,
-    ootr_utils::spoiler::{
-        HashIcon,
-        SpoilerLog,
-    },
+    ootr_utils::spoiler::HashIcon,
     syn::{
         Expr,
         ExprLit,
@@ -20,7 +17,10 @@ use {
     },
     multiworld::{
         Filename,
-        ws::latest::ClientMessage,
+        ws::latest::{
+            ClientMessage,
+            SpoilerLog,
+        },
     },
     crate::Error,
 };
