@@ -1,8 +1,6 @@
-use std::{
-    path::{
-        Path,
-        PathBuf,
-    },
+use std::path::{
+    Path,
+    PathBuf,
 };
 #[cfg(unix)] use wheel::fs;
 #[cfg(windows)] use {

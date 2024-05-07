@@ -27,7 +27,7 @@ futures = "0.3"
 iced = { version = "0.12", default-features = false, features = ["advanced", "image", "svg", "tokio"] }
 iced_runtime = "0.12"
 if_chain = "1"
-image = { version = "0.24", default-features = false, features = ["ico"] } # recursive dependency of iced
+image = { version = "0.24", default-features = false, features = ["ico"] } # transitive dependency of iced
 itertools = "0.12"
 log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
 multiworld = { path = "../multiworld" }

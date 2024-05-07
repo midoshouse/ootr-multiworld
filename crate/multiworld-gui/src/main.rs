@@ -17,7 +17,6 @@ use {
             Path,
             PathBuf,
         },
-        process,
         sync::Arc,
         time::Duration,
     },
@@ -130,12 +129,13 @@ use {
         subscriptions::WsSink,
     },
 };
-#[cfg(unix)] use {
-    std::os::unix::fs::PermissionsExt as _,
-    xdg::BaseDirectories,
-};
+#[cfg(unix)] use xdg::BaseDirectories;
 #[cfg(windows)] use directories::ProjectDirs;
-#[cfg(target_os = "linux")] use gio::prelude::*;
+#[cfg(target_os = "linux")] use {
+    std::os::unix::fs::PermissionsExt as _,
+    gio::prelude::*,
+};
+#[cfg(any(target_os = "linux", target_os = "windows"))] use std::process;
 
 mod everdrive;
 mod login;
@@ -378,6 +378,7 @@ enum Message {
     SetSendAllWorld(String),
     ToggleUpdateErrorDetails,
     UpToDate,
+    UpdateAvailable(Version),
     UpdateError(Arc<Error>),
 }
 
@@ -390,6 +391,7 @@ fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) ->
 enum UpdateState {
     Pending,
     UpToDate,
+    Available(Version),
     Error {
         e: Arc<Error>,
         expanded: bool,
@@ -538,6 +540,7 @@ impl State {
     }
 }
 
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[derive(Debug, Clone)]
 struct BizHawkState {
     path: PathBuf,
@@ -562,6 +565,7 @@ impl Default for EverDriveState {
 #[derive(Debug, Clone)]
 struct FrontendState {
     kind: Frontend,
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     bizhawk: Option<BizHawkState>,
     everdrive: EverDriveState,
 }
@@ -571,11 +575,12 @@ impl FrontendState {
         match self.kind {
             Frontend::Dummy => "(no frontend)".into(),
             Frontend::EverDrive => "EverDrive".into(),
-            Frontend::BizHawk => if let Some(BizHawkState { ref version, .. }) = self.bizhawk {
+            #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if let Some(BizHawkState { ref version, .. }) = self.bizhawk {
                 format!("BizHawk {version}").into()
             } else {
                 "BizHawk".into()
             },
+            #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
             Frontend::Pj64V3 => "Project64 3.x".into(),
             Frontend::Pj64V4 => "Project64 4.x".into(),
         }
@@ -585,7 +590,8 @@ impl FrontendState {
         match self.kind {
             Frontend::Dummy | Frontend::EverDrive | Frontend::Pj64V3 => false,
             Frontend::Pj64V4 => false, //TODO pass port from PJ64, consider locked if present
-            Frontend::BizHawk => self.bizhawk.is_some(),
+            #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => self.bizhawk.is_some(),
+            #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
         }
     }
 }
@@ -607,13 +613,17 @@ impl Application for State {
         };
         let frontend = FrontendState {
             kind: match frontend {
-                None => config.default_frontend.unwrap_or(Frontend::Pj64V3),
+                None => config.default_frontend.unwrap_or({
+                    #[cfg(windows)] { Frontend::Pj64V3 }
+                    #[cfg(not(windows))] { Frontend::EverDrive }
+                }),
                 Some(FrontendArgs::Dummy) => Frontend::Dummy,
                 Some(FrontendArgs::EverDrive) => Frontend::EverDrive,
                 Some(FrontendArgs::BizHawk { .. }) => Frontend::BizHawk,
                 Some(FrontendArgs::Pj64V3) => Frontend::Pj64V3,
                 Some(FrontendArgs::Pj64V4) => Frontend::Pj64V4,
             },
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             bizhawk: if let Some(FrontendArgs::BizHawk { path, pid, version, port }) = frontend {
                 Some(BizHawkState { path, pid, version, port })
             } else {
@@ -686,7 +696,7 @@ impl Application for State {
             },
             Message::CheckForUpdates => {
                 self.update_state = UpdateState::Pending;
-                let frontend = self.frontend.clone();
+                #[cfg(any(target_os = "linux", target_os = "windows"))] let frontend = self.frontend.clone();
                 return cmd(async move {
                     let http_client = reqwest::Client::builder()
                         .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
@@ -698,48 +708,53 @@ impl Application for State {
                     if let Some(release) = repo.latest_release(&http_client).await? {
                         let new_ver = release.version()?;
                         if new_ver > Version::parse(env!("CARGO_PKG_VERSION"))? {
-                            let updater_path = {
-                                #[cfg(unix)] {
-                                    BaseDirectories::new()?.place_cache_file("midos-house/multiworld-updater")?
+                            #[cfg(any(target_os = "linux", target_os = "windows"))] {
+                                let updater_path = {
+                                    #[cfg(unix)] {
+                                        BaseDirectories::new()?.place_cache_file("midos-house/multiworld-updater")?
+                                    }
+                                    #[cfg(windows)] {
+                                        let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::MissingHomeDir)?;
+                                        let cache_dir = project_dirs.cache_dir();
+                                        fs::create_dir_all(cache_dir).await?;
+                                        cache_dir.join("updater.exe")
+                                    }
+                                };
+                                #[cfg(all(target_arch = "x86_64", target_os = "linux", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater");
+                                #[cfg(all(target_arch = "x86_64", target_os = "linux", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater");
+                                #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater.exe");
+                                #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
+                                fs::write(&updater_path, updater_data).await?;
+                                #[cfg(unix)] fs::set_permissions(&updater_path, fs::Permissions::from_mode(0o755)).await?;
+                                let mut cmd = process::Command::new(updater_path);
+                                match frontend.kind {
+                                    Frontend::Dummy => return Ok(Message::UpToDate),
+                                    Frontend::EverDrive => {
+                                        cmd.arg("everdrive");
+                                        cmd.arg(env::current_exe()?);
+                                        cmd.arg(process::id().to_string());
+                                    }
+                                    Frontend::BizHawk => if let Some(BizHawkState { path, pid, version, port: _ }) = frontend.bizhawk {
+                                        cmd.arg("bizhawk");
+                                        cmd.arg(process::id().to_string());
+                                        cmd.arg(path);
+                                        cmd.arg(pid.to_string());
+                                        cmd.arg(version.to_string());
+                                    } else {
+                                        return Ok(Message::UpToDate)
+                                    },
+                                    Frontend::Pj64V3 | Frontend::Pj64V4 => {
+                                        cmd.arg("pj64");
+                                        cmd.arg(env::current_exe()?);
+                                        cmd.arg(process::id().to_string());
+                                    }
                                 }
-                                #[cfg(windows)] {
-                                    let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::MissingHomeDir)?;
-                                    let cache_dir = project_dirs.cache_dir();
-                                    fs::create_dir_all(cache_dir).await?;
-                                    cache_dir.join("updater.exe")
-                                }
-                            };
-                            #[cfg(all(target_arch = "x86_64", target_os = "linux", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater");
-                            #[cfg(all(target_arch = "x86_64", target_os = "linux", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater");
-                            #[cfg(all(target_arch = "x86_64", target_os = "windows", debug_assertions))] let updater_data = include_bytes!("../../../target/debug/multiworld-updater.exe");
-                            #[cfg(all(target_arch = "x86_64", target_os = "windows", not(debug_assertions)))] let updater_data = include_bytes!("../../../target/release/multiworld-updater.exe");
-                            fs::write(&updater_path, updater_data).await?;
-                            #[cfg(unix)] fs::set_permissions(&updater_path, fs::Permissions::from_mode(0o755)).await?;
-                            let mut cmd = process::Command::new(updater_path);
-                            match frontend.kind {
-                                Frontend::Dummy => return Ok(Message::UpToDate),
-                                Frontend::EverDrive => {
-                                    cmd.arg("everdrive");
-                                    cmd.arg(env::current_exe()?);
-                                    cmd.arg(process::id().to_string());
-                                }
-                                Frontend::BizHawk => if let Some(BizHawkState { path, pid, version, port: _ }) = frontend.bizhawk {
-                                    cmd.arg("bizhawk");
-                                    cmd.arg(process::id().to_string());
-                                    cmd.arg(path);
-                                    cmd.arg(pid.to_string());
-                                    cmd.arg(version.to_string());
-                                } else {
-                                    return Ok(Message::UpToDate)
-                                },
-                                Frontend::Pj64V3 | Frontend::Pj64V4 => {
-                                    cmd.arg("pj64");
-                                    cmd.arg(env::current_exe()?);
-                                    cmd.arg(process::id().to_string());
-                                }
+                                let _ = cmd.spawn()?;
+                                return Ok(Message::Exit)
                             }
-                            let _ = cmd.spawn()?;
-                            return Ok(Message::Exit)
+                            #[cfg(target_os = "macos")] {
+                                return Ok(Message::UpdateAvailable(new_ver))
+                            }
                         }
                     }
                     Ok(Message::UpToDate)
@@ -1376,6 +1391,7 @@ impl Application for State {
             Message::SetSendAllWorld(new_world) => self.send_all_world = new_world,
             Message::ToggleUpdateErrorDetails => if let UpdateState::Error { ref mut expanded, .. } = self.update_state { *expanded = !*expanded },
             Message::UpToDate => self.update_state = UpdateState::UpToDate,
+            Message::UpdateAvailable(new_ver) => self.update_state = UpdateState::Available(new_ver),
             Message::UpdateError(e) => self.update_state = UpdateState::Error { e, expanded: false },
         }
         Command::none()
@@ -1449,7 +1465,7 @@ impl Application for State {
                         .push("Connection to EverDrive lost")
                         .push("Retrying in 5 seconds…"),
                 },
-                Frontend::BizHawk => if self.frontend.bizhawk.is_some() {
+                #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if self.frontend.bizhawk.is_some() {
                     col = col
                         .push("Waiting for BizHawk…")
                         .push("Make sure your game is running and unpaused.");
@@ -1458,6 +1474,7 @@ impl Application for State {
                         .push("BizHawk not connected")
                         .push("To use multiworld with BizHawk, start it from BizHawk's Tools → External Tools menu.");
                 },
+                #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
                 Frontend::Pj64V3 => {
                     col = col
                         .push("Waiting for Project64…")
@@ -1795,6 +1812,15 @@ impl Application for State {
                 col = col.push(Rule::horizontal(1)); //TODO hide if main_view is empty
             }
             UpdateState::UpToDate => {}
+            UpdateState::Available(ref new_ver) => {
+                col = col.push(Text::new(format!("An update is available ({} → {new_ver})", env!("CARGO_PKG_VERSION"))));
+                #[cfg(target_os = "macos")] {
+                    col = col.push("Please quit this app and run the following command in the Terminal app:");
+                    col = col.push("brew update && brew upgrade"); //TODO automate
+                }
+                #[cfg(not(target_os = "macos"))] unimplemented!("these platforms should auto-update until package manager support is added");
+                col = col.push(Rule::horizontal(1));
+            }
             UpdateState::Error { ref e, expanded } => {
                 let is_network_error = e.is_network_error();
                 if expanded {
@@ -1832,9 +1858,10 @@ impl Application for State {
             match self.frontend.kind {
                 Frontend::Dummy => {}
                 Frontend::EverDrive => subscriptions.push(Subscription::from_recipe(everdrive::Subscription)),
-                Frontend::BizHawk => if let Some(BizHawkState { port, .. }) = self.frontend.bizhawk {
+                #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if let Some(BizHawkState { port, .. }) = self.frontend.bizhawk {
                     subscriptions.push(Subscription::from_recipe(subscriptions::Connection { port, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id }));
                 },
+                #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
                 Frontend::Pj64V3 => subscriptions.push(Subscription::from_recipe(subscriptions::Listener { frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id })),
                 Frontend::Pj64V4 => subscriptions.push(Subscription::from_recipe(subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id })), //TODO allow Project64 to specify port via command-line arg
             }

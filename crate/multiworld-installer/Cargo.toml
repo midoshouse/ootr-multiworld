@@ -39,7 +39,7 @@ enum-iterator = "2"
 futures = "0.3"
 iced = { version = "0.12", default-features = false, features = ["image", "tokio"] }
 iced_runtime = "0.12"
-image = { version = "0.24", default-features = false, features = ["ico"] } # recursive dependency of iced
+image = { version = "0.24", default-features = false, features = ["ico"] } # transitive dependency of iced
 itertools = "0.12"
 lazy-regex = "3"
 multiworld = { path = "../multiworld" }
