@@ -378,7 +378,7 @@ enum Message {
     SetSendAllWorld(String),
     ToggleUpdateErrorDetails,
     UpToDate,
-    UpdateAvailable(Version),
+    #[cfg(target_os = "macos")] UpdateAvailable(Version),
     UpdateError(Arc<Error>),
 }
 
@@ -391,7 +391,7 @@ fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) ->
 enum UpdateState {
     Pending,
     UpToDate,
-    Available(Version),
+    #[cfg(target_os = "macos")] Available(Version),
     Error {
         e: Arc<Error>,
         expanded: bool,
@@ -1391,7 +1391,7 @@ impl Application for State {
             Message::SetSendAllWorld(new_world) => self.send_all_world = new_world,
             Message::ToggleUpdateErrorDetails => if let UpdateState::Error { ref mut expanded, .. } = self.update_state { *expanded = !*expanded },
             Message::UpToDate => self.update_state = UpdateState::UpToDate,
-            Message::UpdateAvailable(new_ver) => self.update_state = UpdateState::Available(new_ver),
+            #[cfg(target_os = "macos")] Message::UpdateAvailable(new_ver) => self.update_state = UpdateState::Available(new_ver),
             Message::UpdateError(e) => self.update_state = UpdateState::Error { e, expanded: false },
         }
         Command::none()
@@ -1812,13 +1812,10 @@ impl Application for State {
                 col = col.push(Rule::horizontal(1)); //TODO hide if main_view is empty
             }
             UpdateState::UpToDate => {}
-            UpdateState::Available(ref new_ver) => {
+            #[cfg(target_os = "macos")] UpdateState::Available(ref new_ver) => {
                 col = col.push(Text::new(format!("An update is available ({} → {new_ver})", env!("CARGO_PKG_VERSION"))));
-                #[cfg(target_os = "macos")] {
-                    col = col.push("Please quit this app and run the following command in the Terminal app:");
-                    col = col.push("brew update && brew upgrade"); //TODO automate
-                }
-                #[cfg(not(target_os = "macos"))] unimplemented!("these platforms should auto-update until package manager support is added");
+                col = col.push("Please quit this app and run the following command in the Terminal app:");
+                col = col.push("brew update && brew upgrade"); //TODO automate
                 col = col.push(Rule::horizontal(1));
             }
             UpdateState::Error { ref e, expanded } => {

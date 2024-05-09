@@ -30,11 +30,7 @@ use {
         },
         stream::TryStreamExt as _,
     },
-    gres::{
-        Percent,
-        Progress,
-        Task,
-    },
+    gres::Task,
     itertools::Itertools as _,
     lazy_regex::regex_captures,
     semver::Version,
@@ -110,19 +106,6 @@ impl fmt::Display for Setup {
             Self::LockRust(..) => write!(f, "waiting for Rust lock"),
             Self::UpdateRust(..) => write!(f, "updating Rust"),
         }
-    }
-}
-
-impl Progress for Setup {
-    fn progress(&self) -> Percent {
-        Percent::fraction(match self {
-            Self::CreateReqwestClient(..) => 0,
-            Self::CheckVersion(..) => 1,
-            Self::CheckBizHawkVersion(..) => 2,
-            Self::CheckPj64ProtocolVersion(..) => 3,
-            Self::LockRust(..) => 4,
-            Self::UpdateRust(..) => 5,
-        }, 6)
     }
 }
 
@@ -232,17 +215,6 @@ impl fmt::Display for CreateRelease {
     }
 }
 
-impl Progress for CreateRelease {
-    fn progress(&self) -> Percent {
-        Percent::fraction(match self {
-            Self::CreateNotesFile(..) => 0,
-            Self::EditNotes(..) => 1,
-            Self::ReadNotes(..) => 2,
-            Self::Create(..) => 3,
-        }, 4)
-    }
-}
-
 impl GetPriority for CreateRelease {
     fn priority(&self) -> Priority {
         match self {
@@ -321,14 +293,6 @@ impl fmt::Display for BuildUpdater {
     }
 }
 
-impl Progress for BuildUpdater {
-    fn progress(&self) -> Percent {
-        Percent::fraction(match self {
-            Self::Glow(..) => 0,
-        }, 1)
-    }
-}
-
 impl GetPriority for BuildUpdater {
     fn priority(&self) -> Priority {
         match self {
@@ -382,18 +346,6 @@ impl fmt::Display for BuildGui {
             Self::Upload(false, ..) => write!(f, "uploading multiworld-pj64.exe"),
             Self::Upload(true, ..) => write!(f, "uploading multiworld-gui-debug.exe"),
         }
-    }
-}
-
-impl Progress for BuildGui {
-    fn progress(&self) -> Percent {
-        Percent::fraction(match self {
-            Self::Updater(..) => 0,
-            Self::Glow(..) => 1,
-            Self::Read(..) => 2,
-            Self::WaitRelease(..) => 3,
-            Self::Upload(..) => 4,
-        }, 5)
     }
 }
 
@@ -478,20 +430,6 @@ impl fmt::Display for BuildGuiLinux {
     }
 }
 
-impl Progress for BuildGuiLinux {
-    fn progress(&self) -> Percent {
-        Percent::fraction(match self {
-            Self::Sync(..) => 0,
-            Self::Updater(..) => 1,
-            Self::Gui(..) => 2,
-            Self::Copy(..) => 3,
-            Self::Read(..) => 4,
-            Self::WaitRelease(..) => 5,
-            Self::Upload(..) => 6,
-        }, 7)
-    }
-}
-
 impl GetPriority for BuildGuiLinux {
     fn priority(&self) -> Priority {
         match self {
@@ -571,19 +509,6 @@ impl fmt::Display for BuildBizHawk {
             Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
             Self::Upload(..) => write!(f, "uploading multiworld-bizhawk.zip"),
         }
-    }
-}
-
-impl Progress for BuildBizHawk {
-    fn progress(&self) -> Percent {
-        Percent::fraction(match self {
-            Self::Gui(..) => 0,
-            Self::CSharp(..) => 1,
-            Self::BizHawk(..) => 2,
-            Self::Zip(..) => 3,
-            Self::WaitRelease(..) => 4,
-            Self::Upload(..) => 5,
-        }, 6)
     }
 }
 
@@ -689,20 +614,6 @@ impl fmt::Display for BuildBizHawkLinux {
     }
 }
 
-impl Progress for BuildBizHawkLinux {
-    fn progress(&self) -> Percent {
-        Percent::fraction(match self {
-            Self::Gui(..) => 0,
-            Self::CSharp(..) => 1,
-            Self::BizHawk(..) => 2,
-            Self::Copy(..) => 3,
-            Self::Zip(..) => 4,
-            Self::WaitRelease(..) => 5,
-            Self::Upload(..) => 6,
-        }, 7)
-    }
-}
-
 impl GetPriority for BuildBizHawkLinux {
     fn priority(&self) -> Priority {
         match self {
@@ -788,16 +699,6 @@ impl fmt::Display for BuildPj64 {
     }
 }
 
-impl Progress for BuildPj64 {
-    fn progress(&self) -> Percent {
-        Percent::fraction(match self {
-            Self::ReadJs(..) => 0,
-            Self::WaitRelease(..) => 1,
-            Self::UploadJs(..) => 2,
-        }, 3)
-    }
-}
-
 impl GetPriority for BuildPj64 {
     fn priority(&self) -> Priority {
         match self {
@@ -854,18 +755,6 @@ impl fmt::Display for BuildInstaller {
             Self::Upload(false, ..) => write!(f, "uploading multiworld-installer.exe"),
             Self::Upload(true, ..) => write!(f, "uploading multiworld-installer-debug.exe"),
         }
-    }
-}
-
-impl Progress for BuildInstaller {
-    fn progress(&self) -> Percent {
-        Percent::fraction(match self {
-            Self::Deps(..) => 0,
-            Self::Glow(..) => 1,
-            Self::Read(..) => 2,
-            Self::WaitRelease(..) => 3,
-            Self::Upload(..) => 4,
-        }, 5)
     }
 }
 
@@ -945,19 +834,6 @@ impl fmt::Display for BuildInstallerLinux {
             Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
             Self::Upload(..) => write!(f, "uploading multiworld-installer-linux"),
         }
-    }
-}
-
-impl Progress for BuildInstallerLinux {
-    fn progress(&self) -> Percent {
-        Percent::fraction(match self {
-            Self::Deps(..) => 0,
-            Self::Glow(..) => 1,
-            Self::Copy(..) => 2,
-            Self::Read(..) => 3,
-            Self::WaitRelease(..) => 4,
-            Self::Upload(..) => 5,
-        }, 6)
     }
 }
 
@@ -1048,27 +924,6 @@ impl fmt::Display for BuildServer {
             Self::Replace => write!(f, "replacing ootrmwd binary on Mido's House"),
             Self::Start => write!(f, "starting new ootrmwd"),
         }
-    }
-}
-
-impl Progress for BuildServer {
-    fn progress(&self) -> Percent {
-        Percent::new(match self {
-            Self::Sync(..) => 0,
-            Self::Build(..) => 10,
-            Self::Copy(..) => 40,
-            Self::Upload(..) => 45,
-            Self::WaitRestart { deadline: Some(deadline), start, .. } => {
-                let Ok(total) = (*deadline - *start).to_std() else { return Percent::new(90) };
-                let Ok(elapsed) = (Utc::now() - *start).to_std() else { return Percent::new(50) };
-                50 + (40.0 * elapsed.as_secs_f64() / total.as_secs_f64()) as u8
-            }
-            Self::WaitRestart { deadline: None, .. } => 50,
-            Self::Stop => 95,
-            Self::UpdateRepo => 96,
-            Self::Replace => 98,
-            Self::Start => 99,
-        })
     }
 }
 
