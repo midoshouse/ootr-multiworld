@@ -20,7 +20,7 @@ warnings = "deny"
 [dependencies]
 async-proto = "0.21"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-itertools = "0.12"
+itertools = "0.13"
 libc = "0.2"
 multiworld = { path = "../multiworld" }
 multiworld-derive = { path = "../multiworld-derive" }

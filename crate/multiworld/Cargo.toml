@@ -18,7 +18,7 @@ enum-iterator = "2"
 futures = "0.3"
 github-app-auth = { git = "https://github.com/fenhl/github-app-auth", branch = "deps", optional = true }
 if_chain = "1"
-itertools = "0.12"
+itertools = "0.13"
 log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
 multiworld-derive = { path = "../multiworld-derive" }
 oauth2 = "4"

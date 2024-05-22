@@ -20,7 +20,7 @@ features = ["reqwest"]
 path = "../multiworld-bizhawk"
 
 [target.'cfg(unix)'.build-dependencies]
-itertools = "0.12"
+itertools = "0.13"
 
 [target.'cfg(unix)'.build-dependencies.multiworld]
 path = "../multiworld"
@@ -40,7 +40,7 @@ futures = "0.3"
 iced = { version = "0.12", default-features = false, features = ["image", "tokio"] }
 iced_runtime = "0.12"
 image = { version = "0.24", default-features = false, features = ["ico"] } # transitive dependency of iced
-itertools = "0.12"
+itertools = "0.13"
 lazy-regex = "3"
 multiworld = { path = "../multiworld" }
 open = "5"

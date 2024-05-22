@@ -28,7 +28,7 @@ iced = { version = "0.12", default-features = false, features = ["advanced", "im
 iced_runtime = "0.12"
 if_chain = "1"
 image = { version = "0.24", default-features = false, features = ["ico"] } # transitive dependency of iced
-itertools = "0.12"
+itertools = "0.13"
 log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
 multiworld = { path = "../multiworld" }
 oauth2 = "4"

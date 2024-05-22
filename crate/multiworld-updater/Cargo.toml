@@ -26,7 +26,7 @@ futures = "0.3"
 iced = { version = "0.12", default-features = false, features = ["image", "tokio"] }
 iced_runtime = "0.12"
 image = { version = "0.24", default-features = false, features = ["ico"] } # recursive dependency of iced
-itertools = "0.12"
+itertools = "0.13"
 multiworld = { path = "../multiworld" }
 open = "5"
 reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "macos-system-configuration", "rustls-tls", "stream"] }

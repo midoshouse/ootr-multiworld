@@ -903,6 +903,7 @@ impl<C: ClientKind> Room<C> {
                 } else {
                     eprintln!("conflicting item kinds at location 0x{key:016x} from world {source_world} in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name);
                     wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("conflicting item kinds at location 0x{key:016x} from world {source_world} in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name))).await?;
+                    //TODO notify client and request additional seed info
                 }
             } else {
                 if verbose_logging { println!("item not a duplicate") }
