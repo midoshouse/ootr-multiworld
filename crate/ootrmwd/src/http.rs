@@ -31,6 +31,7 @@ use {
     sqlx::PgPool,
     tokio::sync::watch,
     tokio_tungstenite::tungstenite,
+    wheel::traits::IsNetworkError as _,
     multiworld::{
         ClientWriter as _,
         ws::{
@@ -76,6 +77,11 @@ macro_rules! supported_version {
                         eprintln!("server error in WebSocket handler ({}): {msg}", stringify!($version));
                         let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("server error in WebSocket handler ({}): {msg}", stringify!($version)))).await;
                         let _ = lock!(writer = writer; writer.write(ServerMessage::OtherError(msg)).await);
+                    }
+                    Err(e) if e.is_network_error() => {
+                        eprintln!("network error in WebSocket handler ({}): {e}", stringify!($version));
+                        eprintln!("debug info: {e:?}");
+                        let _ = lock!(writer = writer; writer.write(ServerMessage::OtherError(e.to_string())).await);
                     }
                     Err(e) => {
                         eprintln!("error in WebSocket handler ({}): {e}", stringify!($version));

@@ -70,6 +70,7 @@ use {
     },
     wheel::traits::{
         AsyncCommandOutputExt as _,
+        IsNetworkError,
         ReqwestResponseExt as _,
     },
     multiworld::{
@@ -147,6 +148,27 @@ enum SessionError {
     Server(String),
     #[error("server is shutting down")]
     Shutdown,
+}
+
+impl IsNetworkError for SessionError {
+    fn is_network_error(&self) -> bool {
+        match self {
+            Self::Elapsed(_) => true,
+            Self::OneshotRecv(_) => false,
+            Self::QueueItem(e) => e.is_network_error(),
+            Self::Read(e) => e.is_network_error(),
+            Self::Reqwest(e) => e.is_network_error(),
+            Self::Ring(_) => false,
+            Self::Room(e) => e.is_network_error(),
+            Self::SendAll(e) => e.is_network_error(),
+            Self::SetHash(e) => e.is_network_error(),
+            Self::Sql(_) => false,
+            Self::Wheel(e) => e.is_network_error(),
+            Self::Write(e) => e.is_network_error(),
+            Self::Server(_) => false,
+            Self::Shutdown => false,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]

@@ -530,6 +530,16 @@ pub enum QueueItemError {
     NoSourceWorld,
 }
 
+impl IsNetworkError for QueueItemError {
+    fn is_network_error(&self) -> bool {
+        match self {
+            Self::Room(e) => e.is_network_error(),
+            Self::FileHash { .. } => false,
+            Self::NoSourceWorld => false,
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum SetHashError {
     #[error(transparent)] Room(#[from] RoomError),
@@ -538,6 +548,15 @@ pub enum SetHashError {
         server: [HashIcon; 5],
         client: [HashIcon; 5],
     },
+}
+
+impl IsNetworkError for SetHashError {
+    fn is_network_error(&self) -> bool {
+        match self {
+            Self::Room(e) => e.is_network_error(),
+            Self::FileHash { .. } => false,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -563,6 +582,20 @@ pub enum SendAllError {
     },
     #[error("the given world number is not listed in the given spoiler log's locations section")]
     NoSuchWorld,
+}
+
+impl IsNetworkError for SendAllError {
+    fn is_network_error(&self) -> bool {
+        match self {
+            Self::Clone(_) => false,
+            Self::Dir(_) => false,
+            Self::PyJson(_) => false,
+            Self::Room(e) => e.is_network_error(),
+            Self::Disallowed => false,
+            Self::FileHash { .. } => false,
+            Self::NoSuchWorld => false,
+        }
+    }
 }
 
 bitflags! {
@@ -666,6 +699,15 @@ impl ProgressiveItems {
 pub enum RoomError {
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
+}
+
+impl IsNetworkError for RoomError {
+    fn is_network_error(&self) -> bool {
+        match self {
+            Self::Wheel(e) => e.is_network_error(),
+            Self::Write(e) => e.is_network_error(),
+        }
+    }
 }
 
 impl<C: ClientKind> Room<C> {
