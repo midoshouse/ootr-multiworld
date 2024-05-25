@@ -945,8 +945,9 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     db_pool: db_pool.clone(),
                     tracker_state: None,
                 })).await? {
-                    eprintln!("ignoring duplicate room name: {}", row.name);
-                    wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("ignoring duplicate room name: {}", row.name))).await?;
+                    eprintln!("deleting duplicate room: {}", row.name);
+                    wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("deleting duplicate room: {}", row.name))).await?;
+                    sqlx::query!("DELETE FROM mw_rooms WHERE id = $1", row.id).execute(&db_pool).await?;
                 }
             }
         }
