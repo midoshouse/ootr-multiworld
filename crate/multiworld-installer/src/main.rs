@@ -982,7 +982,7 @@ impl Application for State {
             Page::SelectEmulator { emulator, .. } => (
                 {
                     let mut col = Column::new();
-                    col = col.push(Text::new("Which emulator do you want to use?"));
+                    col = col.push(Text::new("Which console or emulator do you want to use?"));
                     col = col.push(Text::new("Multiworld can be added to an existing installation of the selected emulator, or it can install the emulator for you."));
                     for iter_emulator in all().filter(Emulator::is_supported) {
                         col = col.push(Radio::new(iter_emulator.to_string(), iter_emulator, emulator, Message::SetEmulator));
