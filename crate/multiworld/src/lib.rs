@@ -995,7 +995,7 @@ impl<C: ClientKind> Room<C> {
             self.queue_item_inner(source.world, key, kind, target_world, "while queueing an item", verbose_logging).await?;
             Ok(())
         } else {
-            Err(QueueItemError::NoSourceWorld)
+            Err(QueueItemError::NoSourceWorld) //TODO instead of erroring, delay queueing this item until sender claims a world
         }
     }
 

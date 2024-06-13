@@ -5,7 +5,7 @@ authors.workspace = true
 edition.workspace = true
 
 [dependencies]
-async-proto = { version = "0.21", features = ["chrono"] }
+async-proto = { version = "0.22", features = ["chrono"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
 derivative = "2"
@@ -24,7 +24,7 @@ serenity = { version = "0.12", default-features = false, features = ["model", "r
 sqlx = { version = "0.7", default-features = false, features = ["chrono", "postgres", "runtime-tokio-rustls"] }
 thiserror = "1"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "parking_lot", "process", "rt-multi-thread", "sync", "time"] }
-tokio-tungstenite = "0.20"
+tokio-tungstenite = "0.21"
 wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["reqwest", "rocket", "serde", "serde_json"] }
 
 [target.'cfg(unix)'.dependencies]

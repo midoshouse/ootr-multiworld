@@ -8,7 +8,7 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-async-proto = "0.21"
+async-proto = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["alloc", "clock"] }
 clap = { version = "4", features = ["derive"] }
 crossterm = { version = "0.27", features = ["event-stream"] }
@@ -20,6 +20,6 @@ serde_json = "1"
 syn = { version = "2", features = ["full"] }
 thiserror = "1"
 tokio = { version = "1", features = ["parking_lot", "time"] }
-tokio-tungstenite = { version = "0.20", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"] }
 url = "2"
 wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }
