@@ -57,7 +57,7 @@ macro_rules! supported_version {
     ($endpoint:literal, $version:ident, $variant:ident, $number:literal) => {
         #[rocket::get($endpoint)]
         async fn $version(rng: &State<Arc<SystemRandom>>, db_pool: &State<PgPool>, http_client: &State<reqwest::Client>, rooms: &State<Rooms<WebSocket>>, maintenance: &State<Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>>, next_session_id: &State<AtomicUsize>, ws: WebSocket, shutdown: rocket::Shutdown) -> rocket_ws::Channel<'static> {
-            let _ = sqlx::query!("INSERT INTO mw_versions (version, last_used) VALUES ($1, NOW()) ON CONFLICT (version) DO UPDATE SET last_used = EXCLUDED.last_used", $number).execute(&**db_pool).await;
+            let _ = sqlx::query!("INSERT INTO mw_versions (version, first_used, last_used) VALUES ($1, NOW(), NOW()) ON CONFLICT (version) DO UPDATE SET last_used = EXCLUDED.last_used", $number).execute(&**db_pool).await;
             let rng = (*rng).clone();
             let db_pool = (*db_pool).clone();
             let http_client = (*http_client).clone();
@@ -90,7 +90,7 @@ macro_rules! supported_version {
                         let _ = lock!(writer = writer; writer.write(ServerMessage::OtherError(e.to_string())).await);
                     }
                 }
-                let _ = sqlx::query!("INSERT INTO mw_versions (version, last_used) VALUES ($1, NOW()) ON CONFLICT (version) DO UPDATE SET last_used = EXCLUDED.last_used", $number).execute(&db_pool).await;
+                let _ = sqlx::query!("INSERT INTO mw_versions (version, first_used, last_used) VALUES ($1, NOW(), NOW()) ON CONFLICT (version) DO UPDATE SET last_used = EXCLUDED.last_used", $number).execute(&db_pool).await;
                 Ok(())
             }))
         }
