@@ -10,7 +10,6 @@ use {
 multiworld_derive::latest!();
 
 pub mod unversioned;
-pub mod v13;
 pub mod v14;
 pub mod v15;
 pub mod v16;
@@ -81,7 +80,6 @@ impl crate::ClientKind for WebSocket {
 
 #[derive(Clone, Copy)]
 pub enum Version {
-    V13,
     V14,
     V15,
     V16,
@@ -96,7 +94,6 @@ pub struct VersionedReader {
 impl crate::ClientReader for VersionedReader {
     async fn read_owned(self) -> Result<(Self, unversioned::ClientMessage), async_proto::ReadError> {
         match self.version {
-            Version::V13 => v13::read_owned(self.inner).await.map(|(inner, msg)| (Self { version: Version::V13, inner }, msg)),
             Version::V14 => v14::read_owned(self.inner).await.map(|(inner, msg)| (Self { version: Version::V14, inner }, msg)),
             Version::V15 => v15::read_owned(self.inner).await.map(|(inner, msg)| (Self { version: Version::V15, inner }, msg)),
             Version::V16 => v16::read_owned(self.inner).await.map(|(inner, msg)| (Self { version: Version::V16, inner }, msg)),
@@ -113,7 +110,6 @@ pub struct VersionedWriter {
 impl crate::ClientWriter for VersionedWriter {
     async fn write(&mut self, msg: unversioned::ServerMessage) -> Result<(), async_proto::WriteError> {
         match self.version {
-            Version::V13 => v13::write(&mut self.inner, msg).await,
             Version::V14 => v14::write(&mut self.inner, msg).await,
             Version::V15 => v15::write(&mut self.inner, msg).await,
             Version::V16 => v16::write(&mut self.inner, msg).await,
