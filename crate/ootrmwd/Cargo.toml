@@ -32,5 +32,5 @@ either = "1"
 ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils", branch = "main" }
 
 [build-dependencies]
-git2 = "0.18.3"
+git2 = "0.19"
 semver = "1.0.22"
