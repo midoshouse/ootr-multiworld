@@ -423,13 +423,14 @@ pub struct Client<C: ClientKind> {
     pub pending_world: Option<NonZeroU8>,
     pub pending_name: Option<Filename>,
     pub pending_hash: Option<[HashIcon; 5]>,
+    pub pending_items: Vec<(u64, u16, NonZeroU8)>,
     pub tracker_state: oottracker::ModelState,
     pub adjusted_save: oottracker::Save,
 }
 
 impl<C: ClientKind> fmt::Debug for Client<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { writer: _, end_tx, player, pending_world, pending_name, pending_hash, tracker_state, adjusted_save } = self;
+        let Self { writer: _, end_tx, player, pending_world, pending_name, pending_hash, pending_items, tracker_state, adjusted_save } = self;
         f.debug_struct("Client")
             .field("writer", &format_args!("_"))
             .field("end_tx", end_tx)
@@ -437,6 +438,7 @@ impl<C: ClientKind> fmt::Debug for Client<C> {
             .field("pending_world", pending_world)
             .field("pending_name", pending_name)
             .field("pending_hash", pending_hash)
+            .field("pending_items", pending_items)
             .field("tracker_state", tracker_state)
             .field("adjusted_save", adjusted_save)
             .finish()
@@ -519,47 +521,6 @@ pub struct Room<C: ClientKind> {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum QueueItemError {
-    #[error(transparent)] Room(#[from] RoomError),
-    #[error("this room is for a different seed: server has {} but client has {}", natjoin(.server).unwrap(), natjoin(.client).unwrap())]
-    FileHash {
-        server: [HashIcon; 5],
-        client: [HashIcon; 5],
-    },
-    #[error("please claim a world before sending items")]
-    NoSourceWorld,
-}
-
-impl IsNetworkError for QueueItemError {
-    fn is_network_error(&self) -> bool {
-        match self {
-            Self::Room(e) => e.is_network_error(),
-            Self::FileHash { .. } => false,
-            Self::NoSourceWorld => false,
-        }
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum SetHashError {
-    #[error(transparent)] Room(#[from] RoomError),
-    #[error("this room is for a different seed: server has {} but client has {}", natjoin(.server).unwrap(), natjoin(.client).unwrap())]
-    FileHash {
-        server: [HashIcon; 5],
-        client: [HashIcon; 5],
-    },
-}
-
-impl IsNetworkError for SetHashError {
-    fn is_network_error(&self) -> bool {
-        match self {
-            Self::Room(e) => e.is_network_error(),
-            Self::FileHash { .. } => false,
-        }
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
 pub enum SendItemError {
     #[error("unknown location: {0}")]
     Key(String),
@@ -575,11 +536,6 @@ pub enum SendAllError {
     #[error(transparent)] Room(#[from] RoomError),
     #[error("the SendAll command is not allowed in tournament rooms")]
     Disallowed,
-    #[error("this room is for a different seed: server has {} but client has {}", natjoin(.server).unwrap(), natjoin(.client).unwrap())]
-    FileHash {
-        server: [HashIcon; 5],
-        client: [HashIcon; 5],
-    },
     #[error("the given world number is not listed in the given spoiler log's locations section")]
     NoSuchWorld,
 }
@@ -592,7 +548,6 @@ impl IsNetworkError for SendAllError {
             Self::PyJson(_) => false,
             Self::Room(e) => e.is_network_error(),
             Self::Disallowed => false,
-            Self::FileHash { .. } => false,
             Self::NoSuchWorld => false,
         }
     }
@@ -699,6 +654,11 @@ impl ProgressiveItems {
 pub enum RoomError {
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error("this room is for a different seed: server has {} but client has {}", natjoin(.server).unwrap(), natjoin(.client).unwrap())]
+    FileHash {
+        server: [HashIcon; 5],
+        client: [HashIcon; 5],
+    },
 }
 
 impl IsNetworkError for RoomError {
@@ -706,6 +666,7 @@ impl IsNetworkError for RoomError {
         match self {
             Self::Wheel(e) => e.is_network_error(),
             Self::Write(e) => e.is_network_error(),
+            Self::FileHash { .. } => false,
         }
     }
 }
@@ -741,6 +702,7 @@ impl<C: ClientKind> Room<C> {
             pending_world: None,
             pending_name: None,
             pending_hash: None,
+            pending_items: Vec::default(),
             tracker_state: oottracker::ModelState::default(),
             adjusted_save: oottracker::Save::default(),
             writer, end_tx,
@@ -807,13 +769,24 @@ impl<C: ClientKind> Room<C> {
                 new_player.name = name;
                 broadcasts.push(unversioned::ServerMessage::PlayerName(world, name));
             }
-            if let Some(hash) = client.pending_hash.take() {
-                new_player.file_hash = Some(hash);
-                broadcasts.push(unversioned::ServerMessage::PlayerFileHash(world, hash));
+            if let Some(player_hash) = client.pending_hash.take() {
+                if let Some(room_hash) = self.file_hash {
+                    if player_hash != room_hash {
+                        return Err(RoomError::FileHash { server: room_hash, client: player_hash })
+                    }
+                } else {
+                    self.file_hash = Some(player_hash);
+                }
+                new_player.file_hash = Some(player_hash);
+                broadcasts.push(unversioned::ServerMessage::PlayerFileHash(world, player_hash));
             }
+            let pending_items = mem::take(&mut client.pending_items);
             *prev_player = Some(new_player);
             if client.pending_world.take().is_some() {
                 self.write(client_id, unversioned::ServerMessage::WorldFreed).await?;
+            }
+            for (key, kind, target_world) in pending_items {
+                self.queue_item_inner(new_player.world, key, kind, target_world, "while queueing a pending item", false).await?;
             }
             for broadcast in broadcasts {
                 self.write_all(&broadcast).await?;
@@ -870,10 +843,10 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn set_file_hash(&mut self, client_id: C::SessionId, hash: [HashIcon; 5]) -> Result<(), SetHashError> {
+    pub async fn set_file_hash(&mut self, client_id: C::SessionId, hash: [HashIcon; 5]) -> Result<(), RoomError> {
         if let Some(room_hash) = self.file_hash {
             if room_hash != hash {
-                return Err(SetHashError::FileHash { server: room_hash, client: hash })
+                return Err(RoomError::FileHash { server: room_hash, client: hash })
             }
         }
         let client = self.clients.get_mut(&client_id).expect("tried to set file hash for nonexistent client");
@@ -981,22 +954,23 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn queue_item(&mut self, source_client: C::SessionId, key: u64, kind: u16, target_world: NonZeroU8, verbose_logging: bool) -> Result<(), QueueItemError> {
-        if let Some(source) = self.clients.get(&source_client).expect("tried to queue item from nonexistent client").player {
+    pub async fn queue_item(&mut self, source_client: C::SessionId, key: u64, kind: u16, target_world: NonZeroU8, verbose_logging: bool) -> Result<(), RoomError> {
+        let source_client = self.clients.get_mut(&source_client).expect("tried to queue item from nonexistent client");
+        if let Some(source) = source_client.player {
             if let Some(player_hash) = source.file_hash {
                 if let Some(room_hash) = self.file_hash {
                     if player_hash != room_hash {
-                        return Err(QueueItemError::FileHash { server: room_hash, client: player_hash })
+                        return Err(RoomError::FileHash { server: room_hash, client: player_hash })
                     }
                 } else {
                     self.file_hash = Some(player_hash);
                 }
             }
             self.queue_item_inner(source.world, key, kind, target_world, "while queueing an item", verbose_logging).await?;
-            Ok(())
         } else {
-            Err(QueueItemError::NoSourceWorld) //TODO instead of erroring, delay queueing this item until sender claims a world
+            source_client.pending_items.push((key, kind, target_world));
         }
+        Ok(())
     }
 
     pub async fn send_all(&mut self, source_world: NonZeroU8, spoiler_log: &SpoilerLog, logged_in_as_admin: bool) -> Result<(), SendAllError> {
@@ -1005,7 +979,7 @@ impl<C: ClientKind> Room<C> {
         }
         if let Some(room_hash) = self.file_hash {
             if spoiler_log.file_hash != room_hash {
-                return Err(SendAllError::FileHash { server: room_hash, client: spoiler_log.file_hash })
+                return Err(SendAllError::Room(RoomError::FileHash { server: room_hash, client: spoiler_log.file_hash }))
             }
         } else {
             self.file_hash = Some(spoiler_log.file_hash);

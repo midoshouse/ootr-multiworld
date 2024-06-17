@@ -885,6 +885,7 @@ impl Task<Result<(), Error>> for BuildInstallerLinux {
 
 enum BuildServer {
     Sync(bool),
+    UpdateRust(bool),
     Build(bool),
     Copy(bool),
     Upload(bool),
@@ -911,6 +912,7 @@ impl fmt::Display for BuildServer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Sync(..) => write!(f, "syncing repo to Debian"),
+            Self::UpdateRust(..) => write!(f, "updating Rust on Debian"),
             Self::Build(..) => write!(f, "building ootrmwd"),
             Self::Copy(..) => write!(f, "copying ootrmwd to Windows"),
             Self::Upload(..) => write!(f, "uploading ootrmwd to Mido's House"),
@@ -931,6 +933,7 @@ impl GetPriority for BuildServer {
     fn priority(&self) -> Priority {
         match self {
             Self::Sync(..) => Priority::Active,
+            Self::UpdateRust(..) => Priority::Active,
             Self::Build(..) => Priority::Active,
             Self::Copy(..) => Priority::Active,
             Self::Upload(..) => Priority::Active,
@@ -949,6 +952,11 @@ impl Task<Result<(), Error>> for BuildServer {
         match self {
             Self::Sync(wait_restart) => gres::transpose(async move {
                 Command::new("wsl").arg("--distribution").arg("debian-m2").arg("rsync").arg("--delete").arg("-av").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/").arg("--exclude").arg(".cargo/config.toml").arg("--exclude").arg("target").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/BizHawk").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/bin").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/obj").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll").check("debian run rsync").await?;
+                Ok(Err(Self::UpdateRust(wait_restart)))
+            }).await,
+            Self::UpdateRust(wait_restart) => gres::transpose(async move {
+                //TODO obtain syncbin lock for rustup
+                Command::new("wsl").arg("--distribution").arg("debian-m2").arg("rustup").arg("update").arg("stable").check("debian run rustup").await?;
                 Ok(Err(Self::Build(wait_restart)))
             }).await,
             Self::Build(wait_restart) => gres::transpose(async move {
@@ -1010,6 +1018,7 @@ impl Task<Result<(), Error>> for BuildServer {
                 Ok(Err(Self::Replace))
             }).await,
             Self::Replace => gres::transpose(async move {
+                //TODO this sometimes hangs, reduce reliance on ssh somehow?
                 Command::new("ssh").arg("midos.house").arg("sudo chown mido:www-data bin/ootrmwd-next && sudo chmod +x bin/ootrmwd-next && sudo mv bin/ootrmwd-next /usr/local/share/midos-house/bin/ootrmwd").check("ssh midos.house chown && chmod && mv").await?;
                 Ok(Err(Self::Start))
             }).await,

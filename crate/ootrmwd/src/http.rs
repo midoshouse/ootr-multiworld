@@ -73,6 +73,9 @@ macro_rules! supported_version {
                     Err(SessionError::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::Tungstenite(tungstenite::Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake)), .. })) => {} // this happens when a player force quits their multiworld app (or normally quits on macOS, see https://github.com/iced-rs/iced/issues/1941)
                     Err(SessionError::Elapsed(_)) => {} // client not responding
                     Err(SessionError::Shutdown) => {} // server shutting down
+                    Err(SessionError::Room(multiworld::RoomError::FileHash { server, client })) => {
+                        let _ = lock!(writer = writer; writer.write(ServerMessage::WrongFileHash { server, client }).await);
+                    }
                     Err(SessionError::Server(msg)) => {
                         eprintln!("server error in WebSocket handler ({}): {msg}", stringify!($version));
                         let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("server error in WebSocket handler ({}): {msg}", stringify!($version)))).await;
