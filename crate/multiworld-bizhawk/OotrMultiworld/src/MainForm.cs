@@ -511,6 +511,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                 } else if (internalCount > externalCount) {
                     this.gapCount++;
                     if (this.gapCount >= 100) {
+                        //TODO show warning to user, explaining that you can't switch rooms during a seed
                         using (var logMessageHandle = new OwnedStringHandle($"warning: gap in received items: internal count is {internalCount} but external count is {externalCount}")) {
                             Native.log(logMessageHandle);
                         }

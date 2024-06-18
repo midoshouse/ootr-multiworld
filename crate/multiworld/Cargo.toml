@@ -36,7 +36,7 @@ thiserror = "1"
 tokio = { version = "1", features = ["net", "parking_lot", "process", "sync", "time"] }
 tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"] }
 url = { version = "2", features = ["serde"] }
-wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["async-proto", "reqwest", "serde", "serde_json"] }
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["async-proto", "reqwest", "serde", "serde_json", "tungstenite"] } # tungstenite feature required to correctly classify network errors
 
 [target.'cfg(unix)'.dependencies]
 xdg = "2"

@@ -771,6 +771,7 @@ function handle_frame(write, error) {
                 } else if (internalCount > externalCount) {
                     gapCount++;
                     if (gapCount >= 100) {
+                        //TODO show warning to user, explaining that you can't switch rooms during a seed
                         console.log('warning: gap in received items: internal count is ' + internalCount + ' but external queue is ' + itemQueue);
                     }
                 } else {
