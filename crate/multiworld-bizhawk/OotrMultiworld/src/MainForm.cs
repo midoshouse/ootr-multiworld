@@ -553,19 +553,6 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                                 }
                                 return null;
                             }
-                            if (coopContextVersion == 7) {
-                                var branchID = APIs.Memory.ReadU8(0x1c, "ROM");
-                                if (branchID == 0x45 || branchID == 0xfe) {
-                                    // on Dev-Rob and dev-fenhl, version 7 is https://github.com/OoTRandomizer/OoT-Randomizer/pull/2069
-                                    this.potsanity3 = true;
-                                } else {
-                                    using (var error = Error.from_string("randomizer version too new (please tell Fenhl that Mido's House Multiworld needs to be updated)")) {
-                                        SetError(error);
-                                    }
-                                }
-                            } else {
-                                this.potsanity3 = false;
-                            }
                             if (coopContextVersion >= 3) {
                                 APIs.Memory.WriteU8(newCoopContextAddr + 0x000a, 1, "System Bus"); // enable MW_SEND_OWN_ITEMS for server-side tracking
                             }
@@ -582,6 +569,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                             } else {
                                 this.progressiveItemsEnable = false;
                             }
+                            this.potsanity3 = coopContextVersion >= 7;
                             this.playerID = (byte?) APIs.Memory.ReadU8(newCoopContextAddr + 0x4, "System Bus");
                             if (this.client != null && this.playerID != oldPlayerID) {
                                 this.client.SetPlayerID(this.playerID);

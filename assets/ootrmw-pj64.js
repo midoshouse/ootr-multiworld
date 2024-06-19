@@ -593,17 +593,6 @@ function handle_frame(write, error) {
                 if (coopContextVersion > 7) {
                     return error("randomizer version too new (version " + mem.u32[newCoopContextAddr] + "; please tell Fenhl that Mido's House Multiworld needs to be updated)");
                 }
-                if (coopContextVersion == 7) {
-                    var branchID = mem.u8[0xb000001c];
-                    if (branchID == 0x45 || branchID == 0xfe) {
-                        // on Dev-Rob and dev-fenhl, version 7 is https://github.com/OoTRandomizer/OoT-Randomizer/pull/2069
-                        potsanity3 = true;
-                    } else {
-                        return error("randomizer version too new (version " + mem.u32[newCoopContextAddr] + "; please tell Fenhl that Mido's House Multiworld needs to be updated)");
-                    }
-                } else {
-                    potsanity3 = false;
-                }
                 if (coopContextVersion >= 3) {
                     mem.u8[newCoopContextAddr + 0x000a] = 1; // enable MW_SEND_OWN_ITEMS for server-side tracking
                 }
@@ -626,6 +615,7 @@ function handle_frame(write, error) {
                 } else {
                     progressiveItemsEnable = false;
                 }
+                potsanity3 = coopContextVersion >= 7;
                 if (mem.u32[ADDR_ANY_RDRAM.start + 0x11a5d0 + 0x135c] == 0) { // game mode == gameplay
                     send_dungeon_reward_location_info(write, mem.u8[newCoopContextAddr + 0x4], mem.u32[randoContextAddr + 0x4], mem.u32[randoContextAddr + 0xc]);
                     if (!normalGameplay) {
