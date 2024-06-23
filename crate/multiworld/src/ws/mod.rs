@@ -70,6 +70,9 @@ server_errors! {
     /// You tried to sign in with an expired racetime.gg session token.
     #[error("this racetime.gg session token has expired")]
     SessionExpiredRaceTime,
+    /// You sent multiple different kinds of items from the same location.
+    #[error("conflicting item kinds from same location")]
+    ConflictingItemKinds,
 }
 
 impl crate::ClientKind for WebSocket {

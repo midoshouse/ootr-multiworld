@@ -786,7 +786,7 @@ impl<C: ClientKind> Room<C> {
                 self.write(client_id, unversioned::ServerMessage::WorldFreed).await?;
             }
             for (key, kind, target_world) in pending_items {
-                self.queue_item_inner(new_player.world, key, kind, target_world, "while queueing a pending item", false).await?;
+                self.queue_item_inner(Some(client_id), new_player.world, key, kind, target_world, "while queueing a pending item", false).await?;
             }
             for broadcast in broadcasts {
                 self.write_all(&broadcast).await?;
@@ -860,7 +860,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    async fn queue_item_inner(&mut self, source_world: NonZeroU8, key: u64, kind: u16, target_world: NonZeroU8, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str, verbose_logging: bool) -> Result<(), RoomError> {
+    async fn queue_item_inner(&mut self, source_client: Option<C::SessionId>, source_world: NonZeroU8, key: u64, kind: u16, target_world: NonZeroU8, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str, verbose_logging: bool) -> Result<(), RoomError> {
         if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
             if verbose_logging { println!("updating tracker") }
             oottracker::websocket::ClientMessage::MwQueueItem {
@@ -918,7 +918,9 @@ impl<C: ClientKind> Room<C> {
                 } else {
                     eprintln!("conflicting item kinds at location 0x{key:016x} from world {source_world} in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name);
                     wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("conflicting item kinds at location 0x{key:016x} from world {source_world} in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name))).await?;
-                    //TODO notify client and request additional seed info
+                    if let Some(source_client) = source_client {
+                        self.write(source_client, unversioned::ServerMessage::StructuredError(ServerError::ConflictingItemKinds)).await?; //TODO update client to request additional seed info when receiving this
+                    }
                 }
             } else {
                 if verbose_logging { println!("item not a duplicate") }
@@ -954,8 +956,8 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn queue_item(&mut self, source_client: C::SessionId, key: u64, kind: u16, target_world: NonZeroU8, verbose_logging: bool) -> Result<(), RoomError> {
-        let source_client = self.clients.get_mut(&source_client).expect("tried to queue item from nonexistent client");
+    pub async fn queue_item(&mut self, source_client_id: C::SessionId, key: u64, kind: u16, target_world: NonZeroU8, verbose_logging: bool) -> Result<(), RoomError> {
+        let source_client = self.clients.get_mut(&source_client_id).expect("tried to queue item from nonexistent client");
         if let Some(source) = source_client.player {
             if let Some(player_hash) = source.file_hash {
                 if let Some(room_hash) = self.file_hash {
@@ -966,7 +968,7 @@ impl<C: ClientKind> Room<C> {
                     self.file_hash = Some(player_hash);
                 }
             }
-            self.queue_item_inner(source.world, key, kind, target_world, "while queueing an item", verbose_logging).await?;
+            self.queue_item_inner(Some(source_client_id), source.world, key, kind, target_world, "while queueing an item", verbose_logging).await?;
         } else {
             source_client.pending_items.push((key, kind, target_world));
         }
@@ -996,7 +998,7 @@ impl<C: ClientKind> Room<C> {
             }
         }
         for (source_world, key, kind, target_world) in items_to_queue {
-            self.queue_item_inner(source_world, key, kind, target_world, "while sending all items", false).await?;
+            self.queue_item_inner(None, source_world, key, kind, target_world, "while sending all items", false).await?;
         }
         Ok(())
     }
@@ -1342,6 +1344,7 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
+            latest::ServerMessage::StructuredError(ServerError::ConflictingItemKinds) => {} //TODO
             latest::ServerMessage::StructuredError(ServerError::Future(discrim)) => if !matches!(self, Self::Error { .. }) {
                 *self = Self::Error {
                     maintenance: self.maintenance(),

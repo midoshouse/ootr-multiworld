@@ -20,6 +20,7 @@ This message has a single one-byte field which defines the type of error that oc
 * `0x03` NoMidosHouseAccountRaceTime: The client attempted to sign into Mido's House using racetime.gg but there is no Mido's House account associated with the given racetime.gg account.
 * `0x04` SessionExpiredDiscord: The client attempted to sign in with an expired Discord session token.
 * `0x05` SessionExpiredRaceTime: The client attempted to sign in with an expired racetime.gg session token.
+* `0x06` ConflictingItemKinds: Clients have reported multiple different items from the same location in the same world. This is [a known issue](https://github.com/midoshouse/ootr-multiworld/issues/43) which is currently being investigated and needs more data — the client should offer to send recent logs, if any, to the developer of the client.
 
 Additional error types may be added without a major version bump, so clients should treat any unknown error type as a generic fatal error.
 
