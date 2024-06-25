@@ -334,6 +334,7 @@ enum Message {
     CreateMidosHouseAccount(login::Provider),
     DiscordChannel,
     DiscordInvite,
+    DismissConflictingItemKinds,
     DismissWrongPassword,
     Event(iced::Event),
     EverDriveScanFailed(Arc<Vec<everdrive::ConnectError>>),
@@ -376,6 +377,7 @@ enum Message {
     SetRoomView(RoomView),
     SetSendAllPath(String),
     SetSendAllWorld(String),
+    ShowLoggingInstructions,
     ToggleUpdateErrorDetails,
     UpToDate,
     #[cfg(target_os = "macos")] UpdateAvailable(Version),
@@ -784,6 +786,9 @@ impl Application for State {
             },
             Message::DiscordInvite => if let Err(e) = open("https://discord.gg/BGRrKKn") {
                 return cmd(future::err(e.into()))
+            },
+            Message::DismissConflictingItemKinds => if let SessionState::Room { ref mut conflicting_item_kinds, .. } = self.server_connection {
+                *conflicting_item_kinds = false;
             },
             Message::DismissWrongPassword => if let SessionState::Lobby { ref mut wrong_password, .. } = self.server_connection {
                 *wrong_password = false;
@@ -1389,6 +1394,9 @@ impl Application for State {
             Message::SetPassword(new_password) => if let SessionState::Lobby { ref mut password, .. } = self.server_connection { *password = new_password },
             Message::SetSendAllPath(new_path) => self.send_all_path = new_path,
             Message::SetSendAllWorld(new_world) => self.send_all_world = new_world,
+            Message::ShowLoggingInstructions => if let Err(e) = open("https://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/logging.md") {
+                return cmd(future::err(e.into()))
+            },
             Message::ToggleUpdateErrorDetails => if let UpdateState::Error { ref mut expanded, .. } = self.update_state { *expanded = !*expanded },
             Message::UpToDate => self.update_state = UpdateState::UpToDate,
             #[cfg(target_os = "macos")] Message::UpdateAvailable(new_ver) => self.update_state = UpdateState::Available(new_ver),
@@ -1666,7 +1674,29 @@ impl Application for State {
                     .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
                     .push(Button::new("Back").on_press(Message::SetRoomView(RoomView::Normal)))
                     .spacing(8),
-                SessionState::Room { wrong_file_hash: Some([[server1, server2, server3, server4, server5], [client1, client2, client3, client4, client5]]), .. } => Column::new()
+                SessionState::Room { conflicting_item_kinds: true, .. } => {
+                    let mut col = Column::new()
+                        .push("Your game sent multiple different items from the same location.")
+                        .push("One of those items may now be lost. This is a known bug that's currently being investigated.");
+                    if self.log {
+                        col = col
+                            .push("If you've had logging enabled for the entire seed, please ping @fenhl in #setup-support on the OoT Randomizer Discord to help with the investigation.")
+                            .push(Row::new()
+                                .push(Button::new("invite link").on_press(Message::DiscordInvite))
+                                .push(Button::new("direct channel link").on_press(Message::DiscordChannel))
+                                .spacing(8)
+                            );
+                    } else {
+                        col = col
+                            .push("To help with the investigation, please consider enabling logging in case you encounter the bug again in a new seed.")
+                            .push(Button::new("How to enable logging").on_press(Message::ShowLoggingInstructions));
+                    }
+                    col
+                        .push(Space::with_width(Length::Fill))
+                        .push(Button::new("Dismiss").on_press(Message::DismissConflictingItemKinds))
+                        .spacing(8)
+                }
+                SessionState::Room { conflicting_item_kinds: false, wrong_file_hash: Some([[server1, server2, server3, server4, server5], [client1, client2, client3, client4, client5]]), .. } => Column::new()
                     .push("This room is for a different seed.")
                     .push(Scrollable::new(Column::new()
                         .push(Row::new()
@@ -1697,7 +1727,7 @@ impl Application for State {
                         .spacing(8)
                     )
                     .spacing(8),
-                SessionState::Room { wrong_file_hash: None, world_taken: Some(world), .. } => Column::new()
+                SessionState::Room { conflicting_item_kinds: false, wrong_file_hash: None, world_taken: Some(world), .. } => Column::new()
                     .push(Text::new(format!("World {world} is already taken.")))
                     .push(Row::new()
                         .push(Button::new("Kick").on_press(Message::Kick(world)))

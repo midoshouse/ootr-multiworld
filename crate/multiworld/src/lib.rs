@@ -917,9 +917,8 @@ impl<C: ClientKind> Room<C> {
                     if verbose_logging { println!("item is a duplicate") }
                 } else {
                     eprintln!("conflicting item kinds at location 0x{key:016x} from world {source_world} in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name);
-                    wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("conflicting item kinds at location 0x{key:016x} from world {source_world} in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name))).await?;
                     if let Some(source_client) = source_client {
-                        self.write(source_client, unversioned::ServerMessage::StructuredError(ServerError::ConflictingItemKinds)).await?; //TODO update client to request additional seed info when receiving this
+                        self.write(source_client, unversioned::ServerMessage::StructuredError(ServerError::ConflictingItemKinds)).await?;
                     }
                 }
             } else {
@@ -1248,6 +1247,7 @@ pub enum SessionState<E> {
         view: RoomView,
         wrong_file_hash: Option<[[HashIcon; 5]; 2]>,
         world_taken: Option<NonZeroU8>,
+        conflicting_item_kinds: bool,
     },
     Closed {
         maintenance: Option<(DateTime<Utc>, Duration)>,
@@ -1344,7 +1344,18 @@ impl<E> SessionState<E> {
                     auto_retry: false,
                 };
             },
-            latest::ServerMessage::StructuredError(ServerError::ConflictingItemKinds) => {} //TODO
+            latest::ServerMessage::StructuredError(ServerError::ConflictingItemKinds) => if let Self::Room { ref mut conflicting_item_kinds, .. } = self {
+                *conflicting_item_kinds = true; //TODO update client to automatically send additional seed info when receiving this?
+            } else {
+                *self = Self::Error {
+                    maintenance: self.maintenance(),
+                    e: SessionStateError::Mismatch {
+                        expected: "Room",
+                        actual: Box::new(mem::replace(self, Self::Init { maintenance: self.maintenance() })),
+                    },
+                    auto_retry: false,
+                };
+            },
             latest::ServerMessage::StructuredError(ServerError::Future(discrim)) => if !matches!(self, Self::Error { .. }) {
                 *self = Self::Error {
                     maintenance: self.maintenance(),
@@ -1432,6 +1443,7 @@ impl<E> SessionState<E> {
                         view: RoomView::Normal,
                         wrong_file_hash: None,
                         world_taken: None,
+                        conflicting_item_kinds: false,
                         maintenance, room_id, players, num_unassigned_clients, autodelete_delta, allow_send_all,
                     };
                 } else {
