@@ -576,17 +576,13 @@ struct BizHawkState {
     port: u16,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 enum EverDriveState {
+    #[default]
+    Init,
     Searching(Arc<Vec<(tokio_serial::SerialPortInfo, everdrive::ConnectError)>>),
     Connected,
     Timeout,
-}
-
-impl Default for EverDriveState {
-    fn default() -> Self {
-        Self::Searching(Arc::default())
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -1482,6 +1478,7 @@ impl Application for State {
             match self.frontend.kind {
                 Frontend::Dummy => unreachable!(),
                 Frontend::EverDrive => match self.frontend.everdrive {
+                    EverDriveState::Init => col = col.push("Looking for EverDrives…"),
                     EverDriveState::Searching(ref errors) => {
                         col = col.push("Looking for EverDrives…");
                         if errors.is_empty() {
