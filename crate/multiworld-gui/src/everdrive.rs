@@ -98,9 +98,9 @@ impl From<OsString> for ConnectError {
     }
 }
 
-async fn connect_to_port(port_info: tokio_serial::SerialPortInfo) -> Result<HandshakeResponse, ConnectError> {
+async fn connect_to_port(port_info: &tokio_serial::SerialPortInfo) -> Result<HandshakeResponse, ConnectError> {
     #[cfg(unix)] let port_path = Path::new("/dev").join(Path::new(&port_info.port_name).file_name().ok_or(ConnectError::PortAtRoot)?).into_os_string().into_string()?;
-    #[cfg(windows)] let port_path = port_info.port_name;
+    #[cfg(windows)] let port_path = &port_info.port_name;
     let mut port = tokio_serial::new(port_path, 9_600).timeout(TEST_TIMEOUT).open_native_async()?;
     port.write_all(b"cmdt\0\0\0\0\0\0\0\0\0\0\0\0").await?;
     port.flush().await?;
@@ -193,12 +193,12 @@ impl Recipe for Subscription {
                     let mut response = None;
                     let mut errors = Vec::default();
                     for port_info in tokio_serial::available_ports()? {
-                        match connect_to_port(port_info).await {
+                        match connect_to_port(&port_info).await {
                             Ok(resp) => {
                                 response = Some(resp);
                                 break
                             }
-                            Err(e) => errors.push(e),
+                            Err(e) => errors.push((port_info, e)),
                         }
                     }
                     if let Some(HandshakeResponse { port, player_id, file_hash }) = response {

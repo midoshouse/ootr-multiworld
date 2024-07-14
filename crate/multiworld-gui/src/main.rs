@@ -337,7 +337,7 @@ enum Message {
     DismissConflictingItemKinds,
     DismissWrongPassword,
     Event(iced::Event),
-    EverDriveScanFailed(Arc<Vec<everdrive::ConnectError>>),
+    EverDriveScanFailed(Arc<Vec<(tokio_serial::SerialPortInfo, everdrive::ConnectError)>>),
     EverDriveTimeout,
     Exit,
     FrontendConnected(FrontendWriter),
@@ -492,6 +492,28 @@ impl State {
                 .push_line_safe(e.to_string())
                 .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                 .build()
+        } else if self.frontend_writer.is_none() && self.frontend.kind != Frontend::Dummy && matches!(self.frontend.kind, Frontend::EverDrive) && matches!(self.frontend.everdrive, EverDriveState::Searching(_)) {
+            let EverDriveState::Searching(ref errors) = self.frontend.everdrive else { unreachable!() };
+            if errors.is_empty() {
+                MessageBuilder::default()
+                    .push(format!("error in Mido's House Multiworld version {}{} while searching for EverDrives: no serial ports found", env!("CARGO_PKG_VERSION"), {
+                        #[cfg(debug_assertions)] { " (debug)" }
+                        #[cfg(not(debug_assertions))] { "" }
+                    }))
+                    .build()
+            } else {
+                let mut builder = MessageBuilder::default();
+                builder.push_line(format!("error in Mido's House Multiworld version {}{} while searching for EverDrives:", env!("CARGO_PKG_VERSION"), {
+                    #[cfg(debug_assertions)] { " (debug)" }
+                    #[cfg(not(debug_assertions))] { "" }
+                }));
+                for (port, error) in &**errors {
+                    builder.push_mono_safe(&port.port_name);
+                    builder.push_line(':');
+                    builder.push_codeblock_safe(format!("{error:?}"), Some("rust"));
+                }
+                builder.build()
+            }
         } else {
             match self.server_connection {
                 SessionState::Error { ref e, .. } => MessageBuilder::default()
@@ -553,7 +575,7 @@ struct BizHawkState {
 
 #[derive(Debug, Clone)]
 enum EverDriveState {
-    Searching(Arc<Vec<everdrive::ConnectError>>),
+    Searching(Arc<Vec<(tokio_serial::SerialPortInfo, everdrive::ConnectError)>>),
     Connected,
     Timeout,
 }
@@ -1457,15 +1479,22 @@ impl Application for State {
             match self.frontend.kind {
                 Frontend::Dummy => unreachable!(),
                 Frontend::EverDrive => match self.frontend.everdrive {
-                    EverDriveState::Searching(ref errors) => col = col
-                        .push("Looking for EverDrives…")
-                        .push(if errors.is_empty() {
-                            "No USB devices found. Make sure your console is turned on and connected, and your USB cable supports data."
-                        } else if errors.iter().any(|error| matches!(error, everdrive::ConnectError::MainMenu)) {
-                            "Connected to EverDrive main menu. Please start the game."
+                    EverDriveState::Searching(ref errors) => {
+                        col = col.push("Looking for EverDrives…");
+                        if errors.is_empty() {
+                            col = col
+                                .push("No USB devices found.")
+                                .push("Make sure your console is turned on and connected, and your USB cable supports data.");
+                        } else if errors.iter().any(|(_, error)| matches!(error, everdrive::ConnectError::MainMenu)) {
+                            col = col.push("Connected to EverDrive main menu. Please start the game.");
                         } else {
-                            "Make sure your console is turned on and connected, and your USB cable supports data." //TODO button to show error details?
-                        }),
+                            col = col
+                                .push("Some USB devices were found but they all reported errors.")
+                                .push("Make sure your console is turned on and connected, and your USB cable supports data.")
+                                .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
+                                .push(if self.debug_info_copied { "Copied!" } else { "for pasting into Discord" });
+                        }
+                    }
                     EverDriveState::Connected => col = col
                         .push("Waiting for EverDrive…")
                         .push("This should take less than 5 seconds."),
