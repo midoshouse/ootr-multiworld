@@ -2,6 +2,7 @@ use {
     std::{
         any::TypeId,
         hash::Hash as _,
+        io::prelude::*,
         net::Ipv4Addr,
         pin::{
             Pin,
@@ -11,6 +12,7 @@ use {
         time::Duration,
     },
     async_proto::Protocol,
+    chrono::prelude::*,
     futures::{
         future::{
             self,
@@ -61,6 +63,31 @@ use {
         Message,
     },
 };
+
+pub(crate) struct LoggingSubscription<T> {
+    pub(crate) log: bool,
+    pub(crate) context: &'static str,
+    pub(crate) inner: T,
+}
+
+impl<T: Recipe<Output = Message> + 'static> Recipe for LoggingSubscription<T> {
+    type Output = Message;
+
+    fn hash(&self, state: &mut iced::advanced::Hasher) {
+        TypeId::of::<Self>().hash(state);
+        self.inner.hash(state);
+    }
+
+    fn stream(self: Box<Self>, input: EventStream) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
+        let Self { log, context, inner } = *self;
+        Box::new(inner).stream(input).then(move |msg| async move {
+            if log {
+                let _ = lock!(log = crate::LOG; writeln!(&*log, "{} subscription message {context}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
+            }
+            msg
+        }).boxed()
+    }
+}
 
 pub(crate) type WsSink = SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>, tungstenite::Message>;
 

@@ -126,7 +126,10 @@ use {
     },
     crate::{
         persistent_state::PersistentState,
-        subscriptions::WsSink,
+        subscriptions::{
+            LoggingSubscription,
+            WsSink,
+        },
     },
 };
 #[cfg(unix)] use xdg::BaseDirectories;
@@ -1913,19 +1916,19 @@ impl Application for State {
         if !matches!(self.update_state, UpdateState::Pending) {
             match self.frontend.kind {
                 Frontend::Dummy => {}
-                Frontend::EverDrive => subscriptions.push(Subscription::from_recipe(everdrive::Subscription)),
+                Frontend::EverDrive => subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from EverDrive", inner: everdrive::Subscription })),
                 #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if let Some(BizHawkState { port, .. }) = self.frontend.bizhawk {
-                    subscriptions.push(Subscription::from_recipe(subscriptions::Connection { port, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id }));
+                    subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from BizHawk", inner: subscriptions::Connection { port, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } }));
                 },
                 #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
-                Frontend::Pj64V3 => subscriptions.push(Subscription::from_recipe(subscriptions::Listener { frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id })),
-                Frontend::Pj64V4 => subscriptions.push(Subscription::from_recipe(subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id })), //TODO allow Project64 to specify port via command-line arg
+                Frontend::Pj64V3 => subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Listener { frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })),
+                Frontend::Pj64V4 => subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })), //TODO allow Project64 to specify port via command-line arg
             }
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed { .. }) {
-                subscriptions.push(Subscription::from_recipe(subscriptions::Client { log: self.log, websocket_url: self.websocket_url.clone() }));
+                subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from server", inner: subscriptions::Client { log: self.log, websocket_url: self.websocket_url.clone() } }));
             }
             if let SessionState::Lobby { view: LobbyView::Login { provider, no_midos_house_account: false }, .. } = self.server_connection {
-                subscriptions.push(Subscription::from_recipe(login::Subscription(provider)));
+                subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from login handler", inner: login::Subscription(provider) }));
             }
         }
         Subscription::batch(subscriptions)
