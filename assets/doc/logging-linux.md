@@ -25,7 +25,7 @@ If you are asked to enable logging to help with debugging, please follow these s
 
 # Locating the log files
 
-The log files have the `.log` file extension and will be in `~/.local/share/midos-house` by default. (Note: If you have set the `$XDG_CONFIG_HOME` and/or `$XDG_CONFIG_DIRS` environment variables, the location may differ. See [the XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) for details.) Please send the one that was requested, or all of them if you're not sure. **Warning:** These files may contain sensitive information such as room passwords or your Linux username.
+The log files have the `.log` file extension and will be in `~/.local/share/midos-house` by default. (Note: If you have set the `$XDG_DATA_HOME` and/or `$XDG_DATA_DIRS` environment variables, the location may differ. See [the XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) for details.) Please send the one that was requested, or all of them if you're not sure. **Warning:** These files may contain sensitive information such as room passwords or your Linux username.
 
 # Disabling logging
 
