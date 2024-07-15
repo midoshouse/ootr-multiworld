@@ -46,9 +46,9 @@ xdg = "2"
 
 [target.'cfg(windows)'.dependencies]
 directories = "5"
-windows = { version = "0.57", features = ["Win32_Storage_FileSystem"] }
+windows = { version = "0.58", features = ["Win32_Storage_FileSystem"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
-gio = "0.19"
+gio = "0.20"
 tokio-tar = "0.3"

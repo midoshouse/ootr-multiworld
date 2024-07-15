@@ -57,7 +57,7 @@ wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
-gio = "0.19"
+gio = "0.20"
 tokio-tar = "0.3"
 which = "6"
 xdg = "2"
