@@ -3,6 +3,7 @@ use {
         any::TypeId,
         collections::HashMap,
         hash::Hash as _,
+        io::prelude::*,
         mem,
         num::NonZeroU8,
         pin::Pin,
@@ -13,6 +14,7 @@ use {
         array_mut_ref,
         array_ref,
     },
+    chrono::prelude::*,
     enum_iterator::all,
     futures::{
         future::{
@@ -30,12 +32,13 @@ use {
         EventStream,
         Recipe,
     },
+    log_lock::lock,
     ootr_utils::spoiler::HashIcon,
     tokio::{
         io::{
             self,
-            AsyncReadExt as _,
-            AsyncWriteExt as _,
+            AsyncReadExt,
+            AsyncWriteExt,
             ReadHalf,
             WriteHalf,
         },
@@ -65,6 +68,7 @@ const REGULAR_TIMEOUT: Duration = Duration::from_secs(10); // twice the ping int
 
 const PROTOCOL_VERSION: u8 = 1;
 
+#[derive(Debug)]
 struct HandshakeResponse {
     player_id: NonZeroU8,
     file_hash: [HashIcon; 5],
@@ -102,10 +106,10 @@ async fn connect_to_port(port_info: &tokio_serial::SerialPortInfo) -> Result<Han
     #[cfg(unix)] let port_path = Path::new("/dev").join(Path::new(&port_info.port_name).file_name().ok_or(ConnectError::PortAtRoot)?).into_os_string().into_string()?;
     #[cfg(windows)] let port_path = &port_info.port_name;
     let mut port = tokio_serial::new(port_path, 9_600).timeout(TEST_TIMEOUT).open_native_async()?;
-    port.write_all(b"cmdt\0\0\0\0\0\0\0\0\0\0\0\0").await?;
-    port.flush().await?;
+    AsyncWriteExt::write_all(&mut port, b"cmdt\0\0\0\0\0\0\0\0\0\0\0\0").await?;
+    AsyncWriteExt::flush(&mut port).await?;
     let mut cmd = [0; 16];
-    port.read_exact(&mut cmd).await?;
+    AsyncReadExt::read_exact(&mut port, &mut cmd).await?;
     match cmd {
         [b'O', b'o', b'T', b'R', PROTOCOL_VERSION, _, _, _, _, _, player_id, hash1, hash2, hash3, hash4, hash5] => {
             port.set_timeout(REGULAR_TIMEOUT)?;
@@ -115,7 +119,7 @@ async fn connect_to_port(port_info: &tokio_serial::SerialPortInfo) -> Result<Han
             buf[2] = PROTOCOL_VERSION;
             buf[3] = 1; // enable MW_SEND_OWN_ITEMS
             buf[4] = 1; // enable MW_PROGRESSIVE_ITEMS_ENABLE
-            port.write_all(&buf).await?;
+            AsyncWriteExt::write_all(&mut port, &buf).await?;
             Ok(HandshakeResponse {
                 player_id: NonZeroU8::new(player_id).ok_or(ConnectError::PlayerId)?,
                 file_hash: [
@@ -151,7 +155,9 @@ pub(crate) enum Error {
     PlayerId,
 }
 
-pub(crate) struct Subscription;
+pub(crate) struct Subscription {
+    pub(crate) log: bool,
+}
 
 impl Recipe for Subscription {
     type Output = Message;
@@ -184,21 +190,36 @@ impl Recipe for Subscription {
             },
         }
 
-        stream::try_unfold(SubscriptionState::Init { is_retry: false }, |state| async move {
+        let log = self.log;
+        stream::try_unfold(SubscriptionState::Init { is_retry: false }, move |state| async move {
             let (messages, new_state) = match state {
                 SubscriptionState::Init { is_retry } => {
                     if is_retry {
+                        if log {
+                            let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: waiting 5 seconds before next scan", Utc::now().format("%Y-%m-%d %H:%M:%S")));
+                        }
                         sleep(Duration::from_secs(5)).await;
                     }
                     let mut response = None;
                     let mut errors = Vec::default();
                     for port_info in tokio_serial::available_ports()? {
+                        if log {
+                            let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: attempting to connect to {port_info:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
+                        }
                         match connect_to_port(&port_info).await {
                             Ok(resp) => {
+                                if log {
+                                    let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: connection successful: {resp:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
+                                }
                                 response = Some(resp);
                                 break
                             }
-                            Err(e) => errors.push((port_info, e)),
+                            Err(e) => {
+                                if log {
+                                    let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: connection failed: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
+                                }
+                                errors.push((port_info, e));
+                            }
                         }
                     }
                     if let Some(HandshakeResponse { port, player_id, file_hash }) = response {

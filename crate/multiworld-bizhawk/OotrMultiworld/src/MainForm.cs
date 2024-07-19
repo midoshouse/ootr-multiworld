@@ -402,7 +402,12 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                 }
 
                 SendItem(this.client, coopContextAddr.Value);
-                var currentScene = SendCurrentScene(this.client);
+                byte currentScene;
+                if (this.lastScene == null || this.normalGameplay) {
+                    currentScene = SendCurrentScene(this.client);
+                } else {
+                    currentScene = this.lastScene.Value;
+                }
                 ReceiveItem(coopContextAddr.Value, this.playerID.Value, currentScene);
             } else {
                 this.normalGameplay = false;

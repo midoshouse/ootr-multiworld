@@ -734,7 +734,7 @@ function handle_frame(write, error) {
         }
         // send current scene
         var currentScene = mem.u8[ADDR_ANY_RDRAM.start + 0x1c8545];
-        if (lastScene === null || currentScene != lastScene) {
+        if (normalGameplay && (lastScene === null || currentScene != lastScene)) {
             const currentScenePacket = new ArrayBuffer(2);
             var currentScenePacketView = new DataView(currentScenePacket);
             currentScenePacketView.setUint8(0, 7); // message: current scene changed

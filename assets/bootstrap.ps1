@@ -68,6 +68,8 @@ ThrowOnNativeFailure
 wsl mkdir -p /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release
 ThrowOnNativeFailure
 "copying Linux artifacts to Windows file system"
+wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/debug/multiworld-gui /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/debug/multiworld-gui
+ThrowOnNativeFailure
 wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/multiworld-gui /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/multiworld-gui
 ThrowOnNativeFailure
 wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/debug/libmultiworld.so /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/debug/libmultiworld.so

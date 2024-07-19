@@ -1913,7 +1913,7 @@ impl Application for State {
         if !matches!(self.update_state, UpdateState::Pending) {
             match self.frontend.kind {
                 Frontend::Dummy => {}
-                Frontend::EverDrive => subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from EverDrive", inner: everdrive::Subscription })),
+                Frontend::EverDrive => subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from EverDrive", inner: everdrive::Subscription { log: self.log } })),
                 #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if let Some(BizHawkState { port, .. }) = self.frontend.bizhawk {
                     subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from BizHawk", inner: subscriptions::Connection { port, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } }));
                 },
