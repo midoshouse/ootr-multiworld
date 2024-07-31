@@ -931,7 +931,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     tracker_state: None,
                 })).await? {
                     eprintln!("deleting duplicate room: {}", row.name);
-                    wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("deleting duplicate room: {}", row.name))).await?;
+                    wheel::night_report("/games/zelda/oot/mhmw/duplicateRoomError", Some(&format!("deleting duplicate room: {}", row.name))).await?;
                     sqlx::query!("DELETE FROM mw_rooms WHERE id = $1", row.id).execute(&db_pool).await?;
                 }
             }
