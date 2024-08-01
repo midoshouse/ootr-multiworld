@@ -1,7 +1,6 @@
 use {
     std::{
         collections::HashMap,
-        convert::identity,
         mem,
         sync::Arc,
         time::Duration,
@@ -185,7 +184,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 db_pool: db_pool.clone(),
                                 tracker_state: None,
                                 id, name,
-                            })).await.is_ok_and(identity).write(&mut sock).await.expect("error writing to UNIX socket");
+                            })).await.is_ok().write(&mut sock).await.expect("error writing to UNIX socket");
                         }
                         ClientMessage::PrepareRestart { async_proto: _ } => {
                             let mut deadline = Utc::now() + TimeDelta::try_days(1).expect("1-day timedelta out of bounds");

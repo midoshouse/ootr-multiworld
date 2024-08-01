@@ -132,6 +132,7 @@ fn decode_pginterval(PgInterval { months, days, microseconds }: PgInterval) -> R
 
 #[derive(Debug, thiserror::Error)]
 enum SessionError {
+    #[error(transparent)] AddRoom(#[from] AddRoomError),
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] OneshotRecv(#[from] oneshot::error::RecvError),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
@@ -151,6 +152,7 @@ enum SessionError {
 impl IsNetworkError for SessionError {
     fn is_network_error(&self) -> bool {
         match self {
+            Self::AddRoom(_) => false,
             Self::Elapsed(_) => true,
             Self::OneshotRecv(_) => false,
             Self::Read(e) => e.is_network_error(),
@@ -400,8 +402,10 @@ async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_
                             tracker_state: None,
                             id, clients, autodelete_delta,
                         });
-                        if !rooms.add(room.clone()).await? {
-                            lock!(writer = writer; writer.write(ServerMessage::StructuredError(ServerError::RoomExists)).await)?;
+                        match rooms.add(room.clone()).await {
+                            Ok(()) => {}
+                            Err(e @ (AddRoomError::Sql(_) | AddRoomError::DuplicateId { .. })) => return Err(e.into()),
+                            Err(AddRoomError::NameConflict) => lock!(writer = writer; writer.write(ServerMessage::StructuredError(ServerError::RoomExists)).await)?,
                         }
                         lock!(writer = writer; writer.write(ServerMessage::EnterRoom {
                             room_id: id,
@@ -669,25 +673,39 @@ struct RoomsInner<C: ClientKind> {
 #[derivative(Clone(bound = ""))]
 struct Rooms<C: ClientKind>(Arc<Mutex<RoomsInner<C>>>);
 
+#[derive(Debug, thiserror::Error)]
+enum AddRoomError {
+    #[error(transparent)] Sql(#[from] sqlx::Error),
+    #[error("duplicate room ID: {id}")]
+    DuplicateId {
+        id: u64,
+    },
+    #[error("duplicate room name in same auth namespace")]
+    NameConflict,
+}
+
 impl<C: ClientKind> Rooms<C> {
     async fn get_arc(&self, room_id: u64) -> Option<ArcRwLock<Room<C>>> {
         lock!(rooms = self.0; rooms.list.get(&room_id).cloned())
     }
 
-    async fn add(&self, room: ArcRwLock<Room<C>>) -> sqlx::Result<bool> {
+    async fn add(&self, room: ArcRwLock<Room<C>>) -> Result<(), AddRoomError> {
         let (id, name, auth) = lock!(@read room = room; (room.id, room.name.clone(), room.auth.clone()));
         lock!(rooms = self.0; {
             for existing_room in rooms.list.values() {
                 if lock!(@write existing_room = existing_room; existing_room.name == name && auth.same_namespace(&existing_room.auth)) {
-                    return Ok(false)
+                    return Err(AddRoomError::NameConflict)
                 }
             }
-            let hash_map::Entry::Vacant(entry) = rooms.list.entry(id) else { return Ok(false) };
+            let entry = match rooms.list.entry(id) {
+                hash_map::Entry::Occupied(_) => return Err(AddRoomError::DuplicateId { id }),
+                hash_map::Entry::Vacant(entry) => entry,
+            };
             entry.insert(room.clone());
             let _ = rooms.change_tx.send(RoomListChange::New(room.clone()));
         });
         lock!(@write room = room; room.save(true).await)?;
-        Ok(true)
+        Ok(())
     }
 
     async fn remove(&self, id: u64) {
@@ -910,7 +928,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 autodelete_delta
             FROM mw_rooms"#).fetch(&db_pool);
             while let Some(row) = query.try_next().await? {
-                if !rooms.add(ArcRwLock::new(Room {
+                match rooms.add(ArcRwLock::new(Room {
                     id: row.id as u64,
                     name: row.name.clone(),
                     auth: match (row.password_hash, row.password_salt) {
@@ -929,10 +947,14 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     autodelete_tx: lock!(rooms = rooms.0; rooms.autodelete_tx.clone()),
                     db_pool: db_pool.clone(),
                     tracker_state: None,
-                })).await? {
-                    eprintln!("deleting duplicate room: {}", row.name);
-                    wheel::night_report("/games/zelda/oot/mhmw/duplicateRoomError", Some(&format!("deleting duplicate room: {}", row.name))).await?;
-                    sqlx::query!("DELETE FROM mw_rooms WHERE id = $1", row.id).execute(&db_pool).await?;
+                })).await {
+                    Ok(()) => {}
+                    Err(AddRoomError::Sql(e)) => return Err(e.into()),
+                    Err(e @ (AddRoomError::DuplicateId { .. } | AddRoomError::NameConflict)) => {
+                        eprintln!("deleting duplicate room {:?}: {e}", row.name);
+                        wheel::night_report("/games/zelda/oot/mhmw/duplicateRoomError", Some(&format!("deleting duplicate room {:?}: {e}", row.name))).await?;
+                        sqlx::query!("DELETE FROM mw_rooms WHERE id = $1", row.id).execute(&db_pool).await?;
+                    }
                 }
             }
         }
