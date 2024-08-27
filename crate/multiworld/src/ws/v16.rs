@@ -41,7 +41,10 @@ pub struct SpoilerLog {
 
 impl From<SpoilerLog> for ootr_utils::spoiler::SpoilerLog {
     fn from(SpoilerLog { file_hash, version, settings, randomized_settings, locations }: SpoilerLog) -> Self {
-        Self { file_hash, version, settings, randomized_settings, locations }
+        Self {
+            password: None,
+            file_hash, version, settings, randomized_settings, locations,
+        }
     }
 }
 

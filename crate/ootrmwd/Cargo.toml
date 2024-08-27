@@ -5,7 +5,7 @@ authors.workspace = true
 edition.workspace = true
 
 [dependencies]
-async-proto = { version = "0.22", features = ["chrono"] }
+async-proto = { version = "0.23", features = ["chrono"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
 derivative = "2"
@@ -21,7 +21,7 @@ rocket-util = { git = "https://github.com/fenhl/rocket-util", branch = "main" }
 rocket_ws = "0.1"
 serde = { version = "1", features = ["derive"] }
 serenity = { version = "0.12", default-features = false, features = ["model", "rustls_backend"] }
-sqlx = { version = "0.7", default-features = false, features = ["chrono", "postgres", "runtime-tokio-rustls"] }
+sqlx = { version = "0.8", default-features = false, features = ["chrono", "postgres", "runtime-tokio-rustls"] }
 thiserror = "1"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "parking_lot", "process", "rt-multi-thread", "sync", "time"] }
 tokio-tungstenite = "0.21" # waiting for https://github.com/rwf2/Rocket/pull/2823

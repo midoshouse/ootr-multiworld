@@ -49,6 +49,7 @@ use {
     sysinfo::{
         Pid,
         ProcessRefreshKind,
+        ProcessesToUpdate,
     },
     tokio::{
         io::{
@@ -222,12 +223,12 @@ impl Application for App {
             let mut system = sysinfo::System::default();
             match args {
                 EmuArgs::BizHawk { mw_pid, bizhawk_pid, .. } => {
-                    while system.refresh_process_specifics(mw_pid, ProcessRefreshKind::default()) || system.refresh_process_specifics(bizhawk_pid, ProcessRefreshKind::default()) {
+                    while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[mw_pid, bizhawk_pid]), ProcessRefreshKind::default()) > 0 {
                         sleep(Duration::from_secs(1)).await;
                     }
                 }
                 EmuArgs::EverDrive { pid, .. } | EmuArgs::Pj64 { pid, .. } => {
-                    while system.refresh_process_specifics(pid, ProcessRefreshKind::default()) {
+                    while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), ProcessRefreshKind::default()) > 0 {
                         sleep(Duration::from_secs(1)).await;
                     }
                 }

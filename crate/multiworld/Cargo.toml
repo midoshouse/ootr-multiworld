@@ -8,7 +8,7 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-async-proto = { version = "0.22", features = ["chrono", "semver"] }
+async-proto = { version = "0.23", features = ["chrono", "semver"] }
 async-trait = "0.1"
 bitflags = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
@@ -31,7 +31,7 @@ rocket_ws = "0.1"
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sqlx = { version = "0.7", default-features = false, features = ["macros", "postgres"], optional = true }
+sqlx = { version = "0.8", default-features = false, features = ["macros", "postgres"], optional = true }
 thiserror = "1"
 tokio = { version = "1", features = ["net", "parking_lot", "process", "sync", "time"] }
 tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"] } # waiting for https://github.com/rwf2/Rocket/pull/2823
