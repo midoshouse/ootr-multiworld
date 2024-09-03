@@ -102,16 +102,28 @@ impl From<OsString> for ConnectError {
     }
 }
 
-async fn connect_to_port(port_info: &tokio_serial::SerialPortInfo) -> Result<HandshakeResponse, ConnectError> {
+async fn connect_to_port(port_info: &tokio_serial::SerialPortInfo, log: bool) -> Result<HandshakeResponse, ConnectError> {
     #[cfg(unix)] let port_path = Path::new("/dev").join(Path::new(&port_info.port_name).file_name().ok_or(ConnectError::PortAtRoot)?).into_os_string().into_string()?;
     #[cfg(windows)] let port_path = &port_info.port_name;
+    if log {
+        let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: opening port at {port_path:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
+    }
     let mut port = tokio_serial::new(port_path, 9_600).timeout(TEST_TIMEOUT).open_native_async()?;
+    if log {
+        let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: sending cmdt to {port:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
+    }
     AsyncWriteExt::write_all(&mut port, b"cmdt\0\0\0\0\0\0\0\0\0\0\0\0").await?;
     AsyncWriteExt::flush(&mut port).await?;
+    if log {
+        let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: reading from {port:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
+    }
     let mut cmd = [0; 16];
     AsyncReadExt::read_exact(&mut port, &mut cmd).await?;
     match cmd {
         [b'O', b'o', b'T', b'R', PROTOCOL_VERSION, _, _, _, _, _, player_id, hash1, hash2, hash3, hash4, hash5] => {
+            if log {
+                let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: port is in game", Utc::now().format("%Y-%m-%d %H:%M:%S")));
+            }
             port.set_timeout(REGULAR_TIMEOUT)?;
             let mut buf = [0; 16];
             buf[0] = b'M';
@@ -132,9 +144,24 @@ async fn connect_to_port(port_info: &tokio_serial::SerialPortInfo) -> Result<Han
                 port,
             })
         }
-        [b'c', b'm', b'd', b'r', ..] => Err(ConnectError::MainMenu),
-        [b'c', b'm', b'd', b'k', ..] => Err(ConnectError::MainMenu), // older versions of EverDrive OS
-        _ => Err(ConnectError::UnknownReply(*array_ref![cmd, 0, 4])),
+        [b'c', b'm', b'd', b'r', ..] => {
+            if log {
+                let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: port is in main menu (cmdr)", Utc::now().format("%Y-%m-%d %H:%M:%S")));
+            }
+            Err(ConnectError::MainMenu)
+        }
+        [b'c', b'm', b'd', b'k', ..] => {
+            if log {
+                let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: port is in main menu (cmdk)", Utc::now().format("%Y-%m-%d %H:%M:%S")));
+            }
+            Err(ConnectError::MainMenu) // older versions of EverDrive OS
+        }
+        _ => {
+            if log {
+                let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: unknown reply from port: {:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), array_ref![cmd, 0, 4]));
+            }
+            Err(ConnectError::UnknownReply(*array_ref![cmd, 0, 4]))
+        }
     }
 }
 
@@ -206,7 +233,7 @@ impl Recipe for Subscription {
                         if log {
                             let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: attempting to connect to {port_info:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
                         }
-                        match connect_to_port(&port_info).await {
+                        match connect_to_port(&port_info, log).await {
                             Ok(resp) => {
                                 if log {
                                     let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: connection successful: {resp:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
