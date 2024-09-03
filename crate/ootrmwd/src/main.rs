@@ -226,7 +226,20 @@ fn next_message<C: ClientKind>(reader: C::Reader) -> NextMessage<C> {
     Box::pin(timeout(Duration::from_secs(60), reader.read_owned()))
 }
 
-async fn lobby_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, mut read: NextMessage<C>, config: Config, writer: Arc<Mutex<C::Writer>>, mut shutdown: rocket::Shutdown, maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>, logged_in_as_admin: &mut bool, midos_house_user_id: &mut Option<u64>) -> Result<(C::Reader, ArcRwLock<Room<C>>, oneshot::Receiver<EndRoomSession>), SessionError> {
+async fn lobby_session<C: ClientKind>(
+    rng: &SystemRandom,
+    db_pool: PgPool,
+    http_client: reqwest::Client,
+    rooms: Rooms<C>,
+    socket_id: C::SessionId,
+    mut read: NextMessage<C>,
+    config: Config,
+    writer: Arc<Mutex<C::Writer>>,
+    mut shutdown: rocket::Shutdown,
+    maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>,
+    logged_in_as_admin: &mut bool,
+    midos_house_user_id: &mut Option<u64>,
+) -> Result<(C::Reader, ArcRwLock<Room<C>>, oneshot::Receiver<EndRoomSession>), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             return Err(SessionError::Server(format!($($msg)*)))
@@ -559,7 +572,51 @@ async fn update_room_list<C: ClientKind>(rooms: Rooms<C>, writer: Arc<Mutex<C::W
     Ok(())
 }
 
-async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, socket_id: C::SessionId, reader: C::Reader, config: Config, writer: Arc<Mutex<C::Writer>>, maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>, mut end_rx: oneshot::Receiver<EndRoomSession>, mut shutdown: rocket::Shutdown, logged_in_as_admin: bool, midos_house_user_id: Option<u64>) -> Result<(NextMessage<C>, EndRoomSession), SessionError> {
+trait SessionResultExt {
+    /// “Wrong file hash” errors need special handling that doesn't reset the room session,
+    /// since we want to allow the user to delete the room in response to the error.
+    async fn handle_wrong_file_hash<C: ClientKind>(self, writer: &Mutex<C::Writer>) -> Result<(), SessionError>;
+}
+
+impl SessionResultExt for Result<(), multiworld::RoomError> {
+    async fn handle_wrong_file_hash<C: ClientKind>(self, writer: &Mutex<C::Writer>) -> Result<(), SessionError> {
+        match self {
+            Ok(()) => {}
+            Err(multiworld::RoomError::FileHash { server, client }) => {
+                lock!(writer = writer; writer.write(ServerMessage::WrongFileHash { server, client }).await)?;
+            }
+            Err(e) => return Err(e.into()),
+        }
+        Ok(())
+    }
+}
+
+impl SessionResultExt for Result<(), SendAllError> {
+    async fn handle_wrong_file_hash<C: ClientKind>(self, writer: &Mutex<C::Writer>) -> Result<(), SessionError> {
+        match self {
+            Ok(()) => {}
+            Err(SendAllError::Room(multiworld::RoomError::FileHash { server, client })) => {
+                lock!(writer = writer; writer.write(ServerMessage::WrongFileHash { server, client }).await)?;
+            }
+            Err(e) => return Err(e.into()),
+        }
+        Ok(())
+    }
+}
+
+async fn room_session<C: ClientKind>(
+    rooms: Rooms<C>,
+    room: ArcRwLock<Room<C>>,
+    socket_id: C::SessionId,
+    reader: C::Reader,
+    config: Config,
+    writer: Arc<Mutex<C::Writer>>,
+    maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>,
+    mut end_rx: oneshot::Receiver<EndRoomSession>,
+    mut shutdown: rocket::Shutdown,
+    logged_in_as_admin: bool,
+    midos_house_user_id: Option<u64>,
+) -> Result<(NextMessage<C>, EndRoomSession), SessionError> {
     macro_rules! error {
         ($($msg:tt)*) => {{
             return Err(SessionError::Server(format!($($msg)*)))
@@ -596,12 +653,16 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                     ClientMessage::Stop => error!("received a Stop message, which only works in the lobby, but you're in a room"),
                     ClientMessage::Track { .. } => error!("received a Track message, which only works in the lobby, but you're in a room"),
                     ClientMessage::WaitUntilEmpty => error!("received a WaitUntilEmpty message, which only works in the lobby, but you're in a room"),
-                    ClientMessage::PlayerId(id) => if !lock!(@write room = room; room.load_player(socket_id, id).await)? {
-                        lock!(writer = writer; writer.write(ServerMessage::WorldTaken(id)).await)?;
+                    ClientMessage::PlayerId(id) => match lock!(@write room = room; room.load_player(socket_id, id).await) {
+                        Ok(true) => {}
+                        Ok(false) => lock!(writer = writer; writer.write(ServerMessage::WorldTaken(id)).await)?,
+                        Err(multiworld::RoomError::FileHash { server, client }) => lock!(writer = writer; writer.write(ServerMessage::WrongFileHash { server, client }).await)?,
+                        Err(e) => return Err(e.into()),
                     },
                     ClientMessage::ResetPlayerId => lock!(@write room = room; room.unload_player(socket_id).await)?,
                     ClientMessage::PlayerName(name) => lock!(@write room = room; room.set_player_name(socket_id, name).await)?,
-                    ClientMessage::SendItem { key, kind, target_world } => lock!(@write room = room; room.queue_item(socket_id, key, kind, target_world, config.verbose_logging).await)?,
+                    ClientMessage::SendItem { key, kind, target_world } => lock!(@write room = room; room.queue_item(socket_id, key, kind, target_world, config.verbose_logging).await)
+                        .handle_wrong_file_hash::<C>(&writer).await?,
                     ClientMessage::KickPlayer(id) => lock!(@write room = room; for (&socket_id, client) in &room.clients {
                         if let Some(Player { world, .. }) = client.player {
                             if world == id {
@@ -618,12 +679,14 @@ async fn room_session<C: ClientKind>(rooms: Rooms<C>, room: ArcRwLock<Room<C>>, 
                         rooms.remove(id).await;
                     }
                     ClientMessage::SaveData(save) => lock!(@write room = room; room.set_save_data(socket_id, save).await)?,
-                    ClientMessage::SendAll { source_world, spoiler_log } => lock!(@write room = room; room.send_all(source_world, &spoiler_log, logged_in_as_admin).await)?,
+                    ClientMessage::SendAll { source_world, spoiler_log } => lock!(@write room = room; room.send_all(source_world, &spoiler_log, logged_in_as_admin).await)
+                        .handle_wrong_file_hash::<C>(&writer).await?,
                     ClientMessage::SaveDataError { debug, version } => if version >= multiworld::version() {
                         eprintln!("save data error reported by Mido's House Multiworld version {version}: {debug}");
                         wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("save data error reported by Mido's House Multiworld version {version}: {debug}"))).await?;
                     },
-                    ClientMessage::FileHash(hash) => lock!(@write room = room; room.set_file_hash(socket_id, hash).await)?,
+                    ClientMessage::FileHash(hash) => lock!(@write room = room; room.set_file_hash(socket_id, hash).await)
+                        .handle_wrong_file_hash::<C>(&writer).await?,
                     ClientMessage::AutoDeleteDelta(new_delta) => lock!(@write room = room; room.set_autodelete_delta(new_delta).await)?,
                     ClientMessage::LeaveRoom => lock!(@write room = room; room.remove_client(socket_id, EndRoomSession::ToLobby).await)?,
                     ClientMessage::DungeonRewardInfo { reward, world, area } => if let Ok(location) = area.try_into() {
