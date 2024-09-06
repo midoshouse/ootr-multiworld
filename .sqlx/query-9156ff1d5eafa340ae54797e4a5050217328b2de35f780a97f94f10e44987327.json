@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                id,\n                name,\n                password_hash AS \"password_hash: [u8; CREDENTIAL_LEN]\",\n                password_salt AS \"password_salt: [u8; CREDENTIAL_LEN]\",\n                invites,\n                base_queue,\n                player_queues,\n                last_saved,\n                allow_send_all,\n                autodelete_delta\n            FROM mw_rooms",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "password_hash: [u8; CREDENTIAL_LEN]",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "password_salt: [u8; CREDENTIAL_LEN]",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 4,
+        "name": "invites",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 5,
+        "name": "base_queue",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 6,
+        "name": "player_queues",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_saved",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "allow_send_all",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "autodelete_delta",
+        "type_info": "Interval"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9156ff1d5eafa340ae54797e4a5050217328b2de35f780a97f94f10e44987327"
+}

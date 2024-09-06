@@ -13,6 +13,9 @@ ThrowOnNativeFailure
 cargo check --workspace
 ThrowOnNativeFailure
 
+cargo sqlx prepare --workspace --check
+ThrowOnNativeFailure
+
 wsl rustup update stable
 ThrowOnNativeFailure
 

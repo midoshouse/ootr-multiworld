@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO mw_versions (version, first_used, last_used) VALUES ($1, NOW(), NOW()) ON CONFLICT (version) DO UPDATE SET last_used = EXCLUDED.last_used",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int2"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f46a4ce633372920ae840e24c78a9b7ea4fabeda8e4e320a6cde6988ed521ab8"
+}

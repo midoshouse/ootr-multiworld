@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM mw_config",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "verbose_logging",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "regional_vc",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a11178ed4eae1ce11fa05b3887eacee9db4af58f001b607d4716e3988a8bbe78"
+}
