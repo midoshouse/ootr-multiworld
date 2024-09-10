@@ -1,7 +1,48 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use {
-    std::{
+    crate::{
+        persistent_state::PersistentState,
+        subscriptions::{
+            LoggingSubscription,
+            WsSink,
+        },
+    }, async_proto::Protocol, chrono::{
+        prelude::*, TimeDelta
+    }, dark_light::Mode::{
+        Dark,
+        Light,
+    }, enum_iterator::all, futures::{
+        future::{
+            self,
+            FutureExt as _,
+        },
+        sink::SinkExt as _,
+        stream::Stream,
+    }, iced::{
+        clipboard, widget::*, window::{
+            self,
+            icon,
+        }, Application, Command, Element, Length, Settings, Size, Subscription, Theme
+    }, if_chain::if_chain, ::image::ImageFormat, itertools::Itertools as _, log_lock::{
+        lock, Mutex
+    }, multiworld::{
+        config::Config, format_room_state, frontend::{
+            self,
+            Kind as Frontend,
+        }, github::Repo, ws::{
+            latest::{
+                ClientMessage,
+                ServerMessage,
+            }, ServerError
+        }, DurationFormatter, Filename, HintArea, LobbyView, RoomFormatter, RoomView, SessionState, SessionStateError
+    }, oauth2::{
+        reqwest::async_http_client, RefreshToken, TokenResponse as _
+    }, once_cell::sync::Lazy, ootr::model::{
+        DungeonReward,
+        Medallion,
+        Stone,
+    }, ootr_utils::spoiler::HashIcon, open::that as open, rand::prelude::*, rfd::AsyncFileDialog, semver::Version, serenity::utils::MessageBuilder, std::{
         borrow::Cow,
         collections::{
             BTreeMap,
@@ -19,67 +60,7 @@ use {
         },
         sync::Arc,
         time::Duration,
-    },
-    async_proto::Protocol,
-    chrono::{
-        TimeDelta,
-        prelude::*,
-    },
-    dark_light::Mode::{
-        Dark,
-        Light,
-    },
-    enum_iterator::all,
-    futures::{
-        future::{
-            self,
-            FutureExt as _,
-        },
-        sink::SinkExt as _,
-        stream::Stream,
-    },
-    iced::{
-        Application,
-        Command,
-        Element,
-        Length,
-        Settings,
-        Size,
-        Subscription,
-        Theme,
-        clipboard,
-        widget::*,
-        window::{
-            self,
-            icon,
-        },
-    },
-    if_chain::if_chain,
-    ::image::ImageFormat,
-    itertools::Itertools as _,
-    log_lock::{
-        Mutex,
-        lock,
-    },
-    oauth2::{
-        RefreshToken,
-        TokenResponse as _,
-        reqwest::async_http_client,
-    },
-    once_cell::sync::Lazy,
-    ootr::model::{
-        DungeonReward,
-        Medallion,
-        Stone,
-    },
-    ootr_utils::spoiler::HashIcon,
-    open::that as open,
-    rand::prelude::*,
-    rfd::AsyncFileDialog,
-    semver::Version,
-    serenity::utils::MessageBuilder,
-    sysinfo::Pid,
-    tokio::{
+    }, sysinfo::Pid, tokio::{
         io::{
             self,
             AsyncWriteExt as _,
@@ -90,47 +71,12 @@ use {
         },
         sync::mpsc,
         time::{
-            Instant,
-            sleep_until,
+            sleep_until, Instant
         },
-    },
-    tokio_tungstenite::tungstenite,
-    url::Url,
-    wheel::{
+    }, tokio_tungstenite::tungstenite, url::Url, wheel::{
         fs,
         traits::IsNetworkError,
-    },
-    multiworld::{
-        DurationFormatter,
-        Filename,
-        HintArea,
-        LobbyView,
-        RoomFormatter,
-        RoomView,
-        SessionState,
-        SessionStateError,
-        config::Config,
-        format_room_state,
-        frontend::{
-            self,
-            Kind as Frontend,
-        },
-        github::Repo,
-        ws::{
-            ServerError,
-            latest::{
-                ClientMessage,
-                ServerMessage,
-            },
-        },
-    },
-    crate::{
-        persistent_state::PersistentState,
-        subscriptions::{
-            LoggingSubscription,
-            WsSink,
-        },
-    },
+    }
 };
 #[cfg(unix)] use xdg::BaseDirectories;
 #[cfg(windows)] use directories::ProjectDirs;
@@ -432,6 +378,7 @@ struct State {
     update_state: UpdateState,
     send_all_path: String,
     send_all_world: String,
+    combo_box_state: combo_box::State<RoomFormatter>,
 }
 
 impl State {
@@ -680,6 +627,7 @@ impl Application for State {
             send_all_path: String::default(),
             send_all_world: String::default(),
             frontend, config_error, persistent_state_error, persistent_state,
+            combo_box_state: combo_box::State::new(Vec::new()),
         }, cmd(future::ok(Message::CheckForUpdates)))
     }
 
@@ -1262,13 +1210,18 @@ impl Application for State {
                             }))
                         }
                     }
-                    ServerMessage::EnterLobby { .. } => {
+                    ServerMessage::EnterLobby { ref rooms, ..} => {
                         let login_token = self.login_tokens.iter()
                             .next()
                             .filter(|_| matches!(self.server_connection, SessionState::Lobby { login_state: None, .. }))
                             .map(|(&provider, bearer_token)| (provider, bearer_token.clone()));
                         let server_writer = self.server_writer.clone();
                         let frontend_writer = self.frontend_writer.clone();
+
+                        let mut rooms = rooms.iter().map(|(&id, (name, password_required))| RoomFormatter { id, name: name.clone(), password_required: password_required.clone() }).collect_vec();
+                        rooms.sort();
+                        self.combo_box_state = combo_box::State::new(rooms);
+                        
                         return cmd(async move {
                             if let Some(server_writer) = server_writer {
                                 if let Some((provider, bearer_token)) = login_token {
@@ -1283,6 +1236,13 @@ impl Application for State {
                             }
                             Ok(if room_still_exists { Message::JoinRoom } else { Message::Nop })
                         })
+                    } 
+                    ServerMessage::NewRoom {..} | ServerMessage::DeleteRoom {..} => {
+                        if let SessionState::Lobby { ref rooms, .. } = self.server_connection {
+                            let mut rooms = rooms.iter().map(|(&id, (name, password_required))| RoomFormatter { id, name: name.clone(), password_required: password_required.clone() }).collect_vec();
+                            rooms.sort();
+                            self.combo_box_state = combo_box::State::new(rooms);
+                        }
                     }
                     ServerMessage::EnterRoom { players, .. } => {
                         let persistent_state = self.persistent_state.clone();
@@ -1671,9 +1631,7 @@ impl Application for State {
                             if rooms.is_empty() {
                                 Text::new("(no rooms currently open)").into()
                             } else {
-                                let mut rooms = rooms.iter().map(|(&id, (name, password_required))| RoomFormatter { id, name: name.clone(), password_required: password_required.clone() }).collect_vec();
-                                rooms.sort();
-                                PickList::new(rooms, existing_room_selection.clone(), Message::SetExistingRoomSelection).into()
+                                ComboBox::new(&self.combo_box_state, "", existing_room_selection.as_ref(), Message::SetExistingRoomSelection).into()
                             }
                         });
                     if existing_room_selection.as_ref().map_or(true, |existing_room_selection| existing_room_selection.password_required) {
