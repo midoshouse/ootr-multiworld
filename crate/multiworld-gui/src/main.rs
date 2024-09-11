@@ -347,6 +347,7 @@ enum Message {
     FrontendSubscriptionError(Arc<Error>),
     JoinRoom,
     Kick(NonZeroU8),
+    LaunchProject64,
     Leave,
     LoginError(Arc<login::Error>),
     LoginTokens {
@@ -416,6 +417,7 @@ struct State {
     frontend_connection_id: u8,
     frontend_writer: Option<LoggingFrontendWriter>,
     log: bool,
+    pj64_script_path: Option<PathBuf>,
     login_tokens: BTreeMap<login::Provider, String>,
     refresh_tokens: BTreeMap<login::Provider, String>,
     last_login_url: Option<Url>,
@@ -664,6 +666,7 @@ impl Application for State {
             frontend_writer: None,
             websocket_url: config.websocket_url().expect("failed to parse WebSocket URL"),
             log: config.log,
+            pj64_script_path: config.pj64_script_path,
             login_tokens: config.login_tokens,
             refresh_tokens: config.refresh_tokens,
             last_login_url: None,
@@ -1418,6 +1421,14 @@ impl Application for State {
             Message::ShowLoggingInstructions => if let Err(e) = open("https://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/logging.md") {
                 return cmd(future::err(e.into()))
             },
+            Message::LaunchProject64 => {
+                let emulator_path = self.pj64_script_path.as_ref().expect("emulator path must be set for Project64 version 3");
+                let pj64_folder_path = Path::new(emulator_path).ancestors().nth(2).unwrap();
+                let pj64_executable_path = pj64_folder_path.join("Project64.exe");
+                if let Err(e) = process::Command::new(&pj64_executable_path).current_dir(pj64_folder_path).spawn() {
+                    return cmd(future::err(e.into()))
+                }
+            }
             Message::ToggleUpdateErrorDetails => if let UpdateState::Error { ref mut expanded, .. } = self.update_state { *expanded = !*expanded },
             Message::UpToDate => self.update_state = UpdateState::UpToDate,
             #[cfg(target_os = "macos")] Message::UpdateAvailable(new_ver) => self.update_state = UpdateState::Available(new_ver),
@@ -1514,6 +1525,7 @@ impl Application for State {
                 #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
                 Frontend::Pj64V3 => {
                     col = col
+                        .push(Button::new("Open Project64").on_press(Message::LaunchProject64))
                         .push("Waiting for Project64…")
                         .push("1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.");
                 }
