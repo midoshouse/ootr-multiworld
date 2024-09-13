@@ -303,6 +303,10 @@ enum Error {
     #[cfg(windows)]
     #[error("user folder not found")]
     MissingHomeDir,
+    #[error("Project64 script path is invalid, you can fix the script path by following the instructions defined in step 11 to 16 at:\nhttps://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/manual-install.md#for-project64\nor try to re-install Mido's House Multiworld using the installer")]
+    InvalidPj64ScriptPath,
+    #[error("Failed to open Project64, make sure your script path is valid by following the instructions defined in step 11 to 16 at:\nhttps://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/manual-install.md#for-project64\nor try to re-install Mido's House Multiworld using the installer")]
+    Pj64LaunchFailed,
     #[error("protocol version mismatch: {frontend} plugin is version {version} but we're version {}", frontend::PROTOCOL_VERSION)]
     VersionMismatch {
         frontend: Frontend,
@@ -324,6 +328,8 @@ impl IsNetworkError for Error {
             Self::Write(e) => e.is_network_error(),
             #[cfg(unix)] Self::Xdg(_) => false,
             #[cfg(windows)] Self::MissingHomeDir => false,
+            #[cfg(windows)] Self::InvalidPj64ScriptPath => false,
+            #[cfg(windows)] Self::Pj64LaunchFailed => false,
         }
     }
 }
@@ -1421,13 +1427,16 @@ impl Application for State {
             Message::ShowLoggingInstructions => if let Err(e) = open("https://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/logging.md") {
                 return cmd(future::err(e.into()))
             },
+            #[cfg(windows)]
             Message::LaunchProject64 => {
-                let emulator_path = self.pj64_script_path.as_ref().expect("emulator path must be set for Project64 version 3");
-                let pj64_folder_path = Path::new(emulator_path).ancestors().nth(2).unwrap();
-                let pj64_executable_path = pj64_folder_path.join("Project64.exe");
-                if let Err(e) = process::Command::new(&pj64_executable_path).current_dir(pj64_folder_path).spawn() {
-                    return cmd(future::err(e.into()))
-                }
+                    let emulator_path = self.pj64_script_path.as_ref().expect("emulator path must be set for Project64 version 3");
+                    let Some(pj64_folder_path) =  Path::new(emulator_path).ancestors().nth(2) else {
+                        return cmd(future::err(Error::InvalidPj64ScriptPath))
+                    };
+                    let pj64_executable_path = pj64_folder_path.join("Project64.exe");
+                    if let Err(_e) = process::Command::new(pj64_executable_path).current_dir(pj64_folder_path).spawn() {
+                        return cmd(future::err(Error::Pj64LaunchFailed))
+                    }
             }
             Message::ToggleUpdateErrorDetails => if let UpdateState::Error { ref mut expanded, .. } = self.update_state { *expanded = !*expanded },
             Message::UpToDate => self.update_state = UpdateState::UpToDate,
@@ -1524,10 +1533,17 @@ impl Application for State {
                 },
                 #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
                 Frontend::Pj64V3 => {
-                    col = col
-                        .push(Button::new("Open Project64").on_press(Message::LaunchProject64))
-                        .push("Waiting for Project64…")
-                        .push("1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.");
+                    col = col.push("Waiting for Project64…");
+                    if self.pj64_script_path.is_some() {
+                        col = col.push(
+                            Row::new()
+                                .push("1. ")
+                                .push(Button::new("Open Project64").on_press(Message::LaunchProject64))
+                                .align_items(iced::Alignment::Center));
+                            col = col.push("2. In Project64's Debugger menu, select Scripts\n3. In the Scripts window, select ootrmw.js and click Run\n4. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.")
+                    } else {
+                        col = col.push("1. Open Project64\n2. In Project64's Debugger menu, select Scripts\n3. In the Scripts window, select ootrmw.js and click Run\n4. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.");
+                    }
                 }
                 Frontend::Pj64V4 => {
                     col = col
