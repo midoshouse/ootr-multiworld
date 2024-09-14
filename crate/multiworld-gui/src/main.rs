@@ -1430,7 +1430,7 @@ impl Application for State {
             #[cfg(windows)]
             Message::LaunchProject64 => {
                     let emulator_path = self.pj64_script_path.as_ref().expect("emulator path must be set for Project64 version 3");
-                    let Some(pj64_folder_path) =  Path::new(emulator_path).ancestors().nth(2) else {
+                    let Some(pj64_folder_path) = Path::new(emulator_path).ancestors().nth(2) else {
                         return cmd(future::err(Error::InvalidPj64ScriptPath))
                     };
                     let pj64_executable_path = pj64_folder_path.join("Project64.exe");
