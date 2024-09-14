@@ -318,9 +318,9 @@ impl IsNetworkError for Error {
     fn is_network_error(&self) -> bool {
         match self {
             Self::Elapsed(_) => true,
-            Self::Config(_) | Self::EverDrive(_) | Self::Json(_) | Self::MpscFrontendSend(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::CopyDebugInfo | Self::VersionMismatch { .. } => false,
+            Self::Config(_) | Self::EverDrive(_) | Self::Json(_) | Self::MpscFrontendSend(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::CopyDebugInfo | Self::InvalidPj64ScriptPath | Self::VersionMismatch { .. } => false,
             Self::Client(e) => e.is_network_error(),
-            Self::Io(e) => e.is_network_error(),
+            Self::Io(e) | Self::Pj64LaunchFailed(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),
             Self::Reqwest(e) => e.is_network_error(),
             Self::WebSocket(e) => e.is_network_error(),
@@ -328,8 +328,6 @@ impl IsNetworkError for Error {
             Self::Write(e) => e.is_network_error(),
             #[cfg(unix)] Self::Xdg(_) => false,
             #[cfg(windows)] Self::MissingHomeDir => false,
-            #[cfg(windows)] Self::InvalidPj64ScriptPath => false,
-            #[cfg(windows)] Self::Pj64LaunchFailed(e) => e.is_network_error(),
         }
     }
 }
@@ -1427,7 +1425,6 @@ impl Application for State {
             Message::ShowLoggingInstructions => if let Err(e) = open("https://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/logging.md") {
                 return cmd(future::err(e.into()))
             },
-            #[cfg(windows)]
             Message::LaunchProject64 => {
                     let emulator_path = self.pj64_script_path.as_ref().expect("emulator path must be set for Project64 version 3");
                     let Some(pj64_folder_path) = Path::new(emulator_path).ancestors().nth(2) else {
