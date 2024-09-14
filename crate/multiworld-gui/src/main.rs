@@ -306,7 +306,7 @@ enum Error {
     #[error("Project64 script path is invalid, you can fix the script path by following the instructions defined in step 11 to 16 at:\nhttps://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/manual-install.md#for-project64\nor try to re-install Mido's House Multiworld using the installer")]
     InvalidPj64ScriptPath,
     #[error("Failed to open Project64, make sure your script path is valid by following the instructions defined in step 11 to 16 at:\nhttps://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/manual-install.md#for-project64\nor try to re-install Mido's House Multiworld using the installer")]
-    Pj64LaunchFailed,
+    Pj64LaunchFailed(#[source] io::Error),
     #[error("protocol version mismatch: {frontend} plugin is version {version} but we're version {}", frontend::PROTOCOL_VERSION)]
     VersionMismatch {
         frontend: Frontend,
@@ -329,7 +329,7 @@ impl IsNetworkError for Error {
             #[cfg(unix)] Self::Xdg(_) => false,
             #[cfg(windows)] Self::MissingHomeDir => false,
             #[cfg(windows)] Self::InvalidPj64ScriptPath => false,
-            #[cfg(windows)] Self::Pj64LaunchFailed => false,
+            #[cfg(windows)] Self::Pj64LaunchFailed(e) => e.is_network_error(),
         }
     }
 }
@@ -1434,8 +1434,8 @@ impl Application for State {
                         return cmd(future::err(Error::InvalidPj64ScriptPath))
                     };
                     let pj64_executable_path = pj64_folder_path.join("Project64.exe");
-                    if let Err(_e) = process::Command::new(pj64_executable_path).current_dir(pj64_folder_path).spawn() {
-                        return cmd(future::err(Error::Pj64LaunchFailed))
+                    if let Err(e) = process::Command::new(pj64_executable_path).current_dir(pj64_folder_path).spawn() {
+                        return cmd(future::err(Error::Pj64LaunchFailed(e)))
                     }
             }
             Message::ToggleUpdateErrorDetails => if let UpdateState::Error { ref mut expanded, .. } = self.update_state { *expanded = !*expanded },
