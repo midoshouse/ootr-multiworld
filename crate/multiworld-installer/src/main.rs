@@ -66,6 +66,10 @@ use {
         config::Config,
         frontend::Kind as Emulator, //TODO rename to Frontend?
         github::Repo,
+        localisation::{
+            Locale,
+            Message::*,
+        },
     },
 };
 #[cfg(target_os = "linux")] use {
@@ -192,6 +196,7 @@ enum Message {
     SetEmulator(Emulator),
     SetInstallEmulator(bool),
     SetOpenEmulator(bool),
+    SetLocale(Locale),
 }
 
 fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) -> Command<Message> {
@@ -232,6 +237,12 @@ struct Pj64ConfigDebugger {
 enum Page {
     Error(Arc<Error>, bool),
     Elevated,
+    SelectLocale {
+        emulator: Option<Emulator>,
+        install_emulator: Option<bool>,
+        emulator_path: Option<String>,
+        multiworld_path: Option<String>,
+    },
     SelectEmulator {
         emulator: Option<Emulator>,
         install_emulator: Option<bool>,
@@ -291,6 +302,7 @@ struct State {
     create_emulator_desktop_shortcut: bool,
     // Page::AskLaunch
     open_emulator: bool,
+    locale: Locale,
 }
 
 impl Application for State {
@@ -299,25 +311,25 @@ impl Application for State {
     type Theme = Theme;
     type Flags = Args;
 
-    fn new(Args { mut emulator }: Args) -> (Self, Command<Message>) {
+    fn new(Args { mut emulator , locale}: Args) -> (Self, Command<Message>) {
         if let Ok(only_emulator) = all().filter(Emulator::is_supported).exactly_one() {
             emulator.get_or_insert(only_emulator);
         }
+        let page = match emulator {
+            Some(_) => Page::SelectEmulator { emulator, install_emulator: None, emulator_path: None, multiworld_path: None },
+            None => Page::SelectLocale { emulator, install_emulator: None, emulator_path: None, multiworld_path: None }
+        };
         (Self {
             http_client: reqwest::Client::builder()
                 .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
                 .use_rustls_tls()
                 .https_only(true)
                 .build().expect("failed to build HTTP client"),
-            page: Page::SelectEmulator {
-                install_emulator: None,
-                emulator_path: None,
-                multiworld_path: None,
-                emulator,
-            },
+            page,
             create_multiworld_desktop_shortcut: true,
             create_emulator_desktop_shortcut: true,
             open_emulator: true,
+            locale: locale.unwrap_or_default(),
         }, if emulator.is_some() {
             cmd(future::ok(Message::Continue))
         } else {
@@ -348,7 +360,8 @@ impl Application for State {
     fn update(&mut self, msg: Message) -> Command<Message> {
         match msg {
             Message::Back => self.page = match self.page {
-                Page::Error(_, _) | Page::Elevated | Page::SelectEmulator { .. } => unreachable!(),
+                Page::Error(_, _) | Page::Elevated | Page::SelectLocale { .. } => unreachable!(),
+                Page::SelectEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => Page::SelectLocale { emulator, install_emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
                 Page::EmulatorWarning { emulator, install_emulator, ref emulator_path, ref multiworld_path } => Page::SelectEmulator { emulator: Some(emulator), install_emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
                 Page::LocateEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => Page::SelectEmulator { emulator: Some(emulator), install_emulator: Some(install_emulator), emulator_path: Some(emulator_path.clone()), multiworld_path: multiworld_path.clone() },
                 Page::AskBizHawkUpdate { ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator: Emulator::BizHawk, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
@@ -405,6 +418,9 @@ impl Application for State {
             Message::ConfigWriteFailed => if let Page::InstallMultiworld { ref mut config_write_failed, .. } = self.page { *config_write_failed = true },
             Message::Continue => match self.page {
                 Page::Error(_, _) | Page::Elevated | Page::Project64EmError { .. } => unreachable!(),
+                Page::SelectLocale { emulator, install_emulator, ref emulator_path, ref multiworld_path } => {
+                    self.page = Page::SelectEmulator { emulator, install_emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() }
+                }
                 Page::SelectEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => {
                     let emulator = emulator.expect("emulator must be selected to continue here");
                     match emulator {
@@ -416,13 +432,18 @@ impl Application for State {
                         #[cfg(target_os = "windows")] Emulator::Pj64V3 | Emulator::Pj64V4 if !is_elevated() => {
                             // Project64 installation and plugin installation both require admin permissions (UAC)
                             self.page = Page::Elevated;
+                            let locale = self.locale;
                             return cmd(async move {
-                                let arg = match emulator {
+                                let emulator_arg = match emulator {
                                     Emulator::Pj64V3 => "--emulator=pj64v3",
                                     Emulator::Pj64V4 => "--emulator=pj64v4",
                                     _ => unreachable!(),
                                 };
-                                tokio::task::spawn_blocking(move || Ok::<_, Error>(runas::Command::new(env::current_exe()?).arg(arg).gui(true).status().at_command("runas")?.check("runas")?)).await??;
+                                let locale_arg = match locale {
+                                    Locale::EN => "--locale=en",
+                                    Locale::FR => "--locale=fr",
+                                };
+                                tokio::task::spawn_blocking(move || Ok::<_, Error>(runas::Command::new(env::current_exe()?).arg(emulator_arg).arg(locale_arg).gui(true).status().at_command("runas")?.check("runas")?)).await??;
                                 Ok(Message::Exit)
                             })
                         }
@@ -764,6 +785,7 @@ impl Application for State {
                     _ => unreachable!(),
                 };
                 self.page = Page::InstallMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone(), config_write_failed: false };
+                let locale = self.locale;
                 match emulator {
                     Emulator::Dummy => unreachable!(),
                     Emulator::EverDrive => {
@@ -771,6 +793,7 @@ impl Application for State {
                         return cmd(async move {
                             let mut new_mw_config = Config::load().await?;
                             new_mw_config.default_frontend = Some(Emulator::EverDrive);
+                            new_mw_config.locale = Some(locale);
                             new_mw_config.save().await?;
                             let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Project64"));
                             fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
@@ -794,6 +817,7 @@ impl Application for State {
                     Emulator::BizHawk => return cmd(async move {
                         let mut new_mw_config = Config::load().await?;
                         new_mw_config.default_frontend = Some(Emulator::BizHawk);
+                        new_mw_config.locale = Some(locale);
                         new_mw_config.save().await?;
                         let emulator_dir = PathBuf::from(emulator_path.expect("emulator path must be set for BizHawk"));
                         let external_tools_dir = emulator_dir.join("ExternalTools");
@@ -849,6 +873,7 @@ impl Application for State {
                             let mut new_mw_config = Config::load().await?;
                             new_mw_config.default_frontend = Some(Emulator::Pj64V3);
                             new_mw_config.pj64_script_path = Some(script_path);
+                            new_mw_config.locale = Some(locale);
                             new_mw_config.save().await?;
                             let config_path = emulator_dir.join("Config");
                             fs::create_dir(&config_path).await.exist_ok()?;
@@ -938,6 +963,7 @@ impl Application for State {
             Message::SetCreateEmulatorDesktopShortcut(create_desktop_shortcut) => self.create_emulator_desktop_shortcut = create_desktop_shortcut,
             Message::SetCreateMultiworldDesktopShortcut(create_desktop_shortcut) => self.create_multiworld_desktop_shortcut = create_desktop_shortcut,
             Message::SetEmulator(new_emulator) => if let Page::SelectEmulator { ref mut emulator, .. } = self.page { *emulator = Some(new_emulator) },
+            Message::SetLocale(new_locale) => self.locale = new_locale,
             Message::SetInstallEmulator(new_install_emulator) => if let Page::LocateEmulator { ref mut install_emulator, .. } = self.page { *install_emulator = new_install_emulator },
             Message::SetOpenEmulator(open_emulator) => self.open_emulator = open_emulator,
         }
@@ -975,9 +1001,23 @@ impl Application for State {
                 None,
             ),
             Page::Elevated => (
-                Text::new("The installer has been reopened with admin permissions. Please continue there.").into(),
+                Text::new(self.locale.message(InstallerReopenUAC)).into(),
                 false,
                 None,
+            ),
+            Page::SelectLocale { .. } => (
+                {
+                    let mut col = Column::new();
+                    col = col.push("Select language you wish to proceed with");
+                    col = col.push(PickList::new(Locale::ALL, Some(self.locale), Message::SetLocale));
+                    col.spacing(8).into()
+                },
+                false,
+                Some({
+                    let mut row = Row::new();
+                    row = row.push(Text::new("Continue"));
+                    (Into::<Element<'_, Message>>::into(row.spacing(8)), true)
+                })
             ),
             Page::SelectEmulator { emulator, .. } => (
                 {
@@ -991,7 +1031,7 @@ impl Application for State {
                     col = col.push(Button::new(Text::new("See platform support status")).on_press(Message::PlatformSupport));
                     col.spacing(8).into()
                 },
-                false,
+                true,
                 Some({
                     let mut row = Row::new();
                     #[cfg(target_os = "windows")] if matches!(emulator, Some(Emulator::Pj64V3 | Emulator::Pj64V4)) && !is_elevated() {
@@ -1170,6 +1210,8 @@ impl Application for State {
 struct Args {
     #[clap(long, value_enum)]
     emulator: Option<Emulator>,
+    #[clap(long, value_enum)]
+    locale: Option<Locale>,
 }
 
 #[derive(Debug, thiserror::Error)]

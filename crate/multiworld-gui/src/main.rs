@@ -116,6 +116,10 @@ use {
             Kind as Frontend,
         },
         github::Repo,
+        localisation::{
+            Locale,
+            Message::*,
+        },
         ws::{
             ServerError,
             latest::{
@@ -380,6 +384,7 @@ enum Message {
     SetExistingRoomSelection(RoomFormatter),
     SetFrontend(Frontend),
     SetLobbyView(LobbyView),
+    SetLocale(Locale),
     SetNewRoomName(String),
     SetPassword(String),
     SetRoomView(RoomView),
@@ -438,6 +443,7 @@ struct State {
     update_state: UpdateState,
     send_all_path: String,
     send_all_world: String,
+    locale: Locale,
 }
 
 impl State {
@@ -686,6 +692,7 @@ impl Application for State {
             update_state: UpdateState::Pending,
             send_all_path: String::default(),
             send_all_world: String::default(),
+            locale: config.locale.unwrap_or_default(),
             frontend, config_error, persistent_state_error, persistent_state,
         }, cmd(future::ok(Message::CheckForUpdates)))
     }
@@ -1418,6 +1425,15 @@ impl Application for State {
             Message::SetCreateNewRoom(new_val) => if let SessionState::Lobby { ref mut create_new_room, .. } = self.server_connection { *create_new_room = new_val },
             Message::SetExistingRoomSelection(name) => if let SessionState::Lobby { ref mut existing_room_selection, .. } = self.server_connection { *existing_room_selection = Some(name) },
             Message::SetFrontend(new_frontend) => self.frontend.kind = new_frontend,
+            Message::SetLocale(new_locale) => {
+                self.locale = new_locale;
+                return cmd(async move {
+                    let mut config = Config::load().await?;
+                    config.locale = Some(new_locale);
+                    config.save().await?;
+                    Ok(Message::Nop)
+                })
+            },
             Message::SetNewRoomName(name) => if let SessionState::Lobby { ref mut new_room_name, .. } = self.server_connection { *new_room_name = name },
             Message::SetPassword(new_password) => if let SessionState::Lobby { ref mut password, .. } = self.server_connection { *password = new_password },
             Message::SetSendAllPath(new_path) => self.send_all_path = new_path,
@@ -1535,7 +1551,7 @@ impl Application for State {
                         col = col.push(
                             Row::new()
                                 .push("1. ")
-                                .push(Button::new("Open Project64").on_press(Message::LaunchProject64))
+                                .push(Button::new(self.locale.message(OpenPj64Button)).on_press(Message::LaunchProject64))
                                 .align_items(iced::Alignment::Center));
                             col = col.push("2. In Project64's Debugger menu, select Scripts\n3. In the Scripts window, select ootrmw.js and click Run\n4. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.")
                     } else {
@@ -1647,6 +1663,7 @@ impl Application for State {
                             .push(Button::new("Sign in with racetime.gg").on_press(Message::SetLobbyView(LobbyView::Login { provider: login::Provider::RaceTime, no_midos_house_account: false })))
                             .push(Button::new("Sign in with Discord").on_press(Message::SetLobbyView(LobbyView::Login { provider: login::Provider::Discord, no_midos_house_account: false })));
                     }
+                    col = col.push(PickList::new(Locale::ALL, Some(self.locale), Message::SetLocale)).into();
                     col.spacing(8)
                 }
                 SessionState::Lobby { view: LobbyView::Login { provider, no_midos_house_account: true }, wrong_password: false, .. } => Column::new()

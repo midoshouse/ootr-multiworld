@@ -10,7 +10,10 @@ use {
         Serialize,
     },
     url::Url,
-    crate::frontend::Kind as Frontend,
+    crate::{
+        frontend::Kind as Frontend,
+        localisation::Locale,
+    },
 };
 #[cfg(unix)] use xdg::BaseDirectories;
 #[cfg(windows)] use directories::ProjectDirs;
@@ -27,6 +30,7 @@ pub struct Config {
     #[serde(default)]
     pub refresh_tokens: BTreeMap<crate::IdentityProvider, String>,
     pub pj64_script_path: Option<PathBuf>,
+    pub locale: Option<Locale>,
     #[serde(default = "default_websocket_hostname")]
     pub websocket_hostname: String,
 }
@@ -112,6 +116,7 @@ impl Default for Config {
             refresh_tokens: BTreeMap::default(),
             pj64_script_path: None,
             websocket_hostname: default_websocket_hostname(),
+            locale: None,
         }
     }
 }
