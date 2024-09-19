@@ -78,7 +78,7 @@ use {
 #[cfg(feature = "sqlx")] use sqlx::PgPool;
 
 pub mod config;
-pub mod localisation;
+pub mod localization;
 pub mod frontend;
 pub mod github;
 pub mod ws;

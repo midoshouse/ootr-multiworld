@@ -66,7 +66,7 @@ use {
         config::Config,
         frontend::Kind as Emulator, //TODO rename to Frontend?
         github::Repo,
-        localisation::{
+        localization::{
             Locale,
             Message::*,
         },
@@ -1008,8 +1008,8 @@ impl Application for State {
             Page::SelectLocale { .. } => (
                 {
                     let mut col = Column::new();
-                    col = col.push("Select language you wish to proceed with");
-                    col = col.push(PickList::new(Locale::ALL, Some(self.locale), Message::SetLocale));
+                    col = col.push("Select language");
+                    col = col.push(PickList::new(all::<Locale>().collect::<Vec<_>>(), Some(self.locale), Message::SetLocale));
                     col.spacing(8).into()
                 },
                 false,

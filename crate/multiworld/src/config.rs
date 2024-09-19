@@ -12,7 +12,7 @@ use {
     url::Url,
     crate::{
         frontend::Kind as Frontend,
-        localisation::Locale,
+        localization::Locale,
     },
 };
 #[cfg(unix)] use xdg::BaseDirectories;

@@ -116,7 +116,7 @@ use {
             Kind as Frontend,
         },
         github::Repo,
-        localisation::{
+        localization::{
             Locale,
             Message::*,
         },
@@ -1551,7 +1551,7 @@ impl Application for State {
                         col = col.push(
                             Row::new()
                                 .push("1. ")
-                                .push(Button::new(self.locale.message(OpenPj64Button)).on_press(Message::LaunchProject64))
+                                .push(Button::new(Text::new(self.locale.message(OpenPj64Button))).on_press(Message::LaunchProject64))
                                 .align_items(iced::Alignment::Center));
                             col = col.push("2. In Project64's Debugger menu, select Scripts\n3. In the Scripts window, select ootrmw.js and click Run\n4. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.")
                     } else {
@@ -1663,7 +1663,7 @@ impl Application for State {
                             .push(Button::new("Sign in with racetime.gg").on_press(Message::SetLobbyView(LobbyView::Login { provider: login::Provider::RaceTime, no_midos_house_account: false })))
                             .push(Button::new("Sign in with Discord").on_press(Message::SetLobbyView(LobbyView::Login { provider: login::Provider::Discord, no_midos_house_account: false })));
                     }
-                    col = col.push(PickList::new(Locale::ALL, Some(self.locale), Message::SetLocale)).into();
+                    col = col.push(PickList::new(all::<Locale>().collect::<Vec<_>>(), Some(self.locale), Message::SetLocale)).into();
                     col.spacing(8)
                 }
                 SessionState::Lobby { view: LobbyView::Login { provider, no_midos_house_account: true }, wrong_password: false, .. } => Column::new()
