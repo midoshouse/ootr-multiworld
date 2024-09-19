@@ -249,6 +249,10 @@ enum Error {
     #[cfg(windows)]
     #[error("user folder not found")]
     MissingHomeDir,
+    #[error("Project64 script path is invalid, you can fix the script path by following the instructions defined in step 11 to 16 at:\nhttps://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/manual-install.md#for-project64\nor try to re-install Mido's House Multiworld using the installer")]
+    InvalidPj64ScriptPath,
+    #[error("Failed to open Project64, make sure your script path is valid by following the instructions defined in step 11 to 16 at:\nhttps://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/manual-install.md#for-project64\nor try to re-install Mido's House Multiworld using the installer")]
+    Pj64LaunchFailed(#[source] io::Error),
     #[error("protocol version mismatch: {frontend} plugin is version {version} but we're version {}", frontend::PROTOCOL_VERSION)]
     VersionMismatch {
         frontend: Frontend,
@@ -260,9 +264,9 @@ impl IsNetworkError for Error {
     fn is_network_error(&self) -> bool {
         match self {
             Self::Elapsed(_) => true,
-            Self::Config(_) | Self::EverDrive(_) | Self::Json(_) | Self::MpscFrontendSend(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::CopyDebugInfo | Self::VersionMismatch { .. } => false,
+            Self::Config(_) | Self::EverDrive(_) | Self::Json(_) | Self::MpscFrontendSend(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::CopyDebugInfo | Self::InvalidPj64ScriptPath | Self::VersionMismatch { .. } => false,
             Self::Client(e) => e.is_network_error(),
-            Self::Io(e) => e.is_network_error(),
+            Self::Io(e) | Self::Pj64LaunchFailed(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),
             Self::Reqwest(e) => e.is_network_error(),
             Self::WebSocket(e) => e.is_network_error(),
@@ -293,6 +297,7 @@ enum Message {
     FrontendSubscriptionError(Arc<Error>),
     JoinRoom,
     Kick(NonZeroU8),
+    LaunchProject64,
     Leave,
     LoginError(Arc<login::Error>),
     LoginTokens {
@@ -362,6 +367,7 @@ struct State {
     frontend_connection_id: u8,
     frontend_writer: Option<LoggingFrontendWriter>,
     log: bool,
+    pj64_script_path: Option<PathBuf>,
     login_tokens: BTreeMap<login::Provider, String>,
     refresh_tokens: BTreeMap<login::Provider, String>,
     last_login_url: Option<Url>,
@@ -611,6 +617,7 @@ impl Application for State {
             frontend_writer: None,
             websocket_url: config.websocket_url().expect("failed to parse WebSocket URL"),
             log: config.log,
+            pj64_script_path: config.pj64_script_path,
             login_tokens: config.login_tokens,
             refresh_tokens: config.refresh_tokens,
             last_login_url: None,
@@ -1378,6 +1385,16 @@ impl Application for State {
             Message::ShowLoggingInstructions => if let Err(e) = open("https://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/logging.md") {
                 return cmd(future::err(e.into()))
             },
+            Message::LaunchProject64 => {
+                    let emulator_path = self.pj64_script_path.as_ref().expect("emulator path must be set for Project64 version 3");
+                    let Some(pj64_folder_path) = Path::new(emulator_path).ancestors().nth(2) else {
+                        return cmd(future::err(Error::InvalidPj64ScriptPath))
+                    };
+                    let pj64_executable_path = pj64_folder_path.join("Project64.exe");
+                    if let Err(e) = process::Command::new(pj64_executable_path).current_dir(pj64_folder_path).spawn() {
+                        return cmd(future::err(Error::Pj64LaunchFailed(e)))
+                    }
+            }
             Message::ToggleUpdateErrorDetails => if let UpdateState::Error { ref mut expanded, .. } = self.update_state { *expanded = !*expanded },
             Message::UpToDate => self.update_state = UpdateState::UpToDate,
             #[cfg(target_os = "macos")] Message::UpdateAvailable(new_ver) => self.update_state = UpdateState::Available(new_ver),
@@ -1473,9 +1490,17 @@ impl Application for State {
                 },
                 #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
                 Frontend::Pj64V3 => {
-                    col = col
-                        .push("Waiting for Project64…")
-                        .push("1. In Project64's Debugger menu, select Scripts\n2. In the Scripts window, select ootrmw.js and click Run\n3. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.");
+                    col = col.push("Waiting for Project64…");
+                    if self.pj64_script_path.is_some() {
+                        col = col.push(
+                            Row::new()
+                                .push("1. ")
+                                .push(Button::new("Open Project64").on_press(Message::LaunchProject64))
+                                .align_items(iced::Alignment::Center));
+                            col = col.push("2. In Project64's Debugger menu, select Scripts\n3. In the Scripts window, select ootrmw.js and click Run\n4. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.")
+                    } else {
+                        col = col.push("1. Open Project64\n2. In Project64's Debugger menu, select Scripts\n3. In the Scripts window, select ootrmw.js and click Run\n4. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.");
+                    }
                 }
                 Frontend::Pj64V4 => {
                     col = col

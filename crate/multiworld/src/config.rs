@@ -94,9 +94,7 @@ impl Config {
                 project_dirs.config_dir().join("config.json")
             }
         };
-        let mut buf = serde_json::to_vec_pretty(self)?;
-        buf.push(b'\n');
-        wheel::fs::write(path, buf).await?;
+        wheel::fs::write_json(path, self).await?;
         Ok(())
     }
 
