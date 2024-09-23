@@ -32,6 +32,7 @@ use {
             TryStreamExt as _,
         },
     },
+    itermore::IterArrayCombinations as _,
     log_lock::{
         ArcRwLock,
         Mutex,
@@ -418,7 +419,7 @@ async fn lobby_session<C: ClientKind>(
                         match rooms.add(room.clone()).await {
                             Ok(()) => {}
                             Err(e @ (AddRoomError::Sql(_) | AddRoomError::DuplicateId { .. })) => return Err(e.into()),
-                            Err(AddRoomError::NameConflict) => lock!(writer = writer; writer.write(ServerMessage::StructuredError(ServerError::RoomExists)).await)?,
+                            Err(AddRoomError::NameConflict { .. }) => lock!(writer = writer; writer.write(ServerMessage::StructuredError(ServerError::RoomExists)).await)?,
                         }
                         lock!(writer = writer; writer.write(ServerMessage::EnterRoom {
                             room_id: id,
@@ -744,7 +745,10 @@ enum AddRoomError {
         id: u64,
     },
     #[error("duplicate room name in same auth namespace")]
-    NameConflict,
+    NameConflict {
+        existing_id: u64,
+        conflicting_id: u64,
+    },
 }
 
 impl<C: ClientKind> Rooms<C> {
@@ -756,9 +760,12 @@ impl<C: ClientKind> Rooms<C> {
         let (id, name, auth) = lock!(@read room = room; (room.id, room.name.clone(), room.auth.clone()));
         lock!(rooms = self.0; {
             for existing_room in rooms.list.values() {
-                if lock!(@write existing_room = existing_room; existing_room.name == name && auth.same_namespace(&existing_room.auth)) {
-                    return Err(AddRoomError::NameConflict)
-                }
+                lock!(@read existing_room = existing_room; if existing_room.name == name && auth.same_namespace(&existing_room.auth) {
+                    return Err(AddRoomError::NameConflict {
+                        existing_id: existing_room.id,
+                        conflicting_id: id,
+                    })
+                });
             }
             let entry = match rooms.list.entry(id) {
                 hash_map::Entry::Occupied(_) => return Err(AddRoomError::DuplicateId { id }),
@@ -1013,9 +1020,9 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 })).await {
                     Ok(()) => {}
                     Err(AddRoomError::Sql(e)) => return Err(e.into()),
-                    Err(e @ (AddRoomError::DuplicateId { .. } | AddRoomError::NameConflict)) => {
-                        eprintln!("deleting duplicate room {:?}: {e}", row.name);
-                        wheel::night_report("/games/zelda/oot/mhmw/duplicateRoomError", Some(&format!("deleting duplicate room {:?}: {e}", row.name))).await?;
+                    Err(e @ (AddRoomError::DuplicateId { .. } | AddRoomError::NameConflict { .. })) => {
+                        eprintln!("deleting duplicate room {:?}: {e} ({e:?})", row.name);
+                        wheel::night_report("/games/zelda/oot/mhmw/duplicateRoomError", Some(&format!("deleting duplicate room {:?}: {e} ({e:?})", row.name))).await?;
                         sqlx::query!("DELETE FROM mw_rooms WHERE id = $1", row.id).execute(&db_pool).await?;
                     }
                 }
@@ -1032,14 +1039,15 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
         });
         #[cfg(not(unix))] let unix_socket_task = future::ok(());
         let shutdown = rocket.shutdown();
+        let cleanup_rooms = rooms.clone();
         let cleanup_task = tokio::spawn(async move {
             loop {
                 select! {
                     () = shutdown.clone() => break,
-                    res = rooms.wait_cleanup(shutdown.clone()) => { let () = res?; }
+                    res = cleanup_rooms.wait_cleanup(shutdown.clone()) => { let () = res?; }
                 }
                 let now = Utc::now();
-                while let Some(room) = lock!(rooms = rooms.0; {
+                while let Some(room) = lock!(rooms = cleanup_rooms.0; {
                     let mut rooms_to_delete = pin!(stream::iter(rooms.list.values()).filter(|room| async { lock!(@read room = room; room.autodelete_at()) <= now }));
                     rooms_to_delete.next().await.cloned()
                 }) {
@@ -1047,7 +1055,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                         room.delete().await?;
                         room.id
                     });
-                    rooms.remove(id).await;
+                    cleanup_rooms.remove(id).await;
                 }
             }
             Ok(())
@@ -1059,6 +1067,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 Err(e) => Err(Error::from(e)),
             }
         });
+        let mut shutdown = rocket.shutdown();
         let rocket_task = tokio::spawn(rocket.launch()).map(|res| {
             println!("Rocket task stopped");
             match res {
@@ -1067,7 +1076,31 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 Err(e) => Err(Error::from(e)),
             }
         });
-        let ((), (), ()) = tokio::try_join!(unix_socket_task, cleanup_task, rocket_task)?;
+        let duplicate_room_debug_task = tokio::spawn(async move {
+            loop {
+                select! {
+                    () = &mut shutdown => break,
+                    () = sleep(Duration::from_secs(60 * 60)) => {}
+                }
+                lock!(rooms = rooms.0; {
+                    for [room1, room2] in rooms.list.values().array_combinations() {
+                        lock!(@read room1 = room1; lock!(@read room2 = room2; if room1.name == room2.name && room1.auth.same_namespace(&room2.auth) {
+                            eprintln!("found duplicate room {:?} (IDs {:?} and {:?})", room1.name, room1.id, room2.id);
+                            wheel::night_report("/games/zelda/oot/mhmw/duplicateRoomError", Some(&format!("found duplicate room {:?} (IDs {:?} and {:?})", room1.name, room1.id, room2.id))).await?;
+                        }));
+                    }
+                });
+            }
+            Ok(())
+        }).map(|res| {
+            println!("duplicate room debug task stopped");
+            match res {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => Err(e),
+                Err(e) => Err(Error::from(e)),
+            }
+        });
+        let ((), (), (), ()) = tokio::try_join!(unix_socket_task, cleanup_task, rocket_task, duplicate_room_debug_task)?;
         Ok(())
     }
 }

@@ -10,6 +10,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 clap = { version = "4", features = ["derive"] }
 derivative = "2"
 futures = "0.3"
+itermore = { version = "0.7.1", features = ["array_combinations"] }
 log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
 multiworld = { path = "../multiworld", features = ["sqlx"] }
 multiworld-derive = { path = "../multiworld-derive" }
