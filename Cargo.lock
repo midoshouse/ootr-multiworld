@@ -4105,7 +4105,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "async-proto",
  "async-trait",
@@ -4142,7 +4142,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-admin-cli"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "async-proto",
  "chrono",
@@ -4163,7 +4163,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-bizhawk"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "lazy-regex",
  "semver",
@@ -4175,7 +4175,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-csharp"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "async-proto",
  "chrono",
@@ -4197,7 +4197,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-derive"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "itertools 0.13.0",
  "lazy-regex",
@@ -4209,7 +4209,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-gui"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "arrayref",
  "async-proto",
@@ -4255,7 +4255,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-installer"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "async-compression",
  "async_zip",
@@ -4298,7 +4298,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-release"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "async-proto",
  "async-trait",
@@ -4328,7 +4328,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-updater"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "async-compression",
  "async_zip",
@@ -4832,7 +4832,7 @@ dependencies = [
 
 [[package]]
 name = "ootrmwd"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "async-proto",
  "chrono",
