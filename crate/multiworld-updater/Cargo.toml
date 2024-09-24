@@ -23,8 +23,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 clap = { version = "4", features = ["derive"] }
 dark-light = "1"
 futures = "0.3"
-iced = { version = "0.12", default-features = false, features = ["image", "tokio"] }
-iced_runtime = "0.12"
+iced = { version = "0.13", default-features = false, features = ["image", "tiny-skia", "tokio", "wgpu"] }
 image = { version = "0.24", default-features = false, features = ["ico"] } # recursive dependency of iced
 itertools = "0.13"
 multiworld = { path = "../multiworld" }

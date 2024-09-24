@@ -1,48 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use {
-    crate::{
-        persistent_state::PersistentState,
-        subscriptions::{
-            LoggingSubscription,
-            WsSink,
-        },
-    }, async_proto::Protocol, chrono::{
-        prelude::*, TimeDelta
-    }, dark_light::Mode::{
-        Dark,
-        Light,
-    }, enum_iterator::all, futures::{
-        future::{
-            self,
-            FutureExt as _,
-        },
-        sink::SinkExt as _,
-        stream::Stream,
-    }, iced::{
-        clipboard, widget::*, window::{
-            self,
-            icon,
-        }, Application, Command, Element, Length, Settings, Size, Subscription, Theme
-    }, if_chain::if_chain, ::image::ImageFormat, itertools::Itertools as _, log_lock::{
-        lock, Mutex
-    }, multiworld::{
-        config::Config, format_room_state, frontend::{
-            self,
-            Kind as Frontend,
-        }, github::Repo, ws::{
-            latest::{
-                ClientMessage,
-                ServerMessage,
-            }, ServerError
-        }, DurationFormatter, Filename, HintArea, LobbyView, RoomFormatter, RoomView, SessionState, SessionStateError
-    }, oauth2::{
-        reqwest::async_http_client, RefreshToken, TokenResponse as _
-    }, once_cell::sync::Lazy, ootr::model::{
-        DungeonReward,
-        Medallion,
-        Stone,
-    }, ootr_utils::spoiler::HashIcon, open::that as open, rand::prelude::*, rfd::AsyncFileDialog, semver::Version, serenity::utils::MessageBuilder, std::{
+    std::{
         borrow::Cow,
         collections::{
             BTreeMap,
@@ -60,7 +19,65 @@ use {
         },
         sync::Arc,
         time::Duration,
-    }, sysinfo::Pid, tokio::{
+    },
+    async_proto::Protocol,
+    chrono::{
+        TimeDelta,
+        prelude::*,
+    },
+    dark_light::Mode::{
+        Dark,
+        Light,
+    },
+    enum_iterator::all,
+    futures::{
+        future::{
+            self,
+            FutureExt as _,
+        },
+        sink::SinkExt as _,
+        stream::Stream,
+    },
+    iced::{
+        Element,
+        Length,
+        Task,
+        Size,
+        Subscription,
+        Theme,
+        clipboard,
+        widget::*,
+        window::{
+            self,
+            icon,
+        },
+    },
+    if_chain::if_chain,
+    ::image::ImageFormat,
+    itertools::Itertools as _,
+    log_lock::{
+        Mutex,
+        lock,
+    },
+    oauth2::{
+        RefreshToken,
+        TokenResponse as _,
+        reqwest::async_http_client,
+    },
+    once_cell::sync::Lazy,
+    ootr::model::{
+        DungeonReward,
+        Medallion,
+        Stone,
+    },
+    ootr_utils::spoiler::HashIcon,
+    open::that as open,
+    rand::prelude::*,
+    rfd::AsyncFileDialog,
+    semver::Version,
+    serenity::utils::MessageBuilder,
+    sysinfo::Pid,
+    tokio::{
         io::{
             self,
             AsyncWriteExt as _,
@@ -71,12 +88,47 @@ use {
         },
         sync::mpsc,
         time::{
-            sleep_until, Instant
+            Instant,
+            sleep_until,
         },
-    }, tokio_tungstenite::tungstenite, url::Url, wheel::{
+    },
+    tokio_tungstenite::tungstenite,
+    url::Url,
+    wheel::{
         fs,
         traits::IsNetworkError,
-    }
+    },
+    multiworld::{
+        DurationFormatter,
+        Filename,
+        HintArea,
+        LobbyView,
+        RoomFormatter,
+        RoomView,
+        SessionState,
+        SessionStateError,
+        config::Config,
+        format_room_state,
+        frontend::{
+            self,
+            Kind as Frontend,
+        },
+        github::Repo,
+        ws::{
+            ServerError,
+            latest::{
+                ClientMessage,
+                ServerMessage,
+            },
+        },
+    },
+    crate::{
+        persistent_state::PersistentState,
+        subscriptions::{
+            LoggingSubscription,
+            WsSink,
+        },
+    },
 };
 #[cfg(unix)] use xdg::BaseDirectories;
 #[cfg(windows)] use directories::ProjectDirs;
@@ -193,36 +245,36 @@ fn hash_icon(icon: HashIcon) -> Element<'static, Message> {
     match icon {
         HashIcon::Beans => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/beans.svg")[..])).width(50).height(50).into(),
         HashIcon::BigMagic => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/big-magic.svg")[..])).width(50).height(50).into(),
-        HashIcon::Bombchu => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/bombchu.png")[..])).width(50).height(50).into(),
+        HashIcon::Bombchu => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/bombchu.png")[..])).width(50).height(50).into(),
         HashIcon::Boomerang => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/boomerang.svg")[..])).width(50).height(50).into(),
-        HashIcon::BossKey => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/boss-key.png")[..])).width(50).height(50).into(),
-        HashIcon::BottledFish => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/bottled-fish.png")[..])).width(50).height(50).into(),
-        HashIcon::BottledMilk => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/bottled-milk.png")[..])).width(50).height(50).into(),
+        HashIcon::BossKey => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/boss-key.png")[..])).width(50).height(50).into(),
+        HashIcon::BottledFish => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/bottled-fish.png")[..])).width(50).height(50).into(),
+        HashIcon::BottledMilk => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/bottled-milk.png")[..])).width(50).height(50).into(),
         HashIcon::Bow => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/bow.svg")[..])).width(50).height(50).into(),
-        HashIcon::Compass => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/compass.png")[..])).width(50).height(50).into(),
-        HashIcon::Cucco => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/cucco.png")[..])).width(50).height(50).into(),
-        HashIcon::DekuNut => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/deku-nut.png")[..])).width(50).height(50).into(),
-        HashIcon::DekuStick => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/deku-stick.png")[..])).width(50).height(50).into(),
+        HashIcon::Compass => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/compass.png")[..])).width(50).height(50).into(),
+        HashIcon::Cucco => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/cucco.png")[..])).width(50).height(50).into(),
+        HashIcon::DekuNut => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/deku-nut.png")[..])).width(50).height(50).into(),
+        HashIcon::DekuStick => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/deku-stick.png")[..])).width(50).height(50).into(),
         HashIcon::FairyOcarina => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/fairy-ocarina.svg")[..])).width(50).height(50).into(),
-        HashIcon::Frog => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/frog.png")[..])).width(50).height(50).into(),
+        HashIcon::Frog => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/frog.png")[..])).width(50).height(50).into(),
         HashIcon::GoldScale => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/gold-scale.svg")[..])).width(50).height(50).into(),
-        HashIcon::HeartContainer => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/heart-container.png")[..])).width(50).height(50).into(),
-        HashIcon::HoverBoots => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/hover-boots.png")[..])).width(50).height(50).into(),
-        HashIcon::KokiriTunic => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/kokiri-tunic.png")[..])).width(50).height(50).into(),
+        HashIcon::HeartContainer => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/heart-container.png")[..])).width(50).height(50).into(),
+        HashIcon::HoverBoots => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/hover-boots.png")[..])).width(50).height(50).into(),
+        HashIcon::KokiriTunic => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/kokiri-tunic.png")[..])).width(50).height(50).into(),
         HashIcon::LensOfTruth => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/lens-of-truth.svg")[..])).width(50).height(50).into(),
         HashIcon::Longshot => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/longshot.svg")[..])).width(50).height(50).into(),
-        HashIcon::Map => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/map.png")[..])).width(50).height(50).into(),
+        HashIcon::Map => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/map.png")[..])).width(50).height(50).into(),
         HashIcon::MaskOfTruth => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/mask-of-truth.svg")[..])).width(50).height(50).into(),
         HashIcon::MasterSword => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/master-sword.svg")[..])).width(50).height(50).into(),
         HashIcon::MegatonHammer => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/megaton-hammer.svg")[..])).width(50).height(50).into(),
         HashIcon::MirrorShield => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/mirror-shield.svg")[..])).width(50).height(50).into(),
-        HashIcon::Mushroom => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/mushroom.png")[..])).width(50).height(50).into(),
-        HashIcon::Saw => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/saw.png")[..])).width(50).height(50).into(),
+        HashIcon::Mushroom => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/mushroom.png")[..])).width(50).height(50).into(),
+        HashIcon::Saw => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/saw.png")[..])).width(50).height(50).into(),
         HashIcon::SilverGauntlets => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/silver-gauntlets.svg")[..])).width(50).height(50).into(),
         HashIcon::SkullToken => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/skull-token.svg")[..])).width(50).height(50).into(),
         HashIcon::Slingshot => Svg::new(svg::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/slingshot.svg")[..])).width(50).height(50).into(),
-        HashIcon::SoldOut => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/sold-out.png")[..])).width(50).height(50).into(),
-        HashIcon::StoneOfAgony => Image::new(image::Handle::from_memory(&include_bytes!("../../../assets/hash-icon/stone-of-agony.png")[..])).width(50).height(50).into(),
+        HashIcon::SoldOut => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/sold-out.png")[..])).width(50).height(50).into(),
+        HashIcon::StoneOfAgony => Image::new(image::Handle::from_bytes(&include_bytes!("../../../assets/hash-icon/stone-of-agony.png")[..])).width(50).height(50).into(),
     }
 }
 
@@ -338,10 +390,10 @@ enum Message {
     UpdateError(Arc<Error>),
 }
 
-fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) -> Command<Message> {
-    Command::single(iced_runtime::command::Action::Future(
-        future.map(|res| res.unwrap_or_else(|e| Message::CommandError(Arc::new(e.into())))).boxed()
-    ))
+fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) -> Task<Message> {
+    Task::future(
+        future.map(|res| res.unwrap_or_else(|e| Message::CommandError(Arc::new(e.into()))))
+    )
 }
 
 enum UpdateState {
@@ -384,7 +436,6 @@ struct State {
     update_state: UpdateState,
     send_all_path: String,
     send_all_world: String,
-    combo_box_state: combo_box::State<RoomFormatter>,
 }
 
 impl State {
@@ -572,13 +623,8 @@ impl FrontendState {
     }
 }
 
-impl Application for State {
-    type Executor = iced::executor::Default;
-    type Message = Message;
-    type Theme = Theme;
-    type Flags = (Option<icon::Error>, Result<Config, multiworld::config::Error>, Result<PersistentState, persistent_state::Error>, Option<FrontendArgs>);
-
-    fn new((icon_error, config, persistent_state, frontend): Self::Flags) -> (Self, Command<Message>) {
+impl State {
+    fn new(icon_error: Option<icon::Error>, config: Result<Config, multiworld::config::Error>, persistent_state: Result<PersistentState, persistent_state::Error>, frontend: Option<FrontendArgs>) -> Self {
         let (config, config_error) = match config {
             Ok(config) => (config, None),
             Err(e) => (Config::default(), Some(Arc::new(e))),
@@ -607,7 +653,7 @@ impl Application for State {
             },
             everdrive: EverDriveState::default(),
         };
-        (Self {
+        Self {
             debug_info_copied: false,
             icon_error: icon_error.map(Arc::new),
             command_error: None,
@@ -634,8 +680,7 @@ impl Application for State {
             send_all_path: String::default(),
             send_all_world: String::default(),
             frontend, config_error, persistent_state_error, persistent_state,
-            combo_box_state: combo_box::State::new(Vec::new()),
-        }, cmd(future::ok(Message::CheckForUpdates)))
+        }
     }
 
     fn theme(&self) -> Theme {
@@ -664,7 +709,7 @@ impl Application for State {
         }
     }
 
-    fn update(&mut self, msg: Message) -> Command<Message> {
+    fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::SetLobbyView(new_view) => if let SessionState::Lobby { ref mut view, .. } = self.server_connection {
                 *view = new_view;
@@ -769,8 +814,8 @@ impl Application for State {
             Message::DismissWrongPassword => if let SessionState::Lobby { ref mut wrong_password, .. } = self.server_connection {
                 *wrong_password = false;
             },
-            Message::Event(iced::Event::Window(id, window::Event::CloseRequested)) => if id != window::Id::MAIN || self.command_error.is_some() || self.login_error.is_some() || self.frontend_subscription_error.is_some() {
-                return window::close(id)
+            Message::Event(iced::Event::Window(window::Event::CloseRequested)) => if self.command_error.is_some() || self.login_error.is_some() || self.frontend_subscription_error.is_some() {
+                return window::get_latest().and_then(window::close)
             } else {
                 let frontend_writer = self.frontend_writer.take();
                 let server_writer = self.server_writer.take();
@@ -805,7 +850,7 @@ impl Application for State {
                     self.frontend_writer = None;
                 }
             }
-            Message::Exit => return window::close(window::Id::MAIN),
+            Message::Exit => return window::get_latest().and_then(window::close),
             Message::FrontendConnected(inner) => {
                 if let Frontend::EverDrive = self.frontend.kind {
                     self.frontend.everdrive = EverDriveState::Connected;
@@ -833,10 +878,10 @@ impl Application for State {
             Message::FrontendSubscriptionError(e) => {
                 if let Error::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::Io(ref e), .. }) = *e {
                     match (self.frontend.kind, e.kind()) {
-                        (Frontend::BizHawk | Frontend::Pj64V4, io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof) => return window::close(window::Id::MAIN), // frontend closed
+                        (Frontend::BizHawk | Frontend::Pj64V4, io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof) => return window::get_latest().and_then(window::close), // frontend closed
                         (Frontend::Pj64V3, io::ErrorKind::ConnectionReset) => {
                             self.frontend_writer = None;
-                            return Command::none()
+                            return Task::none()
                         }
                         (_, _) => {}
                     }
@@ -1217,18 +1262,13 @@ impl Application for State {
                             }))
                         }
                     }
-                    ServerMessage::EnterLobby { ref rooms, ..} => {
+                    ServerMessage::EnterLobby { .. } => {
                         let login_token = self.login_tokens.iter()
                             .next()
                             .filter(|_| matches!(self.server_connection, SessionState::Lobby { login_state: None, .. }))
                             .map(|(&provider, bearer_token)| (provider, bearer_token.clone()));
                         let server_writer = self.server_writer.clone();
                         let frontend_writer = self.frontend_writer.clone();
-
-                        let mut rooms = rooms.iter().map(|(&id, (name, password_required))| RoomFormatter { id, name: name.clone(), password_required: password_required.clone() }).collect_vec();
-                        rooms.sort();
-                        self.combo_box_state = combo_box::State::new(rooms);
-                        
                         return cmd(async move {
                             if let Some(server_writer) = server_writer {
                                 if let Some((provider, bearer_token)) = login_token {
@@ -1243,13 +1283,6 @@ impl Application for State {
                             }
                             Ok(if room_still_exists { Message::JoinRoom } else { Message::Nop })
                         })
-                    } 
-                    ServerMessage::NewRoom {..} | ServerMessage::DeleteRoom {..} => {
-                        if let SessionState::Lobby { ref rooms, .. } = self.server_connection {
-                            let mut rooms = rooms.iter().map(|(&id, (name, password_required))| RoomFormatter { id, name: name.clone(), password_required: password_required.clone() }).collect_vec();
-                            rooms.sort();
-                            self.combo_box_state = combo_box::State::new(rooms);
-                        }
                     }
                     ServerMessage::EnterRoom { players, .. } => {
                         let persistent_state = self.persistent_state.clone();
@@ -1400,7 +1433,7 @@ impl Application for State {
             #[cfg(target_os = "macos")] Message::UpdateAvailable(new_ver) => self.update_state = UpdateState::Available(new_ver),
             Message::UpdateError(e) => self.update_state = UpdateState::Error { e, expanded: false },
         }
-        Command::none()
+        Task::none()
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -1496,7 +1529,7 @@ impl Application for State {
                             Row::new()
                                 .push("1. ")
                                 .push(Button::new("Open Project64").on_press(Message::LaunchProject64))
-                                .align_items(iced::Alignment::Center));
+                                .align_y(iced::Alignment::Center));
                             col = col.push("2. In Project64's Debugger menu, select Scripts\n3. In the Scripts window, select ootrmw.js and click Run\n4. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.")
                     } else {
                         col = col.push("1. Open Project64\n2. In Project64's Debugger menu, select Scripts\n3. In the Scripts window, select ootrmw.js and click Run\n4. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.");
@@ -1656,7 +1689,9 @@ impl Application for State {
                             if rooms.is_empty() {
                                 Text::new("(no rooms currently open)").into()
                             } else {
-                                ComboBox::new(&self.combo_box_state, "", existing_room_selection.as_ref(), Message::SetExistingRoomSelection).into()
+                                let mut rooms = rooms.iter().map(|(&id, (name, password_required))| RoomFormatter { id, name: name.clone(), password_required: password_required.clone() }).collect_vec();
+                                rooms.sort();
+                                PickList::new(rooms, existing_room_selection.clone(), Message::SetExistingRoomSelection).into()
                             }
                         });
                     if existing_room_selection.as_ref().map_or(true, |existing_room_selection| existing_room_selection.password_required) {
@@ -1732,7 +1767,7 @@ impl Application for State {
                             .spacing(8)
                         )
                         .spacing(8)
-                    ).direction(scrollable::Direction::Horizontal(scrollable::Properties::default())))
+                    ).direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::default())))
                     .push(Row::new()
                         .push(Button::new("Delete Room").on_press(Message::SetRoomView(RoomView::ConfirmDeletion)))
                         .push(Button::new("Leave Room").on_press(Message::Leave))
@@ -1896,19 +1931,19 @@ impl Application for State {
         if !matches!(self.update_state, UpdateState::Pending) {
             match self.frontend.kind {
                 Frontend::Dummy => {}
-                Frontend::EverDrive => subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from EverDrive", inner: everdrive::Subscription { log: self.log } })),
+                Frontend::EverDrive => subscriptions.push(iced::advanced::subscription::from_recipe(LoggingSubscription { log: self.log, context: "from EverDrive", inner: everdrive::Subscription { log: self.log } })),
                 #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if let Some(BizHawkState { port, .. }) = self.frontend.bizhawk {
-                    subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from BizHawk", inner: subscriptions::Connection { port, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } }));
+                    subscriptions.push(iced::advanced::subscription::from_recipe(LoggingSubscription { log: self.log, context: "from BizHawk", inner: subscriptions::Connection { port, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } }));
                 },
                 #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
-                Frontend::Pj64V3 => subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Listener { frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })),
-                Frontend::Pj64V4 => subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })), //TODO allow Project64 to specify port via command-line arg
+                Frontend::Pj64V3 => subscriptions.push(iced::advanced::subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Listener { frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })),
+                Frontend::Pj64V4 => subscriptions.push(iced::advanced::subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })), //TODO allow Project64 to specify port via command-line arg
             }
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed { .. }) {
-                subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from server", inner: subscriptions::Client { log: self.log, websocket_url: self.websocket_url.clone() } }));
+                subscriptions.push(iced::advanced::subscription::from_recipe(LoggingSubscription { log: self.log, context: "from server", inner: subscriptions::Client { log: self.log, websocket_url: self.websocket_url.clone() } }));
             }
             if let SessionState::Lobby { view: LobbyView::Login { provider, no_midos_house_account: false }, .. } = self.server_connection {
-                subscriptions.push(Subscription::from_recipe(LoggingSubscription { log: self.log, context: "from login handler", inner: login::Subscription(provider) }));
+                subscriptions.push(iced::advanced::subscription::from_recipe(LoggingSubscription { log: self.log, context: "from login handler", inner: login::Subscription(provider) }));
             }
         }
         Subscription::batch(subscriptions)
@@ -1918,7 +1953,7 @@ impl Application for State {
 fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, debug_info_copied: bool) -> Column<'a, Message> {
     Column::new()
         .push(Text::new("Error").size(24))
-        .push(Text::new(context))
+        .push(Text::new(context.into()))
         .push(Text::new(e.to_string()))
         .push(Row::new()
             .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
@@ -1971,18 +2006,15 @@ fn main(CliArgs { frontend }: CliArgs) -> iced::Result {
         Ok(icon) => (Some(icon), None),
         Err(e) => (None, Some(e)),
     };
-    State::run(Settings {
-        window: window::Settings {
-            size: Size { width: 360.0, height: 360.0 },
+    iced::application(State::title, State::update, State::view)
+        .subscription(State::subscription)
+        .window(window::Settings { 
+            size: Size::new(360.0, 360.0),
             exit_on_close_request: false,
             icon,
+            
             ..window::Settings::default()
-        },
-        ..Settings::with_flags((
-            icon_error,
-            Config::blocking_load(),
-            PersistentState::blocking_load(),
-            frontend,
-        ))
-    })
+        })
+        .theme(State::theme)
+        .run_with(||(State::new(icon_error, Config::blocking_load(), PersistentState::blocking_load(), frontend), cmd(future::ok(Message::CheckForUpdates))))
 }

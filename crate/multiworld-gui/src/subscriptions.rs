@@ -73,7 +73,7 @@ pub(crate) struct LoggingSubscription<T> {
 impl<T: Recipe<Output = Message> + 'static> Recipe for LoggingSubscription<T> {
     type Output = Message;
 
-    fn hash(&self, state: &mut iced::advanced::Hasher) {
+    fn hash(&self, state: &mut iced::advanced::subscription::Hasher) {
         TypeId::of::<Self>().hash(state);
         self.inner.hash(state);
     }
@@ -101,7 +101,7 @@ pub(crate) struct Connection {
 impl Recipe for Connection {
     type Output = Message;
 
-    fn hash(&self, state: &mut iced::advanced::Hasher) {
+    fn hash(&self, state: &mut iced::advanced::subscription::Hasher) {
         TypeId::of::<Self>().hash(state);
         self.connection_id.hash(state);
     }
@@ -141,7 +141,7 @@ pub(crate) struct Listener {
 impl Recipe for Listener {
     type Output = Message;
 
-    fn hash(&self, state: &mut iced::advanced::Hasher) {
+    fn hash(&self, state: &mut iced::advanced::subscription::Hasher) {
         TypeId::of::<Self>().hash(state);
         self.connection_id.hash(state);
     }
@@ -183,7 +183,7 @@ pub(crate) struct Client {
 impl Recipe for Client {
     type Output = Message;
 
-    fn hash(&self, state: &mut iced::advanced::Hasher) {
+    fn hash(&self, state: &mut iced::advanced::subscription::Hasher) {
         TypeId::of::<Self>().hash(state);
     }
 

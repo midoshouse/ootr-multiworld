@@ -87,7 +87,7 @@ pub(crate) struct Subscription(pub(crate) Provider);
 impl Recipe for Subscription {
     type Output = Message;
 
-    fn hash(&self, state: &mut iced::advanced::Hasher) {
+    fn hash(&self, state: &mut iced::advanced::subscription::Hasher) {
         TypeId::of::<Self>().hash(state);
         self.0.hash(state);
     }

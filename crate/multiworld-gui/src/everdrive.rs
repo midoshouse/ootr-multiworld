@@ -189,7 +189,7 @@ pub(crate) struct Subscription {
 impl Recipe for Subscription {
     type Output = Message;
 
-    fn hash(&self, state: &mut iced::advanced::Hasher) {
+    fn hash(&self, state: &mut iced::advanced::subscription::Hasher) {
         TypeId::of::<Self>().hash(state);
     }
 

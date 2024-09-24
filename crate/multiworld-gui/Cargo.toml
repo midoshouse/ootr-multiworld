@@ -24,8 +24,7 @@ clap = { version = "4", features = ["derive"] }
 dark-light = "1"
 enum-iterator = "2"
 futures = "0.3"
-iced = { version = "0.12", default-features = false, features = ["advanced", "image", "svg", "tokio"] }
-iced_runtime = "0.12"
+iced = { version = "0.13", default-features = false, features = ["advanced", "image", "svg", "tiny-skia", "tokio", "wgpu"] }
 if_chain = "1"
 image = { version = "0.24", default-features = false, features = ["ico"] } # transitive dependency of iced
 itertools = "0.13"
