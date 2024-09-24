@@ -214,6 +214,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d151e35f61089500b617991b791fc8bfd237ae50cd5950803758a179b41e67a"
 
 [[package]]
+name = "arrays"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c9810d892911da7c1cc723e12a5c47645ae4f82daf5e6d73cc73f1cc6fcf1e1"
+
+[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3390,6 +3396,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
+name = "itermore"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fed0daf803a3818d3693fe1fdd82d8ac0f41d0ea3f05709d5e144c4eb2b85ba5"
+dependencies = [
+ "arrays",
+]
+
+[[package]]
 name = "itertools"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4031,7 +4046,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "async-proto",
  "async-trait",
@@ -4068,7 +4083,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-admin-cli"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "async-proto",
  "chrono",
@@ -4089,7 +4104,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-bizhawk"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "lazy-regex",
  "semver",
@@ -4101,7 +4116,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-csharp"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "async-proto",
  "chrono",
@@ -4123,7 +4138,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-derive"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "itertools 0.13.0",
  "lazy-regex",
@@ -4135,7 +4150,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-gui"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "arrayref",
  "async-proto",
@@ -4180,7 +4195,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-installer"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "async-compression",
  "async_zip",
@@ -4222,7 +4237,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-release"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "async-proto",
  "async-trait",
@@ -4252,7 +4267,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-updater"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "async-compression",
  "async_zip",
@@ -4852,7 +4867,7 @@ dependencies = [
 
 [[package]]
 name = "ootrmwd"
-version = "16.1.6"
+version = "16.2.0"
 dependencies = [
  "async-proto",
  "chrono",
@@ -4861,6 +4876,7 @@ dependencies = [
  "either",
  "futures",
  "git2",
+ "itermore",
  "log-lock",
  "multiworld",
  "multiworld-derive",
