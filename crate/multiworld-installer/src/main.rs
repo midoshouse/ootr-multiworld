@@ -717,7 +717,7 @@ impl State {
                             }
                         }
                     }
-                    return window::get_latest().and_then(window::close)
+                    return iced::exit()
                 }
             },
             Message::CopyDebugInfo => if let Page::Error(ref e, ref mut debug_info_copied) = self.page {
@@ -740,7 +740,7 @@ impl State {
             },
             Message::EmulatorPath(new_path) => if let Page::LocateEmulator { ref mut emulator_path, .. } = self.page { *emulator_path = new_path },
             Message::Error(e) => self.page = Page::Error(e, false),
-            Message::Exit => return window::get_latest().and_then(window::close),
+            Message::Exit => return iced::exit(),
             Message::InstallMultiworld => {
                 let (emulator, emulator_path, multiworld_path) = match self.page {
                     Page::LocateEmulator { emulator, ref emulator_path, ref multiworld_path, .. } |
@@ -1172,9 +1172,13 @@ fn main(Args { mut emulator }: Args) -> Result<(), MainError> {
         emulator.get_or_insert(only_emulator);
     }
     let task = if emulator.is_some() { cmd(future::ok(Message::Continue)) } else { Task::none() };
-
     Ok(iced::application(State::title, State::update, State::view)
-    .window(window::Settings { size: Size { width:400.0, height: 360.0 }, icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?), ..window::Settings::default() })
-    .theme(State::theme)
-    .run_with(move ||(State::new(emulator), task))?)
+        .window(window::Settings {
+            size: Size { width: 400.0, height: 360.0 },
+            icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
+            ..window::Settings::default()
+        })
+        .theme(State::theme)
+        .run_with(move || (State::new(emulator), task))?
+    )
 }

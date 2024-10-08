@@ -2013,7 +2013,7 @@ fn main(CliArgs { frontend }: CliArgs) -> iced::Result {
     iced::application(State::title, State::update, State::view)
         .subscription(State::subscription)
         .window(window::Settings {
-            size: Size::new(360.0, 360.0),
+            size: Size { width: 360.0, height: 360.0 },
             exit_on_close_request: false,
             icon,
             ..window::Settings::default()

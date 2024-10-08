@@ -460,7 +460,7 @@ impl App {
             },
             Message::Done => {
                 self.state = State::Done;
-                return window::get_latest().and_then(window::close)
+                return iced::exit()
             }
             Message::DiscordInvite => if let Err(e) = open("https://discord.gg/BGRrKKn") {
                 self.state = State::Error(Arc::new(Err::<Never, _>(e).at_unknown().never_unwrap_err().into()), false);
@@ -625,30 +625,31 @@ fn main(args: Args) -> Result<(), MainError> {
     match args {
         Args::Emu(args) => Ok(
             iced::application(App::title, App::update, App::view)
-                .window(window::Settings { 
-                    size: Size::new(360.0, 360.0),
+                .window(window::Settings {
+                    size: Size { width: 320.0, height: 240.0 },
                     icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
-                    ..window::Settings::default()}
-                )
-                .theme(App::theme)
-                .run_with(||(App::new(args.clone()),
-                cmd(async move {
-                    let mut system = sysinfo::System::default();
-                    match args {
-                        EmuArgs::BizHawk { mw_pid, bizhawk_pid, .. } => {
-                            while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[mw_pid, bizhawk_pid]), ProcessRefreshKind::default()) > 0 {
-                                sleep(Duration::from_secs(1)).await;
-                            }
-                        }
-                        EmuArgs::EverDrive { pid, .. } | EmuArgs::Pj64 { pid, .. } => {
-                            while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), ProcessRefreshKind::default()) > 0 {
-                                sleep(Duration::from_secs(1)).await;
-                            }
-                        }
-                    }
-                    Ok(Message::Exited)
+                    ..window::Settings::default()
                 })
-            ))?
+                .theme(App::theme)
+                .run_with(|| (
+                    App::new(args.clone()),
+                    cmd(async move {
+                        let mut system = sysinfo::System::default();
+                        match args {
+                            EmuArgs::BizHawk { mw_pid, bizhawk_pid, .. } => {
+                                while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[mw_pid, bizhawk_pid]), ProcessRefreshKind::default()) > 0 {
+                                    sleep(Duration::from_secs(1)).await;
+                                }
+                            }
+                            EmuArgs::EverDrive { pid, .. } | EmuArgs::Pj64 { pid, .. } => {
+                                while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), ProcessRefreshKind::default()) > 0 {
+                                    sleep(Duration::from_secs(1)).await;
+                                }
+                            }
+                        }
+                        Ok(Message::Exited)
+                    }),
+                ))?
         ),
         Args::Pj64Script { src, dst } => match pj64script(&src, &dst) {
             Ok(()) => Ok(()),
