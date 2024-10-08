@@ -1426,14 +1426,14 @@ impl Application for State {
                 return cmd(future::err(e.into()))
             },
             Message::LaunchProject64 => {
-                    let emulator_path = self.pj64_script_path.as_ref().expect("emulator path must be set for Project64 version 3");
-                    let Some(pj64_folder_path) = Path::new(emulator_path).ancestors().nth(2) else {
-                        return cmd(future::err(Error::InvalidPj64ScriptPath))
-                    };
-                    let pj64_executable_path = pj64_folder_path.join("Project64.exe");
-                    if let Err(e) = process::Command::new(pj64_executable_path).current_dir(pj64_folder_path).spawn() {
-                        return cmd(future::err(Error::Pj64LaunchFailed(e)))
-                    }
+                let emulator_path = self.pj64_script_path.as_ref().expect("emulator path must be set for Project64 version 3");
+                let Some(pj64_folder_path) = Path::new(emulator_path).ancestors().nth(2) else {
+                    return cmd(future::err(Error::InvalidPj64ScriptPath))
+                };
+                let pj64_executable_path = pj64_folder_path.join("Project64.exe");
+                if let Err(e) = process::Command::new(pj64_executable_path).current_dir(pj64_folder_path).spawn() {
+                    return cmd(future::err(Error::Pj64LaunchFailed(e)))
+                }
             }
             Message::ToggleUpdateErrorDetails => if let UpdateState::Error { ref mut expanded, .. } = self.update_state { *expanded = !*expanded },
             Message::UpToDate => self.update_state = UpdateState::UpToDate,
