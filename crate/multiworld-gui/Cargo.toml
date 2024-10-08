@@ -38,13 +38,13 @@ oottracker = { git = "https://github.com/fenhl/oottracker", branch = "mw" }
 open = "5"
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "json", "macos-system-configuration", "rustls-tls", "stream"] }
-rfd = "0.14"
+rfd = "0.15"
 rocket = { version = "0.5", default-features = false }
 rocket-util = { git = "https://github.com/fenhl/rocket-util", branch = "main" }
 semver = "1"
 serde_json = { package = "serde_json_path_to_error", version = "0.1" }
 serenity = { version = "0.12", default-features = false, features = ["utils"] }
-sysinfo = { version = "0.31", default-features = false, features = ["system"] }
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 thiserror = "1"
 tokio = { version = "1", features = ["fs", "io-util", "net", "parking_lot", "sync", "time"] }
 tokio-serial = "5.4.4"

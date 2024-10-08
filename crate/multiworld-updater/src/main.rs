@@ -637,12 +637,12 @@ fn main(args: Args) -> Result<(), MainError> {
                         let mut system = sysinfo::System::default();
                         match args {
                             EmuArgs::BizHawk { mw_pid, bizhawk_pid, .. } => {
-                                while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[mw_pid, bizhawk_pid]), ProcessRefreshKind::default()) > 0 {
+                                while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[mw_pid, bizhawk_pid]), true, ProcessRefreshKind::default()) > 0 {
                                     sleep(Duration::from_secs(1)).await;
                                 }
                             }
                             EmuArgs::EverDrive { pid, .. } | EmuArgs::Pj64 { pid, .. } => {
-                                while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), ProcessRefreshKind::default()) > 0 {
+                                while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), true, ProcessRefreshKind::default()) > 0 {
                                     sleep(Duration::from_secs(1)).await;
                                 }
                             }

@@ -44,7 +44,7 @@ lazy-regex = "3"
 multiworld = { path = "../multiworld" }
 open = "5"
 reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "json", "macos-system-configuration", "rustls-tls", "stream"] }
-rfd = "0.14"
+rfd = "0.15"
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_ini = "0.2"
