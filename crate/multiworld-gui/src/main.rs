@@ -333,6 +333,7 @@ impl IsNetworkError for Error {
 #[derive(Debug, Clone)]
 enum Message {
     CheckForUpdates,
+    CloseRequested(window::Id),
     CommandError(Arc<Error>),
     ConfirmRoomDeletion,
     CopyDebugInfo,
@@ -341,7 +342,6 @@ enum Message {
     DiscordInvite,
     DismissConflictingItemKinds,
     DismissWrongPassword,
-    Event(iced::Event),
     EverDriveScanFailed(Arc<Vec<(tokio_serial::SerialPortInfo, everdrive::ConnectError)>>),
     EverDriveTimeout,
     Exit,
@@ -783,6 +783,29 @@ impl State {
                     Ok(Message::UpToDate)
                 }.map(|res| Ok(res.unwrap_or_else(|e| Message::UpdateError(Arc::new(e))))))
             }
+            Message::CloseRequested(window) => if self.command_error.is_some() || self.login_error.is_some() || self.frontend_subscription_error.is_some() {
+                return window::close(window)
+            } else {
+                let frontend_writer = self.frontend_writer.take();
+                let server_writer = self.server_writer.take();
+                return cmd(async move {
+                    if let Some(frontend_writer) = frontend_writer {
+                        if let FrontendWriter::Tcp(writer) = frontend_writer.inner {
+                            lock!(writer = writer; writer.shutdown().await)?;
+                        }
+                    }
+                    if let Some(server_writer) = server_writer {
+                        lock!(server_writer = server_writer.inner; {
+                            server_writer.send(tungstenite::Message::Close(Some(tungstenite::protocol::CloseFrame {
+                                code: tungstenite::protocol::frame::coding::CloseCode::Away,
+                                reason: "multiworld app exiting".into(),
+                            }))).await?;
+                            server_writer.close().await?;
+                        });
+                    }
+                    Ok(Message::Exit)
+                })
+            },
             Message::CommandError(e) => { self.command_error.get_or_insert(e); }
             Message::ConfirmRoomDeletion => if let Some(writer) = self.server_writer.clone() {
                 return cmd(async move {
@@ -814,30 +837,6 @@ impl State {
             Message::DismissWrongPassword => if let SessionState::Lobby { ref mut wrong_password, .. } = self.server_connection {
                 *wrong_password = false;
             },
-            Message::Event(iced::Event::Window(window::Event::CloseRequested)) => if self.command_error.is_some() || self.login_error.is_some() || self.frontend_subscription_error.is_some() {
-                return window::get_latest().and_then(window::close)
-            } else {
-                let frontend_writer = self.frontend_writer.take();
-                let server_writer = self.server_writer.take();
-                return cmd(async move {
-                    if let Some(frontend_writer) = frontend_writer {
-                        if let FrontendWriter::Tcp(writer) = frontend_writer.inner {
-                            lock!(writer = writer; writer.shutdown().await)?;
-                        }
-                    }
-                    if let Some(server_writer) = server_writer {
-                        lock!(server_writer = server_writer.inner; {
-                            server_writer.send(tungstenite::Message::Close(Some(tungstenite::protocol::CloseFrame {
-                                code: tungstenite::protocol::frame::coding::CloseCode::Away,
-                                reason: "multiworld app exiting".into(),
-                            }))).await?;
-                            server_writer.close().await?;
-                        });
-                    }
-                    Ok(Message::Exit)
-                })
-            },
-            Message::Event(_) => {}
             Message::EverDriveScanFailed(errors) => {
                 self.frontend.everdrive = EverDriveState::Searching(errors);
                 if let Frontend::EverDrive = self.frontend.kind {
@@ -850,7 +849,7 @@ impl State {
                     self.frontend_writer = None;
                 }
             }
-            Message::Exit => return window::get_latest().and_then(window::close),
+            Message::Exit => return iced::exit(),
             Message::FrontendConnected(inner) => {
                 if let Frontend::EverDrive = self.frontend.kind {
                     self.frontend.everdrive = EverDriveState::Connected;
@@ -878,7 +877,7 @@ impl State {
             Message::FrontendSubscriptionError(e) => {
                 if let Error::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::Io(ref e), .. }) = *e {
                     match (self.frontend.kind, e.kind()) {
-                        (Frontend::BizHawk | Frontend::Pj64V4, io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof) => return window::get_latest().and_then(window::close), // frontend closed
+                        (Frontend::BizHawk | Frontend::Pj64V4, io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof) => return iced::exit(), // frontend closed
                         (Frontend::Pj64V3, io::ErrorKind::ConnectionReset) => {
                             self.frontend_writer = None;
                             return Task::none()
@@ -1927,7 +1926,11 @@ impl State {
 
     fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = Vec::with_capacity(4);
-        subscriptions.push(iced::event::listen().map(Message::Event));
+        subscriptions.push(iced::event::listen_with(|event, _, window| if let iced::Event::Window(window::Event::CloseRequested) = event {
+            Some(Message::CloseRequested(window))
+        } else {
+            None
+        }));
         if !matches!(self.update_state, UpdateState::Pending) {
             match self.frontend.kind {
                 Frontend::Dummy => {}
