@@ -27,12 +27,10 @@ use {
         Future,
     },
     iced::{
-        Application,
-        Command,
         Element,
         Length,
-        Settings,
         Size,
+        Task,
         Theme,
         clipboard,
         widget::*,
@@ -194,13 +192,13 @@ enum Message {
     SetOpenEmulator(bool),
 }
 
-fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) -> Command<Message> {
-    Command::single(iced_runtime::command::Action::Future(Box::pin(async move {
+fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) -> Task<Message> {
+    Task::future(Box::pin(async move {
         match future.await {
             Ok(msg) => msg,
             Err(e) => Message::Error(Arc::new(e)),
         }
-    })))
+    }))
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -293,17 +291,9 @@ struct State {
     open_emulator: bool,
 }
 
-impl Application for State {
-    type Executor = iced::executor::Default;
-    type Message = Message;
-    type Theme = Theme;
-    type Flags = Args;
-
-    fn new(Args { mut emulator }: Args) -> (Self, Command<Message>) {
-        if let Ok(only_emulator) = all().filter(Emulator::is_supported).exactly_one() {
-            emulator.get_or_insert(only_emulator);
-        }
-        (Self {
+impl State {
+    fn new(emulator: Option<Emulator>) -> Self {
+        Self {
             http_client: reqwest::Client::builder()
                 .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
                 .use_rustls_tls()
@@ -318,11 +308,7 @@ impl Application for State {
             create_multiworld_desktop_shortcut: true,
             create_emulator_desktop_shortcut: true,
             open_emulator: true,
-        }, if emulator.is_some() {
-            cmd(future::ok(Message::Continue))
-        } else {
-            Command::none()
-        })
+        }
     }
 
     fn theme(&self) -> Theme {
@@ -345,7 +331,7 @@ impl Application for State {
 
     fn title(&self) -> String { format!("Mido's House Multiworld Installer") }
 
-    fn update(&mut self, msg: Message) -> Command<Message> {
+    fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::Back => self.page = match self.page {
                 Page::Error(_, _) | Page::Elevated | Page::SelectEmulator { .. } => unreachable!(),
@@ -410,7 +396,7 @@ impl Application for State {
                     match emulator {
                         Emulator::EverDrive => {
                             self.page = Page::EmulatorWarning { emulator, install_emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
-                            return Command::none()
+                            return Task::none()
                         }
                         #[cfg(target_os = "linux")] Emulator::Pj64V3 | Emulator::Pj64V4 => unreachable!(),
                         #[cfg(target_os = "windows")] Emulator::Pj64V3 | Emulator::Pj64V4 if !is_elevated() => {
@@ -616,7 +602,7 @@ impl Application for State {
                             match local_bizhawk_version.cmp(&required_bizhawk_version) {
                                 Less => {
                                     self.page = Page::AskBizHawkUpdate { emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
-                                    return Command::none()
+                                    return Task::none()
                                 }
                                 Equal => {}
                                 Greater => return cmd(future::err(Error::BizHawkVersionRegression)),
@@ -731,7 +717,7 @@ impl Application for State {
                             }
                         }
                     }
-                    return window::close(window::Id::MAIN)
+                    return iced::exit()
                 }
             },
             Message::CopyDebugInfo => if let Page::Error(ref e, ref mut debug_info_copied) = self.page {
@@ -754,7 +740,7 @@ impl Application for State {
             },
             Message::EmulatorPath(new_path) => if let Page::LocateEmulator { ref mut emulator_path, .. } = self.page { *emulator_path = new_path },
             Message::Error(e) => self.page = Page::Error(e, false),
-            Message::Exit => return window::close(window::Id::MAIN),
+            Message::Exit => return iced::exit(),
             Message::InstallMultiworld => {
                 let (emulator, emulator_path, multiworld_path) = match self.page {
                     Page::LocateEmulator { emulator, ref emulator_path, ref multiworld_path, .. } |
@@ -941,7 +927,7 @@ impl Application for State {
             Message::SetInstallEmulator(new_install_emulator) => if let Page::LocateEmulator { ref mut install_emulator, .. } = self.page { *install_emulator = new_install_emulator },
             Message::SetOpenEmulator(open_emulator) => self.open_emulator = open_emulator,
         }
-        Command::none()
+        Task::none()
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -995,7 +981,7 @@ impl Application for State {
                 Some({
                     let mut row = Row::new();
                     #[cfg(target_os = "windows")] if matches!(emulator, Some(Emulator::Pj64V3 | Emulator::Pj64V4)) && !is_elevated() {
-                        row = row.push(Image::new(image::Handle::from_memory(include_bytes!("../../../assets/uac.png").to_vec())).height(Length::Fixed(20.0)));
+                        row = row.push(Image::new(image::Handle::from_bytes(include_bytes!("../../../assets/uac.png").to_vec())).height(Length::Fixed(20.0)));
                     }
                     row = row.push(Text::new("Continue"));
                     (Into::<Element<'_, Message>>::into(row.spacing(8)), emulator.is_some())
@@ -1049,7 +1035,7 @@ impl Application for State {
                 Some({
                     let mut row = Row::new();
                     #[cfg(target_os = "windows")] if emulator == Emulator::BizHawk && install_emulator && !is_elevated() {
-                        row = row.push(Image::new(image::Handle::from_memory(include_bytes!("../../../assets/uac.png").to_vec())).height(Length::Fixed(20.0)));
+                        row = row.push(Image::new(image::Handle::from_bytes(include_bytes!("../../../assets/uac.png").to_vec())).height(Length::Fixed(20.0)));
                     }
                     row = row.push(if install_emulator { Text::new(format!("Install {emulator}")) } else { Text::new("Continue") });
                     (Into::<Element<'_, Message>>::into(row.spacing(8)), !emulator_path.is_empty())
@@ -1181,13 +1167,18 @@ enum MainError {
 }
 
 #[wheel::main]
-fn main(args: Args) -> Result<(), MainError> {
-    Ok(State::run(Settings {
-        window: window::Settings {
+fn main(Args { mut emulator }: Args) -> Result<(), MainError> {
+    if let Ok(only_emulator) = all().filter(Emulator::is_supported).exactly_one() {
+        emulator.get_or_insert(only_emulator);
+    }
+    let task = if emulator.is_some() { cmd(future::ok(Message::Continue)) } else { Task::none() };
+    Ok(iced::application(State::title, State::update, State::view)
+        .window(window::Settings {
             size: Size { width: 400.0, height: 360.0 },
             icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
             ..window::Settings::default()
-        },
-        ..Settings::with_flags(args)
-    })?)
+        })
+        .theme(State::theme)
+        .run_with(move || (State::new(emulator), task))?
+    )
 }

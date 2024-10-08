@@ -27,12 +27,10 @@ use {
         stream::TryStreamExt as _,
     },
     iced::{
-        Application,
-        Command,
         Element,
         Length,
-        Settings,
         Size,
+        Task,
         Theme,
         clipboard,
         widget::*,
@@ -178,13 +176,13 @@ impl Clone for Message {
     }
 }
 
-fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) -> Command<Message> {
-    Command::single(iced_runtime::command::Action::Future(Box::pin(async move {
+fn cmd(future: impl Future<Output = Result<Message, Error>> + Send + 'static) -> Task<Message> {
+    Task::future(Box::pin(async move {
         match future.await {
             Ok(msg) => msg,
             Err(e) => Message::Error(Arc::new(e.into())),
         }
-    })))
+    }))
 }
 
 enum State {
@@ -209,32 +207,9 @@ struct App {
     state: State,
 }
 
-impl Application for App {
-    type Executor = iced::executor::Default;
-    type Message = Message;
-    type Theme = Theme;
-    type Flags = EmuArgs;
-
-    fn new(args: EmuArgs) -> (Self, Command<Message>) {
-        (App {
-            args: args.clone(),
-            state: State::WaitExit,
-        }, cmd(async move {
-            let mut system = sysinfo::System::default();
-            match args {
-                EmuArgs::BizHawk { mw_pid, bizhawk_pid, .. } => {
-                    while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[mw_pid, bizhawk_pid]), ProcessRefreshKind::default()) > 0 {
-                        sleep(Duration::from_secs(1)).await;
-                    }
-                }
-                EmuArgs::EverDrive { pid, .. } | EmuArgs::Pj64 { pid, .. } => {
-                    while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), ProcessRefreshKind::default()) > 0 {
-                        sleep(Duration::from_secs(1)).await;
-                    }
-                }
-            }
-            Ok(Message::Exited)
-        }))
+impl App {
+    fn new(args: EmuArgs) -> Self {
+        Self { args, state: State::WaitExit }
     }
 
     fn title(&self) -> String { format!("updating Mido's House Multiworld…") }
@@ -257,7 +232,7 @@ impl Application for App {
         }
     }
 
-    fn update(&mut self, msg: Message) -> Command<Message> {
+    fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::Error(e) => self.state = State::Error(e, false),
             Message::CopyDebugInfo => if let State::Error(ref e, ref mut debug_info_copied) = self.state {
@@ -485,7 +460,7 @@ impl Application for App {
             },
             Message::Done => {
                 self.state = State::Done;
-                return window::close(window::Id::MAIN)
+                return iced::exit()
             }
             Message::DiscordInvite => if let Err(e) = open("https://discord.gg/BGRrKKn") {
                 self.state = State::Error(Arc::new(Err::<Never, _>(e).at_unknown().never_unwrap_err().into()), false);
@@ -507,7 +482,7 @@ impl Application for App {
             },
             Message::Cloned => self.state = State::Error(Arc::new(Error::Cloned), false),
         }
-        Command::none()
+        Task::none()
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -648,14 +623,34 @@ enum MainError {
 #[wheel::main]
 fn main(args: Args) -> Result<(), MainError> {
     match args {
-        Args::Emu(args) => Ok(App::run(Settings {
-            window: window::Settings {
-                size: Size { width: 320.0, height: 240.0 },
-                icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
-                ..window::Settings::default()
-            },
-            ..Settings::with_flags(args)
-        })?),
+        Args::Emu(args) => Ok(
+            iced::application(App::title, App::update, App::view)
+                .window(window::Settings {
+                    size: Size { width: 320.0, height: 240.0 },
+                    icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
+                    ..window::Settings::default()
+                })
+                .theme(App::theme)
+                .run_with(|| (
+                    App::new(args.clone()),
+                    cmd(async move {
+                        let mut system = sysinfo::System::default();
+                        match args {
+                            EmuArgs::BizHawk { mw_pid, bizhawk_pid, .. } => {
+                                while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[mw_pid, bizhawk_pid]), ProcessRefreshKind::default()) > 0 {
+                                    sleep(Duration::from_secs(1)).await;
+                                }
+                            }
+                            EmuArgs::EverDrive { pid, .. } | EmuArgs::Pj64 { pid, .. } => {
+                                while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), ProcessRefreshKind::default()) > 0 {
+                                    sleep(Duration::from_secs(1)).await;
+                                }
+                            }
+                        }
+                        Ok(Message::Exited)
+                    }),
+                ))?
+        ),
         Args::Pj64Script { src, dst } => match pj64script(&src, &dst) {
             Ok(()) => Ok(()),
             Err(e) => {
