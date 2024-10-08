@@ -45,6 +45,7 @@ use {
         Size,
         Subscription,
         Theme,
+        advanced::subscription,
         clipboard,
         widget::*,
         window::{
@@ -1934,19 +1935,19 @@ impl State {
         if !matches!(self.update_state, UpdateState::Pending) {
             match self.frontend.kind {
                 Frontend::Dummy => {}
-                Frontend::EverDrive => subscriptions.push(iced::advanced::subscription::from_recipe(LoggingSubscription { log: self.log, context: "from EverDrive", inner: everdrive::Subscription { log: self.log } })),
+                Frontend::EverDrive => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from EverDrive", inner: everdrive::Subscription { log: self.log } })),
                 #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if let Some(BizHawkState { port, .. }) = self.frontend.bizhawk {
-                    subscriptions.push(iced::advanced::subscription::from_recipe(LoggingSubscription { log: self.log, context: "from BizHawk", inner: subscriptions::Connection { port, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } }));
+                    subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from BizHawk", inner: subscriptions::Connection { port, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } }));
                 },
                 #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
-                Frontend::Pj64V3 => subscriptions.push(iced::advanced::subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Listener { frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })),
-                Frontend::Pj64V4 => subscriptions.push(iced::advanced::subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })), //TODO allow Project64 to specify port via command-line arg
+                Frontend::Pj64V3 => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Listener { frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })),
+                Frontend::Pj64V4 => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })), //TODO allow Project64 to specify port via command-line arg
             }
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed { .. }) {
-                subscriptions.push(iced::advanced::subscription::from_recipe(LoggingSubscription { log: self.log, context: "from server", inner: subscriptions::Client { log: self.log, websocket_url: self.websocket_url.clone() } }));
+                subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from server", inner: subscriptions::Client { log: self.log, websocket_url: self.websocket_url.clone() } }));
             }
             if let SessionState::Lobby { view: LobbyView::Login { provider, no_midos_house_account: false }, .. } = self.server_connection {
-                subscriptions.push(iced::advanced::subscription::from_recipe(LoggingSubscription { log: self.log, context: "from login handler", inner: login::Subscription(provider) }));
+                subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from login handler", inner: login::Subscription(provider) }));
             }
         }
         Subscription::batch(subscriptions)
@@ -2011,13 +2012,15 @@ fn main(CliArgs { frontend }: CliArgs) -> iced::Result {
     };
     iced::application(State::title, State::update, State::view)
         .subscription(State::subscription)
-        .window(window::Settings { 
+        .window(window::Settings {
             size: Size::new(360.0, 360.0),
             exit_on_close_request: false,
             icon,
-            
             ..window::Settings::default()
         })
         .theme(State::theme)
-        .run_with(||(State::new(icon_error, Config::blocking_load(), PersistentState::blocking_load(), frontend), cmd(future::ok(Message::CheckForUpdates))))
+        .run_with(|| (
+            State::new(icon_error, Config::blocking_load(), PersistentState::blocking_load(), frontend),
+            cmd(future::ok(Message::CheckForUpdates)),
+        ))
 }
