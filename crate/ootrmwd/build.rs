@@ -10,7 +10,7 @@ use {
 };
 
 fn main() {
-    println!("cargo:rerun-if-changed=nonexistent.foo"); // check a nonexistent file to make sure build script is always run (see https://github.com/rust-lang/cargo/issues/4213 and https://github.com/rust-lang/cargo/issues/5663)
+    println!("cargo::rerun-if-changed=nonexistent.foo"); // check a nonexistent file to make sure build script is always run (see https://github.com/rust-lang/cargo/issues/4213 and https://github.com/rust-lang/cargo/issues/5663)
     let mut f = File::create(Path::new(&env::var_os("OUT_DIR").unwrap()).join("version.rs")).unwrap();
     let version = env::var("CARGO_PKG_VERSION").unwrap().parse::<Version>().unwrap();
     assert!(version.pre.is_empty());

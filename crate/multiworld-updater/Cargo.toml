@@ -14,7 +14,7 @@ unused_qualifications = "deny"
 warnings = "deny"
 
 [build-dependencies]
-winres = "0.1"
+winresource = "0.1"
 
 [dependencies]
 async_zip = { version = "0.0.17", features = ["full"] }

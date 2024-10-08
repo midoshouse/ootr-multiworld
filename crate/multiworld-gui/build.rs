@@ -6,7 +6,7 @@ use {
         env,
         io,
     },
-    winres::WindowsResource,
+    winresource::WindowsResource,
 };
 
 fn main() -> io::Result<()> {

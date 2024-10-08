@@ -9,7 +9,7 @@ workspace = true
 
 [build-dependencies]
 thiserror = "1"
-winres = "0.1"
+winresource = "0.1"
 
 [build-dependencies.wheel]
 git = "https://github.com/fenhl/wheel"
