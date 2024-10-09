@@ -348,6 +348,7 @@ enum Message {
     Exit,
     FrontendConnected(FrontendWriter),
     FrontendSubscriptionError(Arc<Error>),
+    HideRoomFilter,
     JoinRoom,
     Kick(NonZeroU8),
     LaunchProject64,
@@ -381,10 +382,12 @@ enum Message {
     SetLobbyView(LobbyView),
     SetNewRoomName(String),
     SetPassword(String),
+    SetRoomFilter(String),
     SetRoomView(RoomView),
     SetSendAllPath(String),
     SetSendAllWorld(String),
     ShowLoggingInstructions,
+    ShowRoomFilter,
     ToggleUpdateErrorDetails,
     UpToDate,
     #[cfg(target_os = "macos")] UpdateAvailable(Version),
@@ -437,6 +440,8 @@ struct State {
     update_state: UpdateState,
     send_all_path: String,
     send_all_world: String,
+    show_room_filter: bool,
+    room_filter: String,
 }
 
 impl State {
@@ -680,6 +685,8 @@ impl State {
             update_state: UpdateState::Pending,
             send_all_path: String::default(),
             send_all_world: String::default(),
+            show_room_filter: false,
+            room_filter: String::default(),
             frontend, config_error, persistent_state_error, persistent_state,
         }
     }
@@ -887,6 +894,12 @@ impl State {
                     }
                 }
                 self.frontend_subscription_error.get_or_insert(e);
+            }
+            Message::ShowRoomFilter | Message::HideRoomFilter => {
+                self.show_room_filter = !self.show_room_filter;
+                if self.show_room_filter {
+                    return text_input::focus("room-filter")
+                }
             }
             Message::JoinRoom => if let SessionState::Lobby { create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } = self.server_connection {
                 if !password.is_empty() || existing_room_selection.as_ref().is_some_and(|room| !room.password_required) {
@@ -1409,10 +1422,18 @@ impl State {
                 })
             },
             Message::SetCreateNewRoom(new_val) => if let SessionState::Lobby { ref mut create_new_room, .. } = self.server_connection { *create_new_room = new_val },
-            Message::SetExistingRoomSelection(name) => if let SessionState::Lobby { ref mut existing_room_selection, .. } = self.server_connection { *existing_room_selection = Some(name) },
+            Message::SetExistingRoomSelection(room) => {
+                if room.active {
+                    if let SessionState::Lobby { ref mut existing_room_selection, .. } = self.server_connection { *existing_room_selection = Some(room) };
+                } else {
+                    self.room_filter = String::default();
+                }
+                self.show_room_filter = false;
+            },
             Message::SetFrontend(new_frontend) => self.frontend.kind = new_frontend,
             Message::SetNewRoomName(name) => if let SessionState::Lobby { ref mut new_room_name, .. } = self.server_connection { *new_room_name = name },
             Message::SetPassword(new_password) => if let SessionState::Lobby { ref mut password, .. } = self.server_connection { *password = new_password },
+            Message::SetRoomFilter(new_room_filter) => self.room_filter = new_room_filter,
             Message::SetSendAllPath(new_path) => self.send_all_path = new_path,
             Message::SetSendAllWorld(new_world) => self.send_all_world = new_world,
             Message::ShowLoggingInstructions => if let Err(e) = open("https://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/logging.md") {
@@ -1689,9 +1710,17 @@ impl State {
                             if rooms.is_empty() {
                                 Text::new("(no rooms currently open)").into()
                             } else {
-                                let mut rooms = rooms.iter().map(|(&id, (name, password_required))| RoomFormatter { id, name: name.clone(), password_required: password_required.clone() }).collect_vec();
+                                let mut rooms = rooms.iter().map(|(&id, (name, password_required))| RoomFormatter { id, name: name.clone(), password_required: password_required.clone(), active: true }).filter(|room| room.name.to_lowercase().contains(&self.room_filter.to_lowercase())).collect_vec();
                                 rooms.sort();
-                                PickList::new(rooms, existing_room_selection.clone(), Message::SetExistingRoomSelection).into()
+                                if rooms.is_empty() {
+                                    rooms.push(RoomFormatter { password_required: false, name: String::from("No room found"), id: 0, active: false });
+                                }
+                                let mut stack = Stack::new().width(360.0);
+                                stack = stack.push(PickList::new(rooms, existing_room_selection.clone(), Message::SetExistingRoomSelection).placeholder("Select a room").on_open(Message::ShowRoomFilter).on_close(Message::HideRoomFilter));
+                                if self.show_room_filter {
+                                    stack = stack.push(TextInput::new("Room name", &self.room_filter).on_input(Message::SetRoomFilter).on_paste(Message::SetRoomFilter).id("room-filter"));
+                                }
+                                stack.into()
                             }
                         });
                     if existing_room_selection.as_ref().map_or(true, |existing_room_selection| existing_room_selection.password_required) {

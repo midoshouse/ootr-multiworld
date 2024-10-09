@@ -149,6 +149,7 @@ pub struct RoomFormatter {
     pub password_required: bool,
     pub name: String,
     pub id: u64,
+    pub active: bool,
 }
 
 impl fmt::Display for RoomFormatter {
@@ -1378,7 +1379,7 @@ impl<E> SessionState<E> {
                     Self::Error { .. } | Self::Init { .. } | Self::InitAutoRejoin { .. } | Self::Closed { .. } => None,
                 };
                 *self = if let Self::InitAutoRejoin { room_id, room_password, .. } = self {
-                    let existing_room_selection = rooms.iter().find(|(&id, _)| id == *room_id).map(|(&id, (name, password_required))| RoomFormatter { id, password_required: *password_required, name: name.clone() });
+                    let existing_room_selection = rooms.iter().find(|(&id, _)| id == *room_id).map(|(&id, (name, password_required))| RoomFormatter { id, password_required: *password_required, name: name.clone(), active: true });
                     Self::Lobby {
                         create_new_room: existing_room_selection.is_none(),
                         new_room_name: String::default(),
