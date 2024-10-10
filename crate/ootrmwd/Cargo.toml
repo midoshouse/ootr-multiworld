@@ -3,6 +3,7 @@ name = "ootrmwd"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+repository.workspace = true
 
 [dependencies]
 async-proto = { version = "0.23", features = ["chrono"] }

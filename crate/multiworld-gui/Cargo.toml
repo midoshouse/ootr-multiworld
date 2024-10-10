@@ -3,6 +3,7 @@ name = "multiworld-gui"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+repository.workspace = true
 
 [lints.rust]
 rust_2018_idioms = "deny"

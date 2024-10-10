@@ -1,5 +1,6 @@
 use {
     std::{
+        convert::Infallible as Never,
         sync::{
             Arc,
             atomic::{
@@ -17,6 +18,11 @@ use {
         Rocket,
         State,
         http::Status,
+        request::{
+            FromRequest,
+            Outcome,
+            Request,
+        },
         response::{
             Redirect,
             content::RawHtml,
@@ -48,6 +54,18 @@ use {
     },
 };
 
+#[derive(Debug)]
+struct UserAgent(Option<String>);
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for UserAgent {
+    type Error = Never;
+
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        Outcome::Success(Self(request.headers().get_one("User-Agent").map(|ua| ua.to_owned())))
+    }
+}
+
 #[rocket::get("/")]
 fn index() -> Redirect {
     Redirect::permanent(uri!("https://midos.house/mw"))
@@ -56,7 +74,7 @@ fn index() -> Redirect {
 macro_rules! supported_version {
     ($endpoint:literal, $version:ident, $variant:ident, $number:literal) => {
         #[rocket::get($endpoint)]
-        async fn $version(rng: &State<Arc<SystemRandom>>, db_pool: &State<PgPool>, http_client: &State<reqwest::Client>, rooms: &State<Rooms<WebSocket>>, maintenance: &State<Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>>, next_session_id: &State<AtomicUsize>, ws: WebSocket, shutdown: rocket::Shutdown) -> rocket_ws::Channel<'static> {
+        async fn $version(rng: &State<Arc<SystemRandom>>, db_pool: &State<PgPool>, http_client: &State<reqwest::Client>, rooms: &State<Rooms<WebSocket>>, maintenance: &State<Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>>, next_session_id: &State<AtomicUsize>, user_agent: UserAgent, ws: WebSocket, shutdown: rocket::Shutdown) -> rocket_ws::Channel<'static> {
             let _ = sqlx::query!("INSERT INTO mw_versions (version, first_used, last_used) VALUES ($1, NOW(), NOW()) ON CONFLICT (version) DO UPDATE SET last_used = EXCLUDED.last_used", $number).execute(&**db_pool).await;
             let rng = (*rng).clone();
             let db_pool = (*db_pool).clone();
@@ -85,8 +103,13 @@ macro_rules! supported_version {
                     }
                     Err(e) => {
                         eprintln!("error in WebSocket handler ({}): {e}", stringify!($version));
+                        if let UserAgent(Some(ref user_agent)) = user_agent {
+                            eprintln!("user agent: {user_agent:?}");
+                        } else {
+                            eprintln!("no user agent");
+                        }
                         eprintln!("debug info: {e:?}");
-                        let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("error in WebSocket handler ({}): {e}\ndebug info: {e:?}", stringify!($version)))).await;
+                        let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("error in WebSocket handler ({}): {e}\nuser agent: {:?}\ndebug info: {e:?}", stringify!($version), user_agent.0))).await;
                         let _ = lock!(writer = writer; writer.write(ServerMessage::OtherError(e.to_string())).await);
                     }
                 }

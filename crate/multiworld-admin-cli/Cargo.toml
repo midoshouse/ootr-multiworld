@@ -3,6 +3,7 @@ name = "multiworld-admin-cli"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+repository.workspace = true
 
 [lints]
 workspace = true

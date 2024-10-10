@@ -7,6 +7,7 @@ resolver = "2"
 version = "16.2.0"
 authors = ["Fenhl <fenhl@fenhl.net>"]
 edition = "2021"
+repository = "https://github.com/midoshouse/ootr-multiworld"
 
 [workspace.lints.rust]
 rust_2018_idioms = "deny"

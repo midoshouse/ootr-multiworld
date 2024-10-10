@@ -37,9 +37,11 @@ use {
             timeout,
         },
     },
+    tokio_tungstenite::tungstenite,
     multiworld::{
         SessionState,
         config::Config,
+        user_agent,
         ws::latest::{
             ClientMessage,
             ServerMessage,
@@ -62,13 +64,14 @@ enum Error {
     #[error(transparent)] Config(#[from] multiworld::config::Error),
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] FilenameParse(#[from] multiworld::FilenameParseError),
+    #[error(transparent)] Http(#[from] tungstenite::http::Error),
     #[error(transparent)] Io(#[from] tokio::io::Error),
     #[error(transparent)] Json(#[from] serde_json::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Syn(#[from] syn::Error),
     #[error(transparent)] TryFromSlice(#[from] std::array::TryFromSliceError),
     #[error(transparent)] UrlParse(#[from] url::ParseError),
-    #[error(transparent)] WebSocket(#[from] tokio_tungstenite::tungstenite::Error),
+    #[error(transparent)] WebSocket(#[from] tungstenite::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[error("expected exactly one element, got zero or multiple")]
     ExactlyOne,
@@ -110,7 +113,10 @@ fn prompt(session_state: &SessionState<Never>) -> Cow<'static, str> {
 async fn cli(Args { api_key }: Args) -> Result<(), Error> {
     let mut cli_events = EventStream::default().fuse();
     let config = Config::load().await?;
-    let (mut websocket, _) = tokio_tungstenite::connect_async(config.websocket_url()?).await?;
+    let request = tungstenite::handshake::client::Request::get(config.websocket_url()?.to_string())
+        .header(tungstenite::http::header::USER_AGENT, user_agent())
+        .body(())?;
+    let (mut websocket, _) = tokio_tungstenite::connect_async(request).await?;
     if let Some(api_key) = api_key {
         ClientMessage::LoginApiKey { api_key }.write_ws(&mut websocket).await?;
     }

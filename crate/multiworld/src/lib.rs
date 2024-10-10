@@ -8,7 +8,7 @@ use {
         fmt,
         hash::Hash,
         mem,
-        num::NonZeroU8,
+        num::NonZero,
         str::FromStr,
         sync::Arc,
         time::Duration,
@@ -36,6 +36,9 @@ use {
         SpoilerLog,
     },
     oottracker::websocket::MwItem as Item,
+    rand::prelude::*,
+    rand_xoshiro::Xoshiro256StarStar,
+    ring::pbkdf2,
     semver::Version,
     serde::{
         Deserialize,
@@ -88,6 +91,25 @@ pub const CREDENTIAL_LEN: usize = ring::digest::SHA512_OUTPUT_LEN;
 
 pub fn version() -> Version { Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version") }
 pub fn proto_version() -> u8 { version().major.try_into().expect("version number does not fit into u8") }
+
+pub fn user_agent() -> String {
+    if let Some(salt) = option_env!("MHMW_USER_AGENT_SALT") {
+        let mut rng = Xoshiro256StarStar::seed_from_u64(salt.parse().expect("MHMW_USER_AGENT_SALT environment variable must be a valid u64"));
+        let mut user_agent_salt = [0; CREDENTIAL_LEN];
+        rng.fill(&mut user_agent_salt);
+        let mut user_agent_hash = [0; CREDENTIAL_LEN];
+        pbkdf2::derive(
+            pbkdf2::PBKDF2_HMAC_SHA512,
+            NonZero::new(100_000).expect("no hashing iterations specified"),
+            &user_agent_salt,
+            env!("CARGO_PKG_VERSION").as_bytes(),
+            &mut user_agent_hash,
+        );
+        format!("{}/{} ({}, {})", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_REPOSITORY"), user_agent_hash.into_iter().map(|byte| format!("{byte:02x}")).format(""))
+    } else {
+        format!("{}/{} ({})", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_REPOSITORY"))
+    }
+}
 
 /// The server (ootrmwd) will be stopped with advance warning when a new version of the server is deployed (multiworld-release).
 /// This advance warning can be skipped if there are no active rooms.
@@ -266,7 +288,7 @@ impl Filename {
         '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�',
     ];
 
-    pub fn fallback(world: NonZeroU8) -> Self {
+    pub fn fallback(world: NonZero<u8>) -> Self {
         match world.get() {
             0 => unreachable!(),
             n @ 1..=9 => Self([0xba, 0xd0, 0xc5, 0xdd, 0xc9, 0xd6, 0xdf, n]), // Player N
@@ -349,13 +371,13 @@ impl PartialEq<&[u8]> for Filename {
 
 #[derive(Debug, Clone, Copy, Protocol)]
 pub struct Player {
-    pub world: NonZeroU8,
+    pub world: NonZero<u8>,
     pub name: Filename,
     file_hash: Option<[HashIcon; 5]>,
 }
 
 impl Player {
-    pub fn new(world: NonZeroU8) -> Self {
+    pub fn new(world: NonZero<u8>) -> Self {
         Self {
             world,
             name: Filename::default(),
@@ -420,10 +442,10 @@ pub struct Client<C: ClientKind> {
     pub writer: Arc<Mutex<C::Writer>>,
     pub end_tx: oneshot::Sender<EndRoomSession>,
     pub player: Option<Player>,
-    pub pending_world: Option<NonZeroU8>,
+    pub pending_world: Option<NonZero<u8>>,
     pub pending_name: Option<Filename>,
     pub pending_hash: Option<[HashIcon; 5]>,
-    pub pending_items: Vec<(u64, u16, NonZeroU8)>,
+    pub pending_items: Vec<(u64, u16, NonZero<u8>)>,
     pub tracker_state: oottracker::ModelState,
     pub adjusted_save: oottracker::Save,
 }
@@ -509,7 +531,7 @@ pub struct Room<C: ClientKind> {
     pub clients: HashMap<C::SessionId, Client<C>>,
     pub file_hash: Option<[HashIcon; 5]>,
     pub base_queue: Vec<Item>,
-    pub player_queues: HashMap<NonZeroU8, Vec<Item>>,
+    pub player_queues: HashMap<NonZero<u8>, Vec<Item>>,
     pub deleted: bool,
     pub last_saved: DateTime<Utc>,
     pub allow_send_all: bool,
@@ -748,7 +770,7 @@ impl<C: ClientKind> Room<C> {
     }
 
     /// Moves a player from unloaded (no world assigned) to the given `world`.
-    pub async fn load_player(&mut self, client_id: C::SessionId, world: NonZeroU8) -> Result<bool, RoomError> {
+    pub async fn load_player(&mut self, client_id: C::SessionId, world: NonZero<u8>) -> Result<bool, RoomError> {
         if self.clients.iter().any(|(&iter_client_id, iter_client)| iter_client.player.as_ref().map_or(false, |p| p.world == world) && iter_client_id != client_id) {
             let client = self.clients.get_mut(&client_id).expect("tried to set pending world for nonexistent client");
             client.pending_world = Some(world);
@@ -860,7 +882,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    async fn queue_item_inner(&mut self, source_client: Option<C::SessionId>, source_world: NonZeroU8, key: u64, kind: u16, target_world: NonZeroU8, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str, verbose_logging: bool) -> Result<(), RoomError> {
+    async fn queue_item_inner(&mut self, source_client: Option<C::SessionId>, source_world: NonZero<u8>, key: u64, kind: u16, target_world: NonZero<u8>, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str, verbose_logging: bool) -> Result<(), RoomError> {
         if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
             if verbose_logging { println!("updating tracker") }
             oottracker::websocket::ClientMessage::MwQueueItem {
@@ -955,7 +977,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn queue_item(&mut self, source_client_id: C::SessionId, key: u64, kind: u16, target_world: NonZeroU8, verbose_logging: bool) -> Result<(), RoomError> {
+    pub async fn queue_item(&mut self, source_client_id: C::SessionId, key: u64, kind: u16, target_world: NonZero<u8>, verbose_logging: bool) -> Result<(), RoomError> {
         let source_client = self.clients.get_mut(&source_client_id).expect("tried to queue item from nonexistent client");
         if let Some(source) = source_client.player {
             if let Some(player_hash) = source.file_hash {
@@ -974,7 +996,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn send_all(&mut self, source_world: NonZeroU8, spoiler_log: &SpoilerLog, logged_in_as_admin: bool) -> Result<(), SendAllError> {
+    pub async fn send_all(&mut self, source_world: NonZero<u8>, spoiler_log: &SpoilerLog, logged_in_as_admin: bool) -> Result<(), SendAllError> {
         if !self.allow_send_all && !logged_in_as_admin {
             return Err(SendAllError::Disallowed)
         }
@@ -1031,7 +1053,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn add_dungeon_reward_info(&mut self, client_id: C::SessionId, reward: DungeonReward, _ /*source_world*/ /*TODO for dungeon reward shuffle, track which world the reward is in */: NonZeroU8, location: DungeonRewardLocation) -> Result<(), async_proto::WriteError> {
+    pub async fn add_dungeon_reward_info(&mut self, client_id: C::SessionId, reward: DungeonReward, _ /*source_world*/ /*TODO for dungeon reward shuffle, track which world the reward is in */: NonZero<u8>, location: DungeonRewardLocation) -> Result<(), async_proto::WriteError> {
         let client = self.clients.get_mut(&client_id).expect("tried to add dungeon reward info for nonexistent client");
         client.tracker_state.knowledge.dungeon_reward_locations.insert(reward, location);
         if let Some(Player { world, .. }) = client.player {
@@ -1042,11 +1064,11 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn init_tracker(&mut self, tracker_room_name: String, world_count: NonZeroU8) -> Result<(), async_proto::WriteError> {
+    pub async fn init_tracker(&mut self, tracker_room_name: String, world_count: NonZero<u8>) -> Result<(), async_proto::WriteError> {
         let mut worlds = (1..=world_count.get())
             .map(|player_id| (
                 oottracker::ModelState::default(),
-                self.player_queues.get(&NonZeroU8::new(player_id).expect("range starts at 1")).unwrap_or(&self.base_queue).clone(),
+                self.player_queues.get(&NonZero::new(player_id).expect("range starts at 1")).unwrap_or(&self.base_queue).clone(),
             ))
             .collect::<Vec<_>>();
         for client in self.clients.values() {
@@ -1239,14 +1261,14 @@ pub enum SessionState<E> {
         room_name: String,
         room_password: String,
         players: Vec<Player>,
-        progressive_items: HashMap<NonZeroU8, u32>,
+        progressive_items: HashMap<NonZero<u8>, u32>,
         num_unassigned_clients: u8,
         item_queue: Vec<u16>,
         autodelete_delta: Duration,
         allow_send_all: bool,
         view: RoomView,
         wrong_file_hash: Option<[[HashIcon; 5]; 2]>,
-        world_taken: Option<NonZeroU8>,
+        world_taken: Option<NonZero<u8>>,
         conflicting_item_kinds: bool,
     },
     Closed {
@@ -1650,7 +1672,7 @@ impl<E> Default for SessionState<E> {
     }
 }
 
-pub fn format_room_state(players: &[Player], num_unassigned_clients: u8, my_world: Option<NonZeroU8>) -> (Vec<(NonZeroU8, String)>, String) {
+pub fn format_room_state(players: &[Player], num_unassigned_clients: u8, my_world: Option<NonZero<u8>>) -> (Vec<(NonZero<u8>, String)>, String) {
     match (players.len(), num_unassigned_clients) {
         (0, 0) => (Vec::default(), format!("this room is empty")), // for admin view
         (0, unassigned) => (Vec::default(), format!("{unassigned} client{} with no world", if unassigned == 1 { "" } else { "s" })),

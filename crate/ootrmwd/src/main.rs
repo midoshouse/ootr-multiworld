@@ -8,7 +8,7 @@ use {
             HashMap,
         },
         mem,
-        num::NonZeroU32,
+        num::NonZero,
         pin::{
             Pin,
             pin,
@@ -329,7 +329,7 @@ async fn lobby_session<C: ClientKind>(
                             let authorized = *logged_in_as_admin || match &room.auth {
                                 RoomAuth::Password { hash, salt } => password.map_or(false, |password| pbkdf2::verify(
                                     pbkdf2::PBKDF2_HMAC_SHA512,
-                                    NonZeroU32::new(100_000).expect("no hashing iterations specified"),
+                                    NonZero::new(100_000).expect("no hashing iterations specified"),
                                     salt,
                                     password.as_bytes(),
                                     hash,
@@ -376,7 +376,7 @@ async fn lobby_session<C: ClientKind>(
                         let mut password_hash = [0; CREDENTIAL_LEN];
                         pbkdf2::derive(
                             pbkdf2::PBKDF2_HMAC_SHA512,
-                            NonZeroU32::new(100_000).expect("no hashing iterations specified"),
+                            NonZero::new(100_000).expect("no hashing iterations specified"),
                             &password_salt,
                             password.as_bytes(),
                             &mut password_hash,

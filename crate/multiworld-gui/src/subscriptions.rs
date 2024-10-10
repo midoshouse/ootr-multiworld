@@ -54,6 +54,7 @@ use {
             self,
             Kind as Frontend,
         },
+        user_agent,
         ws::latest as ws,
     },
     crate::{
@@ -190,8 +191,12 @@ impl Recipe for Client {
 
     fn stream(self: Box<Self>, _: EventStream) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
         let log = self.log;
-        stream::once(tokio_tungstenite::connect_async(self.websocket_url))
+        let request = tungstenite::handshake::client::Request::get(self.websocket_url.to_string())
+            .header(tungstenite::http::header::USER_AGENT, user_agent())
+            .body(());
+        stream::once(future::ready(request))
             .err_into::<Error>()
+            .and_then(|request| tokio_tungstenite::connect_async(request).err_into::<Error>())
             .and_then(move |(websocket, _)| async move {
                 let (sink, stream) = websocket.split();
                 let stream = LoggingStream { context: "from server", inner: stream, log };
