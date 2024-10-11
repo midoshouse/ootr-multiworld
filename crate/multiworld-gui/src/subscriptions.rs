@@ -191,33 +191,30 @@ impl Recipe for Client {
 
     fn stream(self: Box<Self>, _: EventStream) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
         let log = self.log;
-        let request = tungstenite::handshake::client::Request::get(self.websocket_url.to_string())
-            .header(tungstenite::http::header::USER_AGENT, user_agent())
-            .body(());
-        stream::once(future::ready(request))
-            .err_into::<Error>()
-            .and_then(|request| tokio_tungstenite::connect_async(request).err_into::<Error>())
-            .and_then(move |(websocket, _)| async move {
-                let (sink, stream) = websocket.split();
-                let stream = LoggingStream { context: "from server", inner: stream, log };
-                let sink = Arc::new(Mutex::new(sink));
-                let interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
-                Ok(
-                    stream::once(future::ok(Message::ServerConnected(sink.clone())))
-                    .chain(stream::try_unfold((stream, sink, interval), |(stream, sink, mut interval)| async move {
-                        let mut read = pin!(timeout(Duration::from_secs(60), stream.read_owned()));
-                        Ok(loop {
-                            select! {
-                                res = &mut read => {
-                                    let (stream, msg) = res??;
-                                    break Some((Message::Server(msg), (stream, sink, interval)))
-                                },
-                                _ = interval.tick() => lock!(sink = sink; ws::ClientMessage::Ping.write_ws(&mut *sink).await)?,
-                            }
-                        })
-                    }))
-                )
-            })
+        stream::once(async move {
+            let request = tungstenite::ClientRequestBuilder::new(self.websocket_url.to_string().try_into()?)
+                .with_header(tungstenite::http::header::USER_AGENT.to_string(), user_agent());
+            let (websocket, _) = tokio_tungstenite::connect_async(request).await?;
+            let (sink, stream) = websocket.split();
+            let stream = LoggingStream { context: "from server", inner: stream, log };
+            let sink = Arc::new(Mutex::new(sink));
+            let interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
+            Ok::<_, Error>(
+                stream::once(future::ok(Message::ServerConnected(sink.clone())))
+                .chain(stream::try_unfold((stream, sink, interval), |(stream, sink, mut interval)| async move {
+                    let mut read = pin!(timeout(Duration::from_secs(60), stream.read_owned()));
+                    Ok(loop {
+                        select! {
+                            res = &mut read => {
+                                let (stream, msg) = res??;
+                                break Some((Message::Server(msg), (stream, sink, interval)))
+                            },
+                            _ = interval.tick() => lock!(sink = sink; ws::ClientMessage::Ping.write_ws024(&mut *sink).await)?,
+                        }
+                    })
+                }))
+            )
+        })
             .try_flatten()
             .map(|res| res.unwrap_or_else(|e| Message::ServerSubscriptionError(Arc::new(e))))
             .chain(stream::pending())

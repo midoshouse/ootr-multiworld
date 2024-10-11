@@ -19,7 +19,7 @@ unused_qualifications = "deny"
 warnings = "deny"
 
 [dependencies]
-async-proto = "0.23"
+async-proto = "0.24"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 itertools = "0.13"
 libc = "0.2"

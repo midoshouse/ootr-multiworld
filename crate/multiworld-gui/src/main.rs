@@ -185,7 +185,7 @@ struct LoggingStream<R> {
 
 impl<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send> LoggingStream<R> {
     async fn read_owned(mut self) -> Result<(Self, ServerMessage), async_proto::ReadError> {
-        let msg = ServerMessage::read_ws(&mut self.inner).await?;
+        let msg = ServerMessage::read_ws024(&mut self.inner).await?;
         if self.log {
             lock!(log = LOG; writeln!(&*log, "{} {}: {msg:?}", Utc::now().format("%Y-%m-%d %H:%M:%S"), self.context)).map_err(|e| async_proto::ReadError {
                 context: async_proto::ErrorContext::Custom(format!("multiworld-gui::LoggingStream::read_owned")),
@@ -238,7 +238,7 @@ impl LoggingSink {
                 kind: e.into(),
             })?;
         }
-        lock!(inner = self.inner; msg.write_ws(&mut *inner).await)
+        lock!(inner = self.inner; msg.write_ws024(&mut *inner).await)
     }
 }
 
@@ -286,6 +286,7 @@ enum Error {
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] EverDrive(#[from] everdrive::Error),
     #[error(transparent)] Http(#[from] tungstenite::http::Error),
+    #[error(transparent)] InvalidUri(#[from] tungstenite::http::uri::InvalidUri),
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] Json(#[from] serde_json::Error),
     #[error(transparent)] MpscFrontendSend(#[from] mpsc::error::SendError<frontend::ServerMessage>),
@@ -318,7 +319,7 @@ impl IsNetworkError for Error {
     fn is_network_error(&self) -> bool {
         match self {
             Self::Elapsed(_) => true,
-            Self::Config(_) | Self::EverDrive(_) | Self::Http(_) | Self::Json(_) | Self::MpscFrontendSend(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::CopyDebugInfo | Self::InvalidPj64ScriptPath | Self::VersionMismatch { .. } => false,
+            Self::Config(_) | Self::EverDrive(_) | Self::Http(_) | Self::InvalidUri(_) | Self::Json(_) | Self::MpscFrontendSend(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::CopyDebugInfo | Self::InvalidPj64ScriptPath | Self::VersionMismatch { .. } => false,
             Self::Client(e) => e.is_network_error(),
             Self::Io(e) | Self::Pj64LaunchFailed(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),

@@ -87,8 +87,8 @@ macro_rules! supported_version {
                 let writer = Arc::new(Mutex::new(VersionedWriter { inner: sink, version: Version::$variant }));
                 match client_session(&rng, db_pool.clone(), http_client, rooms, session_id, VersionedReader { inner: stream, version: Version::$variant }, Arc::clone(&writer), shutdown, maintenance).await {
                     Ok(()) => {}
-                    Err(SessionError::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::MessageKind(tungstenite::Message::Close(_)), .. })) => {} // client disconnected normally
-                    Err(SessionError::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::Tungstenite(tungstenite::Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake)), .. })) => {} // this happens when a player force quits their multiworld app (or normally quits on macOS, see https://github.com/iced-rs/iced/issues/1941)
+                    Err(SessionError::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::MessageKind021(tungstenite::Message::Close(_)), .. })) => {} // client disconnected normally
+                    Err(SessionError::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::Tungstenite021(tungstenite::Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake)), .. })) => {} // this happens when a player force quits their multiworld app (or normally quits on macOS, see https://github.com/iced-rs/iced/issues/1941)
                     Err(SessionError::Elapsed(_)) => {} // client not responding
                     Err(SessionError::Shutdown) => {} // server shutting down
                     Err(SessionError::Server(msg)) => {

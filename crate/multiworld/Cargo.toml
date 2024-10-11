@@ -9,7 +9,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-async-proto = { version = "0.23", features = ["chrono", "semver"] }
+async-proto = { version = "0.24", features = ["chrono", "semver"] }
 async-trait = "0.1"
 bitflags = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
@@ -39,7 +39,7 @@ thiserror = "1"
 tokio = { version = "1", features = ["net", "parking_lot", "process", "sync", "time"] }
 tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"] } # waiting for https://github.com/rwf2/Rocket/pull/2823
 url = { version = "2", features = ["serde"] }
-wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["async-proto", "reqwest", "serde", "serde_json", "serde_json_path_to_error", "tungstenite"] } # tungstenite feature required to correctly classify network errors
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["async-proto", "reqwest", "serde", "serde_json", "serde_json_path_to_error", "tungstenite021"] } # tungstenite feature required to correctly classify network errors
 
 [target.'cfg(unix)'.dependencies]
 xdg = "2"

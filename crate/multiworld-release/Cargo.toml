@@ -9,7 +9,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-async-proto = "0.23"
+async-proto = "0.24"
 async-trait = "0.1"
 async_zip = { version = "0.0.17", features = ["full"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

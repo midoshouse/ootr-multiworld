@@ -9,7 +9,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-async-proto = "0.23"
+async-proto = "0.24"
 chrono = { version = "0.4", default-features = false, features = ["alloc", "clock"] }
 clap = { version = "4", features = ["derive"] }
 crossterm = { version = "0.28", features = ["event-stream"] }
@@ -21,6 +21,6 @@ serde_json = { package = "serde_json_path_to_error", version = "0.1" }
 syn = { version = "2", features = ["full"] }
 thiserror = "1"
 tokio = { version = "1", features = ["parking_lot", "time"] }
-tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"] } # waiting for https://github.com/rwf2/Rocket/pull/2823
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots", "url"] }
 url = "2"
 wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }

@@ -764,7 +764,7 @@ impl<C: ClientKind> Room<C> {
             }
         }
         if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
-            let _ = oottracker::websocket::ClientMessage::MwDeleteRoom { room: tracker_room_name.clone() }.write_ws(sock).await;
+            let _ = oottracker::websocket::ClientMessage::MwDeleteRoom { room: tracker_room_name.clone() }.write_ws021(sock).await;
         }
         Ok(())
     }
@@ -838,7 +838,7 @@ impl<C: ClientKind> Room<C> {
             self.write(client_id, unversioned::ServerMessage::ItemQueue(queue)).await?;
         }
         if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
-            oottracker::websocket::ClientMessage::MwResetPlayer { room: tracker_room_name.clone(), world, save }.write_ws(sock).await?;
+            oottracker::websocket::ClientMessage::MwResetPlayer { room: tracker_room_name.clone(), world, save }.write_ws021(sock).await?;
         }
         Ok(true)
     }
@@ -888,7 +888,7 @@ impl<C: ClientKind> Room<C> {
             oottracker::websocket::ClientMessage::MwQueueItem {
                 room: tracker_room_name.clone(),
                 source_world, key, kind, target_world,
-            }.write_ws(sock).await?;
+            }.write_ws021(sock).await?;
             if verbose_logging { println!("tracker updated") }
         } else {
             if verbose_logging { println!("no tracker room") }
@@ -1047,7 +1047,7 @@ impl<C: ClientKind> Room<C> {
                 self.write_all(&unversioned::ServerMessage::ProgressiveItems { world, state: new_progressive_items.bits() }).await?;
             }
             if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
-                oottracker::websocket::ClientMessage::MwResetPlayer { room: tracker_room_name.clone(), world, save }.write_ws(sock).await?;
+                oottracker::websocket::ClientMessage::MwResetPlayer { room: tracker_room_name.clone(), world, save }.write_ws021(sock).await?;
             }
         }
         Ok(())
@@ -1058,7 +1058,7 @@ impl<C: ClientKind> Room<C> {
         client.tracker_state.knowledge.dungeon_reward_locations.insert(reward, location);
         if let Some(Player { world, .. }) = client.player {
             if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
-                oottracker::websocket::ClientMessage::MwDungeonRewardLocation { room: tracker_room_name.clone(), world, reward, location }.write_ws(sock).await?;
+                oottracker::websocket::ClientMessage::MwDungeonRewardLocation { room: tracker_room_name.clone(), world, reward, location }.write_ws021(sock).await?;
             }
         }
         Ok(())
@@ -1080,7 +1080,7 @@ impl<C: ClientKind> Room<C> {
             context: async_proto::ErrorContext::Custom(format!("multiworld::Room::init_tracker")),
             kind: e.into(),
         })?.0;
-        oottracker::websocket::ClientMessage::MwCreateRoom { room: tracker_room_name.clone(), worlds }.write_ws(&mut sock).await?;
+        oottracker::websocket::ClientMessage::MwCreateRoom { room: tracker_room_name.clone(), worlds }.write_ws021(&mut sock).await?;
         self.tracker_state = Some((tracker_room_name, sock));
         Ok(())
     }

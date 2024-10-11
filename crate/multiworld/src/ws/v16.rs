@@ -224,13 +224,13 @@ impl From<unversioned::ServerMessage> for Option<ServerMessage> {
 }
 
 pub(crate) async fn read_owned<R: Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin + Send + 'static>(reader: R) -> Result<(R, unversioned::ClientMessage), async_proto::ReadError> {
-    let (reader, msg) = ClientMessage::read_ws_owned(reader).await?;
+    let (reader, msg) = ClientMessage::read_ws_owned021(reader).await?;
     Ok((reader, msg.try_into()?))
 }
 
 pub(crate) async fn write(writer: &mut (impl Sink<tungstenite::Message, Error = tungstenite::Error> + Unpin + Send), msg: unversioned::ServerMessage) -> Result<(), async_proto::WriteError> {
     if let Some(msg) = Option::<ServerMessage>::from(msg) {
-        msg.write_ws(writer).await?;
+        msg.write_ws021(writer).await?;
     }
     Ok(())
 }

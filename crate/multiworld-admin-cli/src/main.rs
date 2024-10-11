@@ -65,6 +65,7 @@ enum Error {
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] FilenameParse(#[from] multiworld::FilenameParseError),
     #[error(transparent)] Http(#[from] tungstenite::http::Error),
+    #[error(transparent)] InvalidUri(#[from] tungstenite::http::uri::InvalidUri),
     #[error(transparent)] Io(#[from] tokio::io::Error),
     #[error(transparent)] Json(#[from] serde_json::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
@@ -113,16 +114,15 @@ fn prompt(session_state: &SessionState<Never>) -> Cow<'static, str> {
 async fn cli(Args { api_key }: Args) -> Result<(), Error> {
     let mut cli_events = EventStream::default().fuse();
     let config = Config::load().await?;
-    let request = tungstenite::handshake::client::Request::get(config.websocket_url()?.to_string())
-        .header(tungstenite::http::header::USER_AGENT, user_agent())
-        .body(())?;
+    let request = tungstenite::ClientRequestBuilder::new(config.websocket_url()?.to_string().try_into()?)
+        .with_header(tungstenite::http::header::USER_AGENT.to_string(), user_agent());
     let (mut websocket, _) = tokio_tungstenite::connect_async(request).await?;
     if let Some(api_key) = api_key {
-        ClientMessage::LoginApiKey { api_key }.write_ws(&mut websocket).await?;
+        ClientMessage::LoginApiKey { api_key }.write_ws024(&mut websocket).await?;
     }
     let (mut writer, reader) = websocket.split();
     let mut session_state = SessionState::<Never>::default();
-    let mut read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_ws_owned(reader)));
+    let mut read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_ws_owned024(reader)));
     let mut cmd_buf = String::default();
     let mut interval = interval_at(Instant::now() + Duration::from_secs(30), Duration::from_secs(30));
     let mut stdout = stdout();
@@ -141,7 +141,7 @@ async fn cli(Args { api_key }: Args) -> Result<(), Error> {
                         Print(format_args!("{} {msg:#?}\r\n{}> {cmd_buf}", Local::now().format("%Y-%m-%d %H:%M:%S"), prompt(&session_state))),
                     )?;
                 }
-                read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_ws_owned(reader)));
+                read = Box::pin(timeout(Duration::from_secs(60), ServerMessage::read_ws_owned024(reader)));
             },
             cli_event = cli_events.select_next_some() => match cli_event? {
                 Event::Key(key_event) => if key_event == KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL) {
@@ -150,7 +150,7 @@ async fn cli(Args { api_key }: Args) -> Result<(), Error> {
                     match key_event.code {
                         KeyCode::Enter => if key_event.kind == KeyEventKind::Press {
                             if !cmd_buf.is_empty() {
-                                ClientMessage::from_expr(syn::parse_str(&cmd_buf)?)?.write_ws(&mut writer).await?;
+                                ClientMessage::from_expr(syn::parse_str(&cmd_buf)?)?.write_ws024(&mut writer).await?;
                             }
                             cmd_buf.clear();
                             crossterm::execute!(stdout,
@@ -175,7 +175,7 @@ async fn cli(Args { api_key }: Args) -> Result<(), Error> {
                 Event::Paste(text) => cmd_buf.push_str(&text),
                 _ => {}
             },
-            _ = interval.tick() => ClientMessage::Ping.write_ws(&mut writer).await?,
+            _ = interval.tick() => ClientMessage::Ping.write_ws024(&mut writer).await?,
         }
     }
     Ok(())
