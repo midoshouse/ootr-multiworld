@@ -93,7 +93,12 @@ macro_rules! supported_version {
                     Err(SessionError::Shutdown) => {} // server shutting down
                     Err(SessionError::Server(msg)) => {
                         eprintln!("server error in WebSocket handler ({}): {msg}", stringify!($version));
-                        let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("server error in WebSocket handler ({}): {msg}", stringify!($version)))).await;
+                        if let UserAgent(Some(ref user_agent)) = user_agent {
+                            eprintln!("user agent: {user_agent:?}");
+                        } else {
+                            eprintln!("no user agent");
+                        }
+                        let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("server error in WebSocket handler ({}): {msg}\nuser agent: {:?}", stringify!($version), user_agent.0))).await;
                         let _ = lock!(writer = writer; writer.write(ServerMessage::OtherError(msg)).await);
                     }
                     Err(e) if e.is_network_error() => {
