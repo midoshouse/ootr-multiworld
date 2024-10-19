@@ -682,7 +682,7 @@ async fn room_session<C: ClientKind>(
                     ClientMessage::SaveData(save) => lock!(@write room = room; room.set_save_data(socket_id, save).await)?,
                     ClientMessage::SendAll { source_world, spoiler_log } => lock!(@write room = room; room.send_all(source_world, &spoiler_log, logged_in_as_admin).await)
                         .handle_wrong_file_hash::<C>(&writer).await?,
-                    ClientMessage::SaveDataError { debug, version } => if version >= multiworld::version() {
+                    ClientMessage::SaveDataError { debug, version } => if version >= multiworld::version() && lock!(@read room = room; !room.allow_send_all || room.tracker_state.is_some()) { // only report for tournament rooms and tracked rooms
                         eprintln!("save data error reported by Mido's House Multiworld version {version}: {debug}");
                         wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("save data error reported by Mido's House Multiworld version {version}: {debug}"))).await?;
                     },
