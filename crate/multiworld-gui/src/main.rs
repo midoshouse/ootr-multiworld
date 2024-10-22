@@ -1699,13 +1699,32 @@ impl State {
                     if existing_room_selection.as_ref().map_or(true, |existing_room_selection| existing_room_selection.password_required) {
                         col = col.push(TextInput::new("Password", password).secure(true).on_input(Message::SetPassword).on_paste(Message::SetPassword).on_submit(Message::JoinRoom).padding(5));
                     }
+                    col = col.push({ suppress_scroll = true; Space::with_height(Length::Fill) });
+                    if create_new_room {
+                        if new_room_name.chars().count() > 64 {
+                            col = col.push("room name too long (maximum 64 characters)");
+                        }
+                        if new_room_name.contains('\0') {
+                            col = col.push("room name must not contain null characters");
+                        }
+                        if password.chars().count() > 64 {
+                            col = col.push("room password too long (maximum 64 characters)");
+                        }
+                        if password.contains('\0') {
+                            col = col.push("room password must not contain null characters");
+                        }
+                    }
                     col
-                        .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
                         .push(Row::new()
                             .push({
                                 let mut btn = Button::new("Connect");
                                 let enabled = if create_new_room {
-                                    !new_room_name.is_empty() && !password.is_empty()
+                                    !new_room_name.is_empty()
+                                    && new_room_name.chars().count() <= 64
+                                    && !new_room_name.contains('\0')
+                                    && !password.is_empty()
+                                    && password.chars().count() <= 64
+                                    && !password.contains('\0')
                                 } else {
                                     existing_room_selection.as_ref().is_some_and(|existing_room_selection| !existing_room_selection.password_required || !password.is_empty())
                                 };
