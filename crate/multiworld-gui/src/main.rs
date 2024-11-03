@@ -1417,7 +1417,11 @@ impl State {
             Message::SetPassword(new_password) => if let SessionState::Lobby { ref mut password, .. } = self.server_connection { *password = new_password },
             Message::SetSendAllPath(new_path) => self.send_all_path = new_path,
             Message::SetSendAllWorld(new_world) => self.send_all_world = new_world,
-            Message::ShowLoggingInstructions => if let Err(e) = open("https://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/logging.md") {
+            Message::ShowLoggingInstructions => if let Err(e) = open({
+                #[cfg(target_os = "windows")] { "https://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/logging-windows.md" }
+                #[cfg(target_os = "linux")] { "https://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/logging-linux.md" }
+                #[cfg(not(any(target_os = "windows", target_os = "linux")))] { "https://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/logging.md" }
+            }) {
                 return cmd(future::err(e.into()))
             },
             Message::LaunchProject64 => {
