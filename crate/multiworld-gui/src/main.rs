@@ -1527,12 +1527,13 @@ impl State {
                 Frontend::Pj64V3 => {
                     col = col.push("Waiting for Project64…");
                     if self.pj64_script_path.is_some() {
-                        col = col.push(
-                            Row::new()
+                        col = col
+                            .push(Row::new()
                                 .push("1. ")
                                 .push(Button::new("Open Project64").on_press(Message::LaunchProject64))
-                                .align_y(iced::Alignment::Center));
-                            col = col.push("2. In Project64's Debugger menu, select Scripts\n3. In the Scripts window, select ootrmw.js and click Run\n4. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.")
+                                .align_y(iced::Alignment::Center)
+                            )
+                            .push("2. In Project64's Debugger menu, select Scripts\n3. In the Scripts window, select ootrmw.js and click Run\n4. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.");
                     } else {
                         col = col.push("1. Open Project64\n2. In Project64's Debugger menu, select Scripts\n3. In the Scripts window, select ootrmw.js and click Run\n4. Wait until the Output area says “Connected to multiworld app”. (This should take less than 5 seconds.) You can then close the Scripts window.");
                     }
