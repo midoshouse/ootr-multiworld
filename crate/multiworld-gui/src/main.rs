@@ -1422,10 +1422,10 @@ impl State {
             },
             Message::SetCreateNewRoom(new_val) => if let SessionState::Lobby { ref mut create_new_room, .. } = self.server_connection { *create_new_room = new_val },
             Message::SetExistingRoomSelection(room) => {
-                if room.active {
-                    if let SessionState::Lobby { ref mut existing_room_selection, .. } = self.server_connection { *existing_room_selection = Some(room) };
-                } else {
+                if room.is_dummy {
                     self.room_filter = String::default();
+                } else {
+                    if let SessionState::Lobby { ref mut existing_room_selection, .. } = self.server_connection { *existing_room_selection = Some(room) };
                 }
                 self.show_room_filter = false;
             },
@@ -1709,10 +1709,13 @@ impl State {
                             if rooms.is_empty() {
                                 Text::new("(no rooms currently open)").into()
                             } else {
-                                let mut rooms = rooms.iter().map(|(&id, (name, password_required))| RoomFormatter { id, name: name.clone(), password_required: password_required.clone(), active: true }).filter(|room| room.name.to_lowercase().contains(&self.room_filter.to_lowercase())).collect_vec();
-                                rooms.sort();
+                                let mut rooms = rooms.iter()
+                                    .map(|(&id, (name, password_required))| RoomFormatter { id, name: name.clone(), password_required: password_required.clone(), is_dummy: false })
+                                    .filter(|room| room.name.to_lowercase().contains(&self.room_filter.to_lowercase()))
+                                    .collect_vec();
+                                rooms.sort_unstable();
                                 if rooms.is_empty() {
-                                    rooms.push(RoomFormatter { password_required: false, name: String::from("No room found"), id: 0, active: false });
+                                    rooms.push(RoomFormatter { password_required: false, name: String::from("No rooms found"), id: 0, is_dummy: true });
                                 }
                                 let mut stack = Stack::new().width(360.0);
                                 stack = stack.push(PickList::new(rooms, existing_room_selection.clone(), Message::SetExistingRoomSelection).placeholder("Select a room").on_open(Message::ToggleRoomFilter).on_close(Message::ToggleRoomFilter));
