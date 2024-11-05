@@ -348,7 +348,6 @@ enum Message {
     Exit,
     FrontendConnected(FrontendWriter),
     FrontendSubscriptionError(Arc<Error>),
-    HideRoomFilter,
     JoinRoom,
     Kick(NonZeroU8),
     LaunchProject64,
@@ -387,7 +386,7 @@ enum Message {
     SetSendAllPath(String),
     SetSendAllWorld(String),
     ShowLoggingInstructions,
-    ShowRoomFilter,
+    ToggleRoomFilter,
     ToggleUpdateErrorDetails,
     UpToDate,
     #[cfg(target_os = "macos")] UpdateAvailable(Version),
@@ -895,7 +894,7 @@ impl State {
                 }
                 self.frontend_subscription_error.get_or_insert(e);
             }
-            Message::ShowRoomFilter | Message::HideRoomFilter => {
+            Message::ToggleRoomFilter => {
                 self.show_room_filter = !self.show_room_filter;
                 if self.show_room_filter {
                     return text_input::focus("room-filter")
@@ -1716,7 +1715,7 @@ impl State {
                                     rooms.push(RoomFormatter { password_required: false, name: String::from("No room found"), id: 0, active: false });
                                 }
                                 let mut stack = Stack::new().width(360.0);
-                                stack = stack.push(PickList::new(rooms, existing_room_selection.clone(), Message::SetExistingRoomSelection).placeholder("Select a room").on_open(Message::ShowRoomFilter).on_close(Message::HideRoomFilter));
+                                stack = stack.push(PickList::new(rooms, existing_room_selection.clone(), Message::SetExistingRoomSelection).placeholder("Select a room").on_open(Message::ToggleRoomFilter).on_close(Message::ToggleRoomFilter));
                                 if self.show_room_filter {
                                     stack = stack.push(TextInput::new("Room name", &self.room_filter).on_input(Message::SetRoomFilter).on_paste(Message::SetRoomFilter).id("room-filter"));
                                 }
