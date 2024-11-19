@@ -1,0 +1,18 @@
+[package]
+name = "multiworld-release-macos"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+async-proto = "0.24.1"
+dir-lock = { git = "https://github.com/fenhl/rust-dir-lock", branch = "main", version = "0.3.1" }
+directories = "5.0.1"
+git2 = "0.19.0"
+multiworld = { version = "16.0.0", path = "../multiworld" }
+thiserror = "2.0.3"
+tokio = { version = "1.41.1", features = ["io-std", "parking_lot", "process"] }
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main", version = "0.14.4" }

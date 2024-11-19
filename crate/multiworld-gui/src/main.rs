@@ -17,6 +17,7 @@ use {
             Path,
             PathBuf,
         },
+        process,
         sync::Arc,
         time::Duration,
     },
@@ -137,7 +138,6 @@ use {
     std::os::unix::fs::PermissionsExt as _,
     gio::prelude::*,
 };
-#[cfg(any(target_os = "linux", target_os = "windows"))] use std::process;
 
 mod everdrive;
 mod login;

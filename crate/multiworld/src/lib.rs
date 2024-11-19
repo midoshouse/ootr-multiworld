@@ -122,6 +122,14 @@ pub enum WaitUntilInactiveMessage {
     Deadline(DateTime<Utc>),
 }
 
+/// Used by the macOS release script to communicate with the supervising Windows release script.
+#[derive(Protocol)]
+pub enum MacReleaseMessage {
+    Progress {
+        label: String,
+    },
+}
+
 const TRIFORCE_PIECE: u16 = 0x00ca;
 
 fn natjoin<T: fmt::Display>(elts: impl IntoIterator<Item = T>) -> Option<String> {
