@@ -16,9 +16,22 @@ use {
         },
         process::Command,
     },
-    wheel::traits::AsyncCommandOutputExt as _,
+    wheel::{
+        fs,
+        traits::{
+            AsyncCommandOutputExt as _,
+            IoResultExt as _,
+        },
+    },
     multiworld::MacReleaseMessage,
 };
+
+#[derive(clap::Parser)]
+#[clap(version)]
+struct Args {
+    #[clap(short = 'H')]
+    human_readable_output: bool,
+}
 
 #[derive(Debug, thiserror::Error)]
 enum Error {
@@ -31,13 +44,18 @@ enum Error {
 }
 
 #[wheel::main]
-async fn main() -> Result<(), Error> {
+async fn main(Args { human_readable_output }: Args) -> Result<(), Error> {
     let mut stdout = stdout();
 
     macro_rules! progress {
         ($label:literal) => {{
-            MacReleaseMessage::Progress { label: format!($label) }.write(&mut stdout).await?;
-            stdout.flush().await?;
+            let msg = MacReleaseMessage::Progress { label: format!($label) };
+            if human_readable_output {
+                println!("{msg:?}");
+            } else {
+                msg.write(&mut stdout).await?;
+                stdout.flush().await?;
+            }
         }};
     }
 
@@ -79,6 +97,19 @@ async fn main() -> Result<(), Error> {
     let mut origin = repo.find_remote("origin")?;
     origin.fetch(&["main"], None, None)?;
     repo.reset(&repo.find_branch("origin/main", BranchType::Remote)?.into_reference().peel_to_commit()?.into_object(), ResetType::Hard, None)?;
+
+    progress!("building Mido's House Multiworld.app for x86_64");
+    Command::new("cargo").arg("build").arg("--release").arg("--target=x86_64-apple-darwin").arg("--package=multiworld-gui").env("MACOSX_DEPLOYMENT_TARGET", "10.9").current_dir("/opt/git/github.com/midoshouse/ootr-multiworld/main").check("cargo").await?;
+
+    progress!("building Mido's House Multiworld.app for aarch64");
+    Command::new("cargo").arg("build").arg("--release").arg("--target=aarch64-apple-darwin").arg("--package=multiworld-gui").current_dir("/opt/git/github.com/midoshouse/ootr-multiworld/main").check("cargo").await?;
+
+    progress!("creating Universal macOS binary");
+    fs::create_dir("/opt/git/github.com/midoshouse/ootr-multiworld/main/assets/macos/Mido's House Multiworld.app/Contents/MacOS").await.exist_ok()?;
+    Command::new("lipo").arg("-create").arg("target/aarch64-apple-darwin/release/multiworld-gui").arg("target/x86_64-apple-darwin/release/multiworld-gui").arg("-output").arg("assets/macos/Mido's House Multiworld.app/Contents/MacOS/multiworld-gui").current_dir("/opt/git/github.com/midoshouse/ootr-multiworld/main").check("lipo").await?;
+    
+    progress!("packing multiworld-gui.dmg");
+    Command::new("hdiutil").arg("create").arg("assets/multiworld-gui.dmg").arg("-volname").arg("Mido's House Multiworld").arg("-srcfolder").arg("assets/macos").arg("-ov").current_dir("/opt/git/github.com/midoshouse/ootr-multiworld/main").check("hdiutil").await?;
 
     Ok(())
 }

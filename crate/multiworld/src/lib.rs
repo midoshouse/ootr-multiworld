@@ -123,7 +123,7 @@ pub enum WaitUntilInactiveMessage {
 }
 
 /// Used by the macOS release script to communicate with the supervising Windows release script.
-#[derive(Protocol)]
+#[derive(Debug, Protocol)]
 pub enum MacReleaseMessage {
     Progress {
         label: String,
