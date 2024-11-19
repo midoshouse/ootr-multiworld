@@ -13,7 +13,11 @@ use {
         },
         time::Duration,
     },
-    async_proto::Protocol as _,
+    async_proto::{
+        Protocol as _,
+        ReadError,
+        ReadErrorKind,
+    },
     async_trait::async_trait,
     async_zip::{
         Compression,
@@ -57,6 +61,7 @@ use {
         traits::AsyncCommandOutputExt as _,
     },
     multiworld::{
+        MacReleaseMessage,
         WaitUntilInactiveMessage,
         frontend,
         github::{
@@ -73,6 +78,8 @@ use {
 
 mod cli;
 mod version;
+
+const MACOS_ADDR: &str = "192.168.178.51";
 
 #[derive(Clone)] struct WindowsUpdaterNotification;
 #[derive(Clone)] struct LinuxGuiNotification;
@@ -1021,6 +1028,94 @@ impl Task<Result<(), Error>> for BuildServer {
     }
 }
 
+enum BuildMacOs {
+    Connect(reqwest::Client, Repo, broadcast::Receiver<Release>),
+    Remote(String, reqwest::Client, Repo, broadcast::Receiver<Release>, Child, ChildStdout),
+    Disconnect(reqwest::Client, Repo, broadcast::Receiver<Release>, Child),
+    Download(reqwest::Client, Repo, broadcast::Receiver<Release>),
+    Read(reqwest::Client, Repo, broadcast::Receiver<Release>),
+    WaitRelease(reqwest::Client, Repo, broadcast::Receiver<Release>, Vec<u8>),
+    Upload(reqwest::Client, Repo, Release, Vec<u8>),
+}
+
+impl BuildMacOs {
+    fn new(client: reqwest::Client, repo: Repo, release_rx: broadcast::Receiver<Release>) -> Self {
+        Self::Connect(client, repo, release_rx)
+    }
+}
+
+impl fmt::Display for BuildMacOs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Connect(..) => write!(f, "connecting to Mac"),
+            Self::Remote(msg, ..) => msg.fmt(f),
+            Self::Disconnect(..) => write!(f, "disconnecting from Mac"),
+            Self::Download(..) => write!(f, "downloading multiworld.dmg from Mac"),
+            Self::Read(..) => write!(f, "reading multiworld.dmg"),
+            Self::WaitRelease(..) => write!(f, "waiting for GitHub release to be created"),
+            Self::Upload(..) => write!(f, "uploading multiworld-gui.dmg"),
+        }
+    }
+}
+
+impl GetPriority for BuildMacOs {
+    fn priority(&self) -> Priority {
+        match self {
+            Self::Connect(..) => Priority::Active,
+            Self::Remote(..) => Priority::Active,
+            Self::Disconnect(..) => Priority::Active,
+            Self::Download(..) => Priority::Active,
+            Self::Read(..) => Priority::Active,
+            Self::WaitRelease(..) => Priority::Waiting,
+            Self::Upload(..) => Priority::Active,
+        }
+    }
+}
+
+#[async_trait]
+impl Task<Result<(), Error>> for BuildMacOs {
+    async fn run(self) -> Result<Result<(), Error>, Self> {
+        match self {
+            Self::Connect(client, repo, release_rx) => gres::transpose(async move {
+                let mut ssh = Command::new("ssh").arg(MACOS_ADDR).arg("/opt/git/github.com/midoshouse/ootr-multiworld/main/target/release/multiworld-release-macos").stdout(Stdio::piped()).spawn()?;
+                let stdout = ssh.stdout.take().expect("stdout was piped");
+                Ok(Err(Self::Remote(format!("connecting to Mac"), client, repo, release_rx, ssh, stdout)))
+            }).await,
+            Self::Remote(_, client, repo, release_rx, ssh, mut stdout) => gres::transpose(async move {
+                match MacReleaseMessage::read(&mut stdout).await {
+                    Ok(msg) => match msg {
+                        MacReleaseMessage::Progress { label } => return Ok(Err(Self::Remote(label, client, repo, release_rx, ssh, stdout))),
+                    },
+                    Err(ReadError { kind: ReadErrorKind::EndOfStream, .. }) => {}
+                    Err(ReadError { kind: ReadErrorKind::Io(e), .. }) if e.kind() == io::ErrorKind::UnexpectedEof => {}
+                    Err(e) => return Err(e.into()),
+                }
+                Ok(Err(Self::Disconnect(client, repo, release_rx, ssh)))
+            }).await,
+            Self::Disconnect(client, repo, release_rx, ssh) => gres::transpose(async move {
+                ssh.check("multiworld-release-macos").await?;
+                Ok(Err(Self::Download(client, repo, release_rx)))
+            }).await,
+            Self::Download(client, repo, release_rx) => gres::transpose(async move {
+                Command::new("scp").arg(format!("{}:/opt/git/github.com/midoshouse/ootr-multiworld/main/assets/multiworld-gui.dmg", MACOS_ADDR)).arg("assets/multiworld-gui.dmg").check("scp").await?;
+                Ok(Err(Self::Read(client, repo, release_rx)))
+            }).await,
+            Self::Read(client, repo, release_rx) => gres::transpose(async move {
+                let data = fs::read("assets/multiworld-gui.dmg").await?;
+                Ok(Err(Self::WaitRelease(client, repo, release_rx, data)))
+            }).await,
+            Self::WaitRelease(client, repo, mut release_rx, data) => gres::transpose(async move {
+                let release = release_rx.recv().await?;
+                Ok(Err(Self::Upload(client, repo, release, data)))
+            }).await,
+            Self::Upload(client, repo, release, data) => gres::transpose(async move {
+                repo.release_attach(&client, &release, "multiworld-gui.dmg", "application/x-apple-diskimage", data).await?;
+                Ok(Ok(()))
+            }).await,
+        }
+    }
+}
+
 #[derive(clap::Parser)]
 #[clap(version)]
 enum CliArgs {
@@ -1097,7 +1192,7 @@ enum Error {
     #[error(transparent)] InvalidHeaderValue(#[from] reqwest::header::InvalidHeaderValue),
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] ParseInt(#[from] std::num::ParseIntError),
-    #[error(transparent)] Read(#[from] async_proto::ReadError),
+    #[error(transparent)] Read(#[from] ReadError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] SemVer(#[from] semver::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
@@ -1173,6 +1268,7 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
         let release_rx_bizhawk = release_tx.subscribe();
         let release_rx_bizhawk_linux = release_tx.subscribe();
         let release_rx_pj64 = release_tx.subscribe();
+        let release_rx_macos = release_tx.subscribe();
         let create_release_args = args.clone();
         let create_release_client = client.clone();
         let create_release_repo = repo.clone();
@@ -1212,6 +1308,7 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstaller::new(true, client, repo, debug_bizhawk_rx, debug_gui_rx_installer, release_rx_installer_debug), "installer (Windows, debug)").await? } },
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstaller::new(false, client, repo, bizhawk_rx, gui_rx_installer, release_rx_installer), "installer (Windows)").await? } },
             { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildInstallerLinux::new(client, repo, linux_bizhawk_rx, release_rx_installer_linux), "installer (Linux)").await? } },
+            { let client = client.clone(); let repo = repo.clone(); async move { cli.run(BuildMacOs::new(client, repo, release_rx_macos), "macOS").await? } },
             if args.no_server { future::ok(()).boxed() } else { async move { cli.run(BuildServer::new(!args.force), "server").await? }.boxed() },
         ]?;
         if !args.no_publish {
