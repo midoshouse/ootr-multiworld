@@ -126,9 +126,6 @@ enum Error {
     #[error("non-UTF-8 paths are currently not supported")]
     NonUtf8Path,
     #[cfg(target_os = "windows")]
-    #[error("Mido's House Multiworld requires at least version 2.4 of Project64")]
-    OutdatedProject64,
-    #[cfg(target_os = "windows")]
     #[error("failed to parse Project64 website")]
     ParsePj64Html,
     #[cfg(target_os = "windows")]
@@ -162,6 +159,12 @@ impl<I: Iterator> From<itertools::ExactlyOneError<I>> for Error {
 }
 
 #[derive(Debug, Clone)]
+enum Project64Error {
+    Outdated([u16; 2]),
+    Em,
+}
+
+#[derive(Debug, Clone)]
 enum Message {
     Back,
     BrowseEmulatorPath,
@@ -184,7 +187,7 @@ enum Message {
     OotmmMultiworldGuide,
     Nop,
     PlatformSupport,
-    Project64EmFound,
+    Project64Error(Project64Error),
     SetCreateEmulatorDesktopShortcut(bool),
     SetCreateMultiworldDesktopShortcut(bool),
     SetEmulator(Emulator),
@@ -252,9 +255,10 @@ enum Page {
         emulator_path: String,
         multiworld_path: Option<String>,
     },
-    Project64EmError {
+    Project64Error {
         emulator_path: String,
         multiworld_path: Option<String>,
+        kind: Project64Error,
     },
     InstallEmulator {
         update: bool,
@@ -338,7 +342,7 @@ impl State {
                 Page::EmulatorWarning { emulator, install_emulator, ref emulator_path, ref multiworld_path } => Page::SelectEmulator { emulator: Some(emulator), install_emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
                 Page::LocateEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => Page::SelectEmulator { emulator: Some(emulator), install_emulator: Some(install_emulator), emulator_path: Some(emulator_path.clone()), multiworld_path: multiworld_path.clone() },
                 Page::AskBizHawkUpdate { ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator: Emulator::BizHawk, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
-                Page::Project64EmError { ref emulator_path, ref multiworld_path } => Page::LocateEmulator { emulator: Emulator::Pj64V3, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
+                Page::Project64Error { ref emulator_path, ref multiworld_path, .. } => Page::LocateEmulator { emulator: Emulator::Pj64V3, install_emulator: false, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() },
                 Page::InstallEmulator { .. } => unreachable!(),
                 Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => match emulator {
                     Emulator::Dummy => unreachable!(),
@@ -390,7 +394,7 @@ impl State {
             },
             Message::ConfigWriteFailed => if let Page::InstallMultiworld { ref mut config_write_failed, .. } = self.page { *config_write_failed = true },
             Message::Continue => match self.page {
-                Page::Error(_, _) | Page::Elevated | Page::Project64EmError { .. } => unreachable!(),
+                Page::Error(_, _) | Page::Elevated | Page::Project64Error { .. } => unreachable!(),
                 Page::SelectEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => {
                     let emulator = emulator.expect("emulator must be selected to continue here");
                     match emulator {
@@ -621,16 +625,20 @@ impl State {
                                     let pj64_em_path = PathBuf::from(emulator_path).join("Project64-EM.exe");
                                     return cmd(async move {
                                         if fs::exists(pj64_em_path).await? {
-                                            Ok(Message::Project64EmFound)
+                                            Ok(Message::Project64Error(Project64Error::Em))
                                         } else {
                                             Err(winver::Error::Io { path, source }.into())
                                         }
                                     })
                                 }
+                                Err(winver::Error::Io { source, .. }) if source.to_string() == "The specified resource type cannot be found in the image file. (os error 1813)" => {
+                                    // Project64 version 1.6 does not include version info in the .exe file, so we assume that missing version info means 1.6
+                                    [1, 6, 0, 0]
+                                }
                                 Err(e) => return cmd(future::err(e.into())),
                             };
                             Some(match (major, minor) {
-                                (..=1, _) | (2, ..=3) => return cmd(future::err(Error::OutdatedProject64)), //TODO offer to update Project64
+                                (..=1, _) | (2, ..=3) => return cmd(future::ok(Message::Project64Error(Project64Error::Outdated([major, minor])))),
                                 (2, 4..) | (3, _) => Emulator::Pj64V3,
                                 (4, _) => Emulator::Pj64V4, //TODO warn about Project64 v4 being experimental?
                                 (5.., _) => return cmd(future::err(Error::Project64TooNew)),
@@ -918,8 +926,8 @@ impl State {
             Message::PlatformSupport => if let Err(e) = open("https://midos.house/mw/platforms") {
                 self.page = Page::Error(Arc::new(e.into()), false);
             },
-            Message::Project64EmFound => if let Page::LocateEmulator { ref emulator_path, ref multiworld_path, .. } = self.page {
-                self.page = Page::Project64EmError { emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
+            Message::Project64Error(kind) => if let Page::LocateEmulator { ref emulator_path, ref multiworld_path, .. } = self.page {
+                self.page = Page::Project64Error { emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone(), kind };
             },
             Message::SetCreateEmulatorDesktopShortcut(create_desktop_shortcut) => self.create_emulator_desktop_shortcut = create_desktop_shortcut,
             Message::SetCreateMultiworldDesktopShortcut(create_desktop_shortcut) => self.create_multiworld_desktop_shortcut = create_desktop_shortcut,
@@ -1050,7 +1058,19 @@ impl State {
                 true,
                 Some((Text::new("Update BizHawk").into(), true))
             ),
-            Page::Project64EmError { .. } => (
+            Page::Project64Error { kind: Project64Error::Outdated([major, minor]), .. } => (
+                Column::new()
+                    .push(Text::new("Error").size(24))
+                    .push(Text::new(format!("The selected copy of Project64 is too old to run Mido's House Multiworld. It appears to be version {major}.{minor}, but version 2.4 or newer is required.")))
+                    .push(Text::new("Suggested actions").size(24))
+                    .push("• Click “Back” and select “Install Project64” to get the latest version.") //TODO directly offer to update Project64?
+                    .push("• Or click “Back” twice and select a different emulator or console.")
+                    .spacing(8)
+                    .into(),
+                true,
+                None,
+            ),
+            Page::Project64Error { kind: Project64Error::Em, .. } => (
                 Column::new()
                     .push(Text::new("Error").size(24))
                     .push("The selected folder appears to be a copy of Project64-EM, which is a modified version of Project64 and is not supported by Mido's House Multiworld.")
