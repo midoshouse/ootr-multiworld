@@ -517,11 +517,12 @@ impl State {
                     .build()
             } else {
                 let mut builder = MessageBuilder::default();
-                builder.push_line(format!("error in Mido's House Multiworld version {}{} while searching for EverDrives:", env!("CARGO_PKG_VERSION"), {
+                builder.push(format!("error in Mido's House Multiworld version {}{} while searching for EverDrives:", env!("CARGO_PKG_VERSION"), {
                     #[cfg(debug_assertions)] { " (debug)" }
                     #[cfg(not(debug_assertions))] { "" }
                 }));
                 for (port, error) in &**errors {
+                    builder.push_line("");
                     builder.push_mono_safe(&port.port_name);
                     builder.push_line(':');
                     builder.push_codeblock_safe(format!("{error:?}"), Some("rust"));

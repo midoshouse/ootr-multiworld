@@ -46,8 +46,8 @@ use {
         sync::mpsc,
         time::sleep,
     },
+    tokio_io_timeout::TimeoutStream,
     tokio_serial::{
-        SerialPort as _,
         SerialPortBuilderExt as _,
         SerialStream,
     },
@@ -72,7 +72,7 @@ const PROTOCOL_VERSION: u8 = 1;
 struct HandshakeResponse {
     player_id: NonZeroU8,
     file_hash: [HashIcon; 5],
-    port: SerialStream,
+    port: Pin<Box<TimeoutStream<SerialStream>>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -108,7 +108,10 @@ async fn connect_to_port(port_info: &tokio_serial::SerialPortInfo, log: bool) ->
     if log {
         let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: opening port at {port_path:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
     }
-    let mut port = tokio_serial::new(port_path, 9_600).timeout(TEST_TIMEOUT).open_native_async()?;
+    let mut port = TimeoutStream::new(tokio_serial::new(port_path, 9_600).open_native_async()?);
+    port.set_read_timeout(Some(TEST_TIMEOUT));
+    port.set_write_timeout(Some(TEST_TIMEOUT));
+    let mut port = Box::pin(port);
     if log {
         let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: sending cmdt to {port:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
     }
@@ -124,7 +127,8 @@ async fn connect_to_port(port_info: &tokio_serial::SerialPortInfo, log: bool) ->
             if log {
                 let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: port is in game", Utc::now().format("%Y-%m-%d %H:%M:%S")));
             }
-            port.set_timeout(REGULAR_TIMEOUT)?;
+            port.as_mut().set_read_timeout_pinned(Some(REGULAR_TIMEOUT));
+            port.as_mut().set_write_timeout_pinned(Some(REGULAR_TIMEOUT));
             let mut buf = [0; 16];
             buf[0] = b'M';
             buf[1] = b'W';
@@ -165,7 +169,7 @@ async fn connect_to_port(port_info: &tokio_serial::SerialPortInfo, log: bool) ->
     }
 }
 
-async fn read_from_port(mut port: ReadHalf<SerialStream>) -> io::Result<(ReadHalf<SerialStream>, [u8; 16])> {
+async fn read_from_port(mut port: ReadHalf<Pin<Box<TimeoutStream<SerialStream>>>>) -> io::Result<(ReadHalf<Pin<Box<TimeoutStream<SerialStream>>>>, [u8; 16])> {
     let mut buf = [0; 16];
     port.read_exact(&mut buf).await?;
     Ok((port, buf))
@@ -200,8 +204,8 @@ impl Recipe for Subscription {
             },
             Connected {
                 session: SessionState,
-                read: Pin<Box<dyn Future<Output = io::Result<(ReadHalf<SerialStream>, [u8; 16])>> + Send>>,
-                writer: WriteHalf<SerialStream>,
+                read: Pin<Box<dyn Future<Output = io::Result<(ReadHalf<Pin<Box<TimeoutStream<SerialStream>>>>, [u8; 16])>> + Send>>,
+                writer: WriteHalf<Pin<Box<TimeoutStream<SerialStream>>>>,
                 rx: mpsc::Receiver<frontend::ServerMessage>,
                 player_data: HashMap<NonZeroU8, (Filename, u32)>,
                 queue: Vec<u16>,
@@ -268,7 +272,7 @@ impl Recipe for Subscription {
                     }
                 }
                 SubscriptionState::Connected { mut session, mut read, mut writer, mut rx, mut player_data, mut queue } => {
-                    async fn send_player_data(port: &mut WriteHalf<SerialStream>, world: NonZeroU8, name: Filename, progressive_items: u32) -> io::Result<()> {
+                    async fn send_player_data(port: &mut WriteHalf<Pin<Box<TimeoutStream<SerialStream>>>>, world: NonZeroU8, name: Filename, progressive_items: u32) -> io::Result<()> {
                         let mut buf = [0; 16];
                         buf[0] = 0x01; // Player Data
                         buf[1] = world.get();
@@ -278,7 +282,7 @@ impl Recipe for Subscription {
                         Ok(())
                     }
 
-                    async fn get_item(port: &mut WriteHalf<SerialStream>, queue: &[u16], internal_count: &mut u16) -> io::Result<bool> {
+                    async fn get_item(port: &mut WriteHalf<Pin<Box<TimeoutStream<SerialStream>>>>, queue: &[u16], internal_count: &mut u16) -> io::Result<bool> {
                         Ok(if let Some(item) = queue.get(usize::from(*internal_count)) {
                             let mut buf = [0; 16];
                             buf[0] = 0x02; // Get Item

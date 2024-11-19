@@ -48,6 +48,7 @@ serenity = { version = "0.12", default-features = false, features = ["utils"] }
 sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 thiserror = "1"
 tokio = { version = "1", features = ["fs", "io-util", "net", "parking_lot", "sync", "time"] }
+tokio-io-timeout = "1.2.0"
 tokio-serial = "5.4.4"
 tokio-stream = "0.1"
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
