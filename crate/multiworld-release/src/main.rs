@@ -1315,6 +1315,7 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
             let line = cli.new_line("publishing release").await?;
             repo.publish_release(&client, release).await?;
             line.replace("release published").await?;
+            //TODO update version and sha256 at https://github.com/midoshouse/homebrew-tap/blob/main/Casks/mhmw.rb
             let line = cli.new_line("relabelling issues").await?;
             let mut token = github_app_auth::InstallationAccessToken::new(github_app_auth::GithubAuthParams {
                 user_agent: concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")).to_owned(),

@@ -920,7 +920,7 @@ impl State {
                 self.page = Page::Error(Arc::new(Error::CopyDebugInfo), false);
             },
             Message::Nop => {}
-            Message::OotmmMultiworldGuide => if let Err(e) = open("https://ootmm.com/multiworld") {
+            Message::OotmmMultiworldGuide => if let Err(e) = open("https://ootmm.com/multiplayer") {
                 self.page = Page::Error(Arc::new(e.into()), false);
             },
             Message::PlatformSupport => if let Err(e) = open("https://midos.house/mw/platforms") {
