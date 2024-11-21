@@ -1217,7 +1217,7 @@ enum Error {
     VersionRegression,
     #[error("the ootrmwd prepare-restart command sent a generic error message")]
     WaitUntilInactive,
-    #[error("frontend protocol version mismatch: client is v{}, Project64 frontend is v{0}", frontend::PROTOCOL_VERSION)]
+    #[error("frontend protocol version mismatch: client is v{client}, Project64 frontend is v{0}", client = frontend::PROTOCOL_VERSION)]
     WrongPj64ProtocolVersion(u8),
 }
 

@@ -50,7 +50,7 @@ semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_ini = "0.2"
 serenity = { version = "0.12", default-features = false, features = ["utils"] }
-thiserror = "1"
+thiserror = "2"
 tokio = { version = "1", features = ["fs", "parking_lot", "process", "rt-multi-thread"] }
 url = { version = "2", features = ["serde"] }
 wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }
@@ -59,7 +59,7 @@ wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
 gio = "0.20"
 tokio-tar = "0.3"
-which = "6"
+which = "7"
 xdg = "2"
 
 [target.'cfg(target_os = "windows")'.dependencies]

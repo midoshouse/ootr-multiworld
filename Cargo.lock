@@ -5149,7 +5149,7 @@ dependencies = [
  "serde",
  "serde_json_path_to_error",
  "sqlx",
- "thiserror 1.0.69",
+ "thiserror 2.0.3",
  "tokio",
  "tokio-tungstenite 0.21.0",
  "url",
@@ -5171,7 +5171,7 @@ dependencies = [
  "ootr-utils",
  "serde_json_path_to_error",
  "syn 2.0.89",
- "thiserror 1.0.69",
+ "thiserror 2.0.3",
  "tokio",
  "tokio-tungstenite 0.24.0",
  "url",
@@ -5184,7 +5184,7 @@ version = "16.3.1"
 dependencies = [
  "lazy-regex",
  "semver",
- "thiserror 1.0.69",
+ "thiserror 2.0.3",
  "tokio",
  "wheel",
  "winver",
@@ -5205,7 +5205,7 @@ dependencies = [
  "ootr-utils",
  "oottracker",
  "semver",
- "thiserror 1.0.69",
+ "thiserror 2.0.3",
  "wheel",
  "windows 0.58.0",
  "winver",
@@ -5258,7 +5258,7 @@ dependencies = [
  "serde_json_path_to_error",
  "serenity",
  "sysinfo",
- "thiserror 1.0.69",
+ "thiserror 2.0.3",
  "tokio",
  "tokio-io-timeout",
  "tokio-serial",
@@ -5301,12 +5301,13 @@ dependencies = [
  "serenity",
  "tempfile",
  "thiserror 1.0.69",
+ "thiserror 2.0.3",
  "tokio",
  "tokio-tar",
  "tokio-util",
  "url",
  "wheel",
- "which 6.0.3",
+ "which 7.0.0",
  "winresource",
  "winver",
  "xdg",
@@ -5336,7 +5337,7 @@ dependencies = [
  "semver",
  "serde",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.3",
  "tokio",
  "tokio-stream",
  "wheel",
@@ -5381,7 +5382,7 @@ dependencies = [
  "serenity",
  "sysinfo",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.3",
  "tokio",
  "tokio-tar",
  "tokio-util",
@@ -5906,7 +5907,7 @@ checksum = "1261fe7e33c73b354eab43b1273a57c8f967d0391e80353e51f764ac02cf6775"
 [[package]]
 name = "ootr"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#df683ee1077a4bc71367372c1f2c8146605cba28"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#200b0df0bd2fbde4cace007fe8d9d8612d70d4fc"
 dependencies = [
  "async-proto",
  "enum-iterator",
@@ -5963,7 +5964,7 @@ dependencies = [
  "serde",
  "serenity",
  "sqlx",
- "thiserror 1.0.69",
+ "thiserror 2.0.3",
  "tokio",
  "tokio-tungstenite 0.21.0",
  "wheel",
@@ -5972,7 +5973,7 @@ dependencies = [
 [[package]]
 name = "oottracker"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#df683ee1077a4bc71367372c1f2c8146605cba28"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#200b0df0bd2fbde4cace007fe8d9d8612d70d4fc"
 dependencies = [
  "async-proto",
  "async-stream",
@@ -6002,7 +6003,7 @@ dependencies = [
 [[package]]
 name = "oottracker-derive"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#df683ee1077a4bc71367372c1f2c8146605cba28"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#200b0df0bd2fbde4cace007fe8d9d8612d70d4fc"
 dependencies = [
  "convert_case 0.6.0",
  "itertools 0.13.0",
@@ -9864,9 +9865,9 @@ dependencies = [
 
 [[package]]
 name = "which"
-version = "6.0.3"
+version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4ee928febd44d98f2f459a4a79bd4d928591333a494a10a868418ac1b39cf1f"
+checksum = "c9cad3279ade7346b96e38731a641d7343dd6a53d55083dd54eadfa5a1b38c6b"
 dependencies = [
  "either",
  "home",

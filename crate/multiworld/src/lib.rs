@@ -1160,7 +1160,7 @@ impl<C: ClientKind> Room<C> {
 pub enum ClientError {
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
-    #[error("protocol version mismatch: server is version {0} but we're version {}", proto_version())]
+    #[error("protocol version mismatch: server is version {0} but we're version {client}", client = proto_version())]
     VersionMismatch(u8),
 }
 

@@ -35,7 +35,7 @@ semver = "1"
 serenity = { version = "0.12", default-features = false, features = ["utils"] }
 sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 tempfile = "3"
-thiserror = "1"
+thiserror = "2"
 tokio = { version = "1", features = ["fs", "parking_lot", "time"] }
 tokio-util = { version = "0.7", features = ["io"] }
 url = "2"

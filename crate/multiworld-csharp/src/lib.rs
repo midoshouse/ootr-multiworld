@@ -223,7 +223,7 @@ pub enum Error {
     #[cfg(target_os = "linux")]
     #[error("could not determine BizHawk location")]
     NoCurrentExe,
-    #[error("protocol version mismatch: multiworld app is version {0} but we're version {}", PROTOCOL_VERSION)]
+    #[error("protocol version mismatch: multiworld app is version {0} but we're version {frontend}", frontend = PROTOCOL_VERSION)]
     VersionMismatch(u8),
 }
 
