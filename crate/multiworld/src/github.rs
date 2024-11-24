@@ -9,7 +9,10 @@ use {
     serde::Deserialize,
     serde_json::json,
     url::Url,
-    wheel::traits::ReqwestResponseExt as _,
+    wheel::traits::{
+        RequestBuilderExt as _,
+        ReqwestResponseExt as _,
+    },
 };
 
 #[cfg(feature = "github-app-auth")]
@@ -35,7 +38,7 @@ impl Issue {
             .json(&json!({
                 "labels": labels,
             }))
-            .send().await?
+            .send_github(false).await?
             .detailed_error_for_status().await?;
         Ok(())
     }
@@ -92,14 +95,14 @@ impl Repo {
                 ("state", "all"),
                 ("labels", label),
             ])
-            .send().await?
+            .send_github(false).await?
             .detailed_error_for_status().await?
             .json_with_text_in_error().await?)
     }
 
     pub async fn latest_release(&self, client: &Client) -> wheel::Result<Option<Release>> {
         let response = client.get(&format!("https://api.github.com/repos/{}/{}/releases/latest", self.user, self.name))
-            .send().await?;
+            .send_github(false).await?;
         if response.status() == StatusCode::NOT_FOUND { return Ok(None) } // no releases yet
         Ok(Some(
             response.detailed_error_for_status().await?
@@ -119,7 +122,7 @@ impl Repo {
 
     pub async fn release_by_tag(&self, client: &Client, tag: &str) -> wheel::Result<Option<Release>> {
         let response = client.get(&format!("https://api.github.com/repos/{}/{}/releases/tags/{tag}", self.user, self.name))
-            .send().await?;
+            .send_github(false).await?;
         if response.status() == StatusCode::NOT_FOUND { return Ok(None) } // no release with this tag
         Ok(Some(
             response.detailed_error_for_status().await?
@@ -137,7 +140,7 @@ impl Repo {
                     "name": name,
                     "tag_name": tag_name,
                 }))
-                .send().await?
+                .send_github(false).await?
                 .detailed_error_for_status().await?
                 .json_with_text_in_error::<Release>().await?
         )
@@ -147,7 +150,7 @@ impl Repo {
         Ok(
             client.patch(&format!("https://api.github.com/repos/{}/{}/releases/{}", self.user, self.name, release.id))
                 .json(&json!({"draft": false}))
-                .send().await?
+                .send_github(false).await?
                 .detailed_error_for_status().await?
                 .json_with_text_in_error::<Release>().await?
         )
@@ -161,7 +164,7 @@ impl Repo {
                 .query(&[("name", name)])
                 .headers(headers)
                 .body(body)
-                .send().await?
+                .send_github(false).await?
                 .detailed_error_for_status().await?;
             Ok(())
         }
