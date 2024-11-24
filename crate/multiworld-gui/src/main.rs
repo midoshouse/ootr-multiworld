@@ -6,6 +6,7 @@ use {
         collections::{
             BTreeMap,
             HashMap,
+            HashSet,
         },
         env,
         fmt,
@@ -339,7 +340,7 @@ enum Message {
     CloseRequested(window::Id),
     CommandError(Arc<Error>),
     ConfirmRoomDeletion,
-    CopyDebugInfo,
+    CopyDebugInfo(bool),
     CreateMidosHouseAccount(login::Provider),
     DiscordChannel,
     DiscordInvite,
@@ -360,7 +361,7 @@ enum Message {
         bearer_token: String,
         refresh_token: Option<String>,
     },
-    NewIssue,
+    NewIssue(bool),
     Nop,
     OpenLoginPage(Url),
     Plugin(Box<frontend::ClientMessage>), // boxed due to the large size of save data; if Message is too large, iced will overflow the stack on window resize
@@ -414,7 +415,7 @@ enum UpdateState {
 struct State {
     persistent_state: PersistentState,
     frontend: FrontendState,
-    debug_info_copied: bool,
+    debug_info_copied: HashSet<bool>,
     icon_error: Option<Arc<icon::Error>>,
     config_error: Option<Arc<multiworld::config::Error>>,
     persistent_state_error: Option<Arc<persistent_state::Error>>,
@@ -446,134 +447,138 @@ struct State {
 }
 
 impl State {
-    fn error_to_markdown(&self) -> Option<String> {
-        Some(if let Some(ref e) = self.icon_error {
-            MessageBuilder::default()
-                .push_line(format!("error in Mido's House Multiworld version {}{} while trying to load icon:", env!("CARGO_PKG_VERSION"), {
-                    #[cfg(debug_assertions)] { " (debug)" }
-                    #[cfg(not(debug_assertions))] { "" }
-                }))
-                .push_line_safe(e.to_string())
-                .push_codeblock_safe(format!("{e:?}"), Some("rust"))
-                .build()
-        } else if let Some(ref e) = self.config_error {
-            MessageBuilder::default()
-                .push_line(format!("error in Mido's House Multiworld version {}{} while trying to load config:", env!("CARGO_PKG_VERSION"), {
-                    #[cfg(debug_assertions)] { " (debug)" }
-                    #[cfg(not(debug_assertions))] { "" }
-                }))
-                .push_line_safe(e.to_string())
-                .push_codeblock_safe(format!("{e:?}"), Some("rust"))
-                .build()
-        } else if let Some(ref e) = self.persistent_state_error {
-            MessageBuilder::default()
-                .push_line(format!("error in Mido's House Multiworld version {}{} while trying to load persistent state:", env!("CARGO_PKG_VERSION"), {
-                    #[cfg(debug_assertions)] { " (debug)" }
-                    #[cfg(not(debug_assertions))] { "" }
-                }))
-                .push_line_safe(e.to_string())
-                .push_codeblock_safe(format!("{e:?}"), Some("rust"))
-                .build()
-        } else if let Some(ref e) = self.command_error {
-            MessageBuilder::default()
-                .push_line(format!("error in Mido's House Multiworld version {}{}:", env!("CARGO_PKG_VERSION"), {
-                    #[cfg(debug_assertions)] { " (debug)" }
-                    #[cfg(not(debug_assertions))] { "" }
-                }))
-                .push_line_safe(e.to_string())
-                .push_codeblock_safe(format!("{e:?}"), Some("rust"))
-                .build()
-        } else if let Some(ref e) = self.login_error {
-            let with_provider = if let SessionState::Lobby { view: LobbyView::Login { provider, .. }, .. } = self.server_connection {
-                format!(" with {provider}")
-            } else {
-                String::default()
-            };
-            MessageBuilder::default()
-                .push_line(format!("error in Mido's House Multiworld version {}{} while trying to sign in{with_provider}:", env!("CARGO_PKG_VERSION"), {
-                    #[cfg(debug_assertions)] { " (debug)" }
-                    #[cfg(not(debug_assertions))] { "" }
-                }))
-                .push_line_safe(e.to_string())
-                .push_codeblock_safe(format!("{e:?}"), Some("rust"))
-                .build()
-        } else if let Some(ref e) = self.frontend_subscription_error {
-            MessageBuilder::default()
-                .push_line(format!("error in Mido's House Multiworld version {}{} during communication with {}:", env!("CARGO_PKG_VERSION"), {
-                    #[cfg(debug_assertions)] { " (debug)" }
-                    #[cfg(not(debug_assertions))] { "" }
-                }, self.frontend.display_with_version()))
-                .push_line_safe(e.to_string())
-                .push_codeblock_safe(format!("{e:?}"), Some("rust"))
-                .build()
-        } else if self.frontend_writer.is_none() && self.frontend.kind != Frontend::Dummy && matches!(self.frontend.kind, Frontend::EverDrive) && matches!(self.frontend.everdrive, EverDriveState::Searching(_)) {
-            let EverDriveState::Searching(ref errors) = self.frontend.everdrive else { unreachable!() };
-            if errors.is_empty() {
+    fn error_to_markdown(&self, update: bool) -> Option<String> {
+        Some(if update {
+            if let UpdateState::Error { ref e, .. } = self.update_state {
                 MessageBuilder::default()
-                    .push(format!("error in Mido's House Multiworld version {}{} while searching for EverDrives: no serial ports found", env!("CARGO_PKG_VERSION"), {
-                        #[cfg(debug_assertions)] { " (debug)" }
-                        #[cfg(not(debug_assertions))] { "" }
-                    }))
+                    .push_line(format!("{}error while attempting to update Mido's House Multiworld from version {}{}:",
+                        if e.is_network_error() { "network " } else { "" },
+                        env!("CARGO_PKG_VERSION"),
+                        {
+                            #[cfg(debug_assertions)] { " (debug)" }
+                            #[cfg(not(debug_assertions))] { "" }
+                        },
+                    ))
+                    .push_line_safe(e.to_string())
+                    .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                     .build()
             } else {
-                let mut builder = MessageBuilder::default();
-                builder.push(format!("error in Mido's House Multiworld version {}{} while searching for EverDrives:", env!("CARGO_PKG_VERSION"), {
-                    #[cfg(debug_assertions)] { " (debug)" }
-                    #[cfg(not(debug_assertions))] { "" }
-                }));
-                for (port, error) in &**errors {
-                    builder.push_line("");
-                    builder.push_mono_safe(&port.port_name);
-                    builder.push_line(':');
-                    builder.push_codeblock_safe(format!("{error:?}"), Some("rust"));
-                }
-                builder.build()
+                return None
             }
         } else {
-            match self.server_connection {
-                SessionState::Error { ref e, .. } => MessageBuilder::default()
-                    .push_line(if_chain! {
-                        if let SessionStateError::Connection(e) = e;
-                        if e.is_network_error();
-                        then {
-                            format!("network error in Mido's House Multiworld version {}{}:", env!("CARGO_PKG_VERSION"), {
-                                #[cfg(debug_assertions)] { " (debug)" }
-                                #[cfg(not(debug_assertions))] { "" }
-                            })
-                        } else {
-                            format!("error in Mido's House Multiworld version {}{} during communication with the server:", env!("CARGO_PKG_VERSION"), {
-                                #[cfg(debug_assertions)] { " (debug)" }
-                                #[cfg(not(debug_assertions))] { "" }
-                            })
-                        }
-                    })
-                    .push_line_safe(e.to_string())
-                    .push_codeblock_safe(format!("{e:?}"), Some("rust"))
-                    .build(),
-                SessionState::Lobby { view: LobbyView::SessionExpired { provider, error: Some(ref e) }, .. } => MessageBuilder::default()
-                    .push_line(format!("error in Mido's House Multiworld version {}{} while refreshing {provider} login session:", env!("CARGO_PKG_VERSION"), {
+            if let Some(ref e) = self.icon_error {
+                MessageBuilder::default()
+                    .push_line(format!("error in Mido's House Multiworld version {}{} while trying to load icon:", env!("CARGO_PKG_VERSION"), {
                         #[cfg(debug_assertions)] { " (debug)" }
                         #[cfg(not(debug_assertions))] { "" }
                     }))
                     .push_line_safe(e.to_string())
                     .push_codeblock_safe(format!("{e:?}"), Some("rust"))
-                    .build(),
-                _ => if let UpdateState::Error { ref e, .. } = self.update_state {
+                    .build()
+            } else if let Some(ref e) = self.config_error {
+                MessageBuilder::default()
+                    .push_line(format!("error in Mido's House Multiworld version {}{} while trying to load config:", env!("CARGO_PKG_VERSION"), {
+                        #[cfg(debug_assertions)] { " (debug)" }
+                        #[cfg(not(debug_assertions))] { "" }
+                    }))
+                    .push_line_safe(e.to_string())
+                    .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                    .build()
+            } else if let Some(ref e) = self.persistent_state_error {
+                MessageBuilder::default()
+                    .push_line(format!("error in Mido's House Multiworld version {}{} while trying to load persistent state:", env!("CARGO_PKG_VERSION"), {
+                        #[cfg(debug_assertions)] { " (debug)" }
+                        #[cfg(not(debug_assertions))] { "" }
+                    }))
+                    .push_line_safe(e.to_string())
+                    .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                    .build()
+            } else if let Some(ref e) = self.command_error {
+                MessageBuilder::default()
+                    .push_line(format!("error in Mido's House Multiworld version {}{}:", env!("CARGO_PKG_VERSION"), {
+                        #[cfg(debug_assertions)] { " (debug)" }
+                        #[cfg(not(debug_assertions))] { "" }
+                    }))
+                    .push_line_safe(e.to_string())
+                    .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                    .build()
+            } else if let Some(ref e) = self.login_error {
+                let with_provider = if let SessionState::Lobby { view: LobbyView::Login { provider, .. }, .. } = self.server_connection {
+                    format!(" with {provider}")
+                } else {
+                    String::default()
+                };
+                MessageBuilder::default()
+                    .push_line(format!("error in Mido's House Multiworld version {}{} while trying to sign in{with_provider}:", env!("CARGO_PKG_VERSION"), {
+                        #[cfg(debug_assertions)] { " (debug)" }
+                        #[cfg(not(debug_assertions))] { "" }
+                    }))
+                    .push_line_safe(e.to_string())
+                    .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                    .build()
+            } else if let Some(ref e) = self.frontend_subscription_error {
+                MessageBuilder::default()
+                    .push_line(format!("error in Mido's House Multiworld version {}{} during communication with {}:", env!("CARGO_PKG_VERSION"), {
+                        #[cfg(debug_assertions)] { " (debug)" }
+                        #[cfg(not(debug_assertions))] { "" }
+                    }, self.frontend.display_with_version()))
+                    .push_line_safe(e.to_string())
+                    .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                    .build()
+            } else if self.frontend_writer.is_none() && self.frontend.kind != Frontend::Dummy && matches!(self.frontend.kind, Frontend::EverDrive) && matches!(self.frontend.everdrive, EverDriveState::Searching(_)) {
+                let EverDriveState::Searching(ref errors) = self.frontend.everdrive else { unreachable!() };
+                if errors.is_empty() {
                     MessageBuilder::default()
-                        .push_line(format!("{}error while attempting to update Mido's House Multiworld from version {}{}:",
-                            if e.is_network_error() { "network " } else { "" },
-                            env!("CARGO_PKG_VERSION"),
-                            {
-                                #[cfg(debug_assertions)] { " (debug)" }
-                                #[cfg(not(debug_assertions))] { "" }
-                            },
-                        ))
-                        .push_line_safe(e.to_string())
-                        .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                        .push(format!("error in Mido's House Multiworld version {}{} while searching for EverDrives: no serial ports found", env!("CARGO_PKG_VERSION"), {
+                            #[cfg(debug_assertions)] { " (debug)" }
+                            #[cfg(not(debug_assertions))] { "" }
+                        }))
                         .build()
                 } else {
-                    return None
-                },
+                    let mut builder = MessageBuilder::default();
+                    builder.push(format!("error in Mido's House Multiworld version {}{} while searching for EverDrives:", env!("CARGO_PKG_VERSION"), {
+                        #[cfg(debug_assertions)] { " (debug)" }
+                        #[cfg(not(debug_assertions))] { "" }
+                    }));
+                    for (port, error) in &**errors {
+                        builder.push_line("");
+                        builder.push_mono_safe(&port.port_name);
+                        builder.push_line(':');
+                        builder.push_codeblock_safe(format!("{error:?}"), Some("rust"));
+                    }
+                    builder.build()
+                }
+            } else {
+                match self.server_connection {
+                    SessionState::Error { ref e, .. } => MessageBuilder::default()
+                        .push_line(if_chain! {
+                            if let SessionStateError::Connection(e) = e;
+                            if e.is_network_error();
+                            then {
+                                format!("network error in Mido's House Multiworld version {}{}:", env!("CARGO_PKG_VERSION"), {
+                                    #[cfg(debug_assertions)] { " (debug)" }
+                                    #[cfg(not(debug_assertions))] { "" }
+                                })
+                            } else {
+                                format!("error in Mido's House Multiworld version {}{} during communication with the server:", env!("CARGO_PKG_VERSION"), {
+                                    #[cfg(debug_assertions)] { " (debug)" }
+                                    #[cfg(not(debug_assertions))] { "" }
+                                })
+                            }
+                        })
+                        .push_line_safe(e.to_string())
+                        .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                        .build(),
+                    SessionState::Lobby { view: LobbyView::SessionExpired { provider, error: Some(ref e) }, .. } => MessageBuilder::default()
+                        .push_line(format!("error in Mido's House Multiworld version {}{} while refreshing {provider} login session:", env!("CARGO_PKG_VERSION"), {
+                            #[cfg(debug_assertions)] { " (debug)" }
+                            #[cfg(not(debug_assertions))] { "" }
+                        }))
+                        .push_line_safe(e.to_string())
+                        .push_codeblock_safe(format!("{e:?}"), Some("rust"))
+                        .build(),
+                    _ => return None,
+                }
             }
         })
     }
@@ -662,7 +667,7 @@ impl State {
             everdrive: EverDriveState::default(),
         };
         Self {
-            debug_info_copied: false,
+            debug_info_copied: HashSet::default(),
             icon_error: icon_error.map(Arc::new),
             command_error: None,
             login_error: None,
@@ -823,8 +828,8 @@ impl State {
                     Ok(Message::Nop)
                 })
             },
-            Message::CopyDebugInfo => if let Some(error_md) = self.error_to_markdown() {
-                self.debug_info_copied = true;
+            Message::CopyDebugInfo(update) => if let Some(error_md) = self.error_to_markdown(update) {
+                self.debug_info_copied.insert(update);
                 return clipboard::write(error_md)
             } else {
                 return cmd(future::err(Error::CopyDebugInfo))
@@ -962,12 +967,12 @@ impl State {
                     })
                 }
             }
-            Message::NewIssue => {
+            Message::NewIssue(update) => {
                 let mut issue_url = match Url::parse("https://github.com/midoshouse/ootr-multiworld/issues/new") {
                     Ok(issue_url) => issue_url,
                     Err(e) => return cmd(future::err(e.into())),
                 };
-                if let Some(error_md) = self.error_to_markdown() {
+                if let Some(error_md) = self.error_to_markdown(update) {
                     issue_url.query_pairs_mut().append_pair("body", &error_md);
                 }
                 if let Err(e) = open(issue_url.to_string()) {
@@ -1466,15 +1471,15 @@ impl State {
     fn view(&self) -> Element<'_, Message> {
         let mut suppress_scroll = false;
         let main_view = if let Some(ref e) = self.icon_error {
-            error_view("An error occurred:", e, self.debug_info_copied)
+            error_view("An error occurred:", e, false, self.debug_info_copied.contains(&false))
         } else if let Some(ref e) = self.config_error {
-            error_view("An error occurred:", e, self.debug_info_copied)
+            error_view("An error occurred:", e, false, self.debug_info_copied.contains(&false))
         } else if let Some(ref e) = self.persistent_state_error {
-            error_view("An error occurred:", e, self.debug_info_copied)
+            error_view("An error occurred:", e, false, self.debug_info_copied.contains(&false))
         } else if let Some(ref e) = self.command_error {
-            error_view("An error occurred:", e, self.debug_info_copied)
+            error_view("An error occurred:", e, false, self.debug_info_copied.contains(&false))
         } else if let Some(ref e) = self.login_error {
-            error_view("An error occurred while trying to sign in:", e, self.debug_info_copied) //TODO button to reset error state
+            error_view("An error occurred while trying to sign in:", e, false, self.debug_info_copied.contains(&false)) //TODO button to reset error state
         } else if let Some(ref e) = self.frontend_subscription_error {
             if let Error::Io(ref e) = **e {
                 if e.kind() == io::ErrorKind::AddrInUse {
@@ -1485,10 +1490,10 @@ impl State {
                         .spacing(8)
                         .into()
                 } else {
-                    error_view(format!("An error occurred during communication with {}:", self.frontend.kind), e, self.debug_info_copied)
+                    error_view(format!("An error occurred during communication with {}:", self.frontend.kind), e, false, self.debug_info_copied.contains(&false))
                 }
             } else {
-                error_view(format!("An error occurred during communication with {}:", self.frontend.kind), e, self.debug_info_copied)
+                error_view(format!("An error occurred during communication with {}:", self.frontend.kind), e, false, self.debug_info_copied.contains(&false))
             }
         } else if let UpdateState::Pending = self.update_state {
             let mut col = Column::new();
@@ -1528,8 +1533,8 @@ impl State {
                             col = col
                                 .push("Some USB devices were found but they all reported errors.")
                                 .push("Make sure your console is turned on and connected, and your USB cable supports data.")
-                                .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
-                                .push(if self.debug_info_copied { "Copied!" } else { "for pasting into Discord" });
+                                .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo(false)))
+                                .push(if self.debug_info_copied.contains(&false) { "Copied!" } else { "for pasting into Discord" });
                         }
                     }
                     EverDriveState::Connected => col = col
@@ -1572,7 +1577,7 @@ impl State {
             col.spacing(8)
         } else {
             match self.server_connection {
-                SessionState::Error { auto_retry: false, ref e, maintenance: _ } => error_view("An error occurred during communication with the server:", e, self.debug_info_copied),
+                SessionState::Error { auto_retry: false, ref e, maintenance: _ } => error_view("An error occurred during communication with the server:", e, false, self.debug_info_copied.contains(&false)),
                 SessionState::Error { auto_retry: true, ref e, maintenance } => {
                     let mut col = Column::new();
                     if let Some((start, duration)) = maintenance {
@@ -1592,8 +1597,8 @@ impl State {
                         })) //TODO live countdown
                         .push("If this error persists, check your internet connection or contact @fenhl on Discord for support.")
                         .push(Row::new()
-                            .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
-                            .push(if self.debug_info_copied { "Copied!" } else { "for pasting into Discord" })
+                            .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo(false)))
+                            .push(if self.debug_info_copied.contains(&false) { "Copied!" } else { "for pasting into Discord" })
                             .spacing(8)
                         )
                         .spacing(8)
@@ -1643,8 +1648,8 @@ impl State {
                     .push(Button::new("Sign back in").on_press(Message::SetLobbyView(LobbyView::Login { provider, no_midos_house_account: false })))
                     .push("If this error persists, contact @fenhl on Discord for support.")
                     .push(Row::new()
-                        .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
-                        .push(if self.debug_info_copied { "Copied!" } else { "for pasting into Discord" })
+                        .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo(false)))
+                        .push(if self.debug_info_copied.contains(&false) { "Copied!" } else { "for pasting into Discord" })
                         .spacing(8)
                     )
                     .push(Space::with_width(Length::Fill))
@@ -1956,7 +1961,7 @@ impl State {
             UpdateState::Error { ref e, expanded } => {
                 let is_network_error = e.is_network_error();
                 if expanded {
-                    col = col.push(error_view(if is_network_error { "Network error while checking for updates" } else { "Error while checking for updates" }, e, self.debug_info_copied));
+                    col = col.push(error_view(if is_network_error { "Network error while checking for updates" } else { "Error while checking for updates" }, e, true, self.debug_info_copied.contains(&true)));
                 } else {
                     col = col.push(if is_network_error { "Network error while checking for updates" } else { "Error while checking for updates" });
                 }
@@ -2012,13 +2017,13 @@ impl State {
     }
 }
 
-fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, debug_info_copied: bool) -> Column<'a, Message> {
+fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, update: bool, debug_info_copied: bool) -> Column<'a, Message> {
     Column::new()
         .push(Text::new("Error").size(24))
         .push(Text::new(context.into()))
         .push(Text::new(e.to_string()))
         .push(Row::new()
-            .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo))
+            .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo(update)))
             .push(if debug_info_copied { "Copied!" } else { "for pasting into Discord" })
             .spacing(8)
         )
@@ -2026,7 +2031,7 @@ fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, debug_inf
         .push("This is a bug in Mido's House Multiworld. Please report it:")
         .push(Row::new()
             .push("• ")
-            .push(Button::new("Open a GitHub issue").on_press(Message::NewIssue))
+            .push(Button::new("Open a GitHub issue").on_press(Message::NewIssue(update)))
             .spacing(8)
         )
         .push("• Or post in #setup-support on the OoT Randomizer Discord. Please ping @fenhl in your message.")
