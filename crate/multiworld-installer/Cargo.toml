@@ -9,27 +9,17 @@ repository.workspace = true
 workspace = true
 
 [build-dependencies]
-thiserror = "1"
+thiserror = "2"
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["reqwest"] }
 winresource = "0.1"
 
-[build-dependencies.wheel]
-git = "https://github.com/fenhl/wheel"
-branch = "main"
-features = ["reqwest"]
-
-[target.'cfg(windows)'.build-dependencies.multiworld-bizhawk]
-path = "../multiworld-bizhawk"
+[target.'cfg(windows)'.build-dependencies]
+multiworld-bizhawk = { path = "../multiworld-bizhawk" }
 
 [target.'cfg(unix)'.build-dependencies]
 itertools = "0.13"
-
-[target.'cfg(unix)'.build-dependencies.multiworld]
-path = "../multiworld"
-
-[target.'cfg(unix)'.build-dependencies.reqwest]
-version = "0.12"
-default-features = false
-features = ["charset", "http2", "macos-system-configuration", "rustls-tls"]
+multiworld = { path = "../multiworld" }
+reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "macos-system-configuration", "rustls-tls"] }
 
 [dependencies]
 async_zip = { version = "0.0.17", features = ["full"] }
