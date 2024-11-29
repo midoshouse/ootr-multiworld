@@ -948,6 +948,7 @@ impl State {
                     .push(Row::new()
                         .push(Button::new(Text::new("Copy debug info")).on_press(Message::CopyDebugInfo))
                         .push(Text::new(if debug_info_copied { "Copied!" } else { "for pasting into Discord" }))
+                        .align_y(iced::Alignment::Center)
                         .spacing(8)
                     )
                     .push(Text::new("Support").size(24))
@@ -955,6 +956,7 @@ impl State {
                     .push(Row::new()
                         .push(Text::new("• "))
                         .push(Button::new(Text::new("Open a GitHub issue")).on_press(Message::NewIssue))
+                        .align_y(iced::Alignment::Center)
                         .spacing(8)
                     )
                     .push(Text::new("• Or post in #setup-support on the OoT Randomizer Discord. Please ping @fenhl in your message."))
@@ -992,7 +994,7 @@ impl State {
                         row = row.push(Image::new(image::Handle::from_bytes(include_bytes!("../../../assets/uac.png").to_vec())).height(Length::Fixed(20.0)));
                     }
                     row = row.push(Text::new("Continue"));
-                    (Into::<Element<'_, Message>>::into(row.spacing(8)), emulator.is_some())
+                    (Into::<Element<'_, Message>>::into(row.align_y(iced::Alignment::Center).spacing(8)), emulator.is_some())
                 })
             ),
             Page::EmulatorWarning { emulator, .. } => (
@@ -1032,6 +1034,7 @@ impl State {
                             }
                         }, emulator_path).on_input(Message::EmulatorPath).on_paste(Message::EmulatorPath).padding(5))
                         .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseEmulatorPath))
+                        .align_y(iced::Alignment::Center)
                         .spacing(8)
                     );
                     #[cfg(target_os = "windows")] if install_emulator && matches!(emulator, Emulator::Pj64V3 | Emulator::Pj64V4) {
@@ -1046,7 +1049,7 @@ impl State {
                         row = row.push(Image::new(image::Handle::from_bytes(include_bytes!("../../../assets/uac.png").to_vec())).height(Length::Fixed(20.0)));
                     }
                     row = row.push(if install_emulator { Text::new(format!("Install {emulator}")) } else { Text::new("Continue") });
-                    (Into::<Element<'_, Message>>::into(row.spacing(8)), !emulator_path.is_empty())
+                    (Into::<Element<'_, Message>>::into(row.align_y(iced::Alignment::Center).spacing(8)), !emulator_path.is_empty())
                 }),
             ),
             Page::AskBizHawkUpdate { .. } => (
@@ -1080,6 +1083,7 @@ impl State {
                     .push(Row::new()
                         .push(Button::new("the OoTMM multiworld guide").on_press(Message::OotmmMultiworldGuide))
                         .push(".")
+                        .align_y(iced::Alignment::Center)
                         .spacing(8)
                     )
                     .spacing(8)
@@ -1096,6 +1100,7 @@ impl State {
                         .push(Row::new()
                             .push(TextInput::new("Multiworld target folder", multiworld_path).on_input(Message::MultiworldPath).on_paste(Message::MultiworldPath).padding(5))
                             .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseMultiworldPath))
+                            .align_y(iced::Alignment::Center)
                             .spacing(8)
                         );
                     #[cfg(target_os = "windows")] {
@@ -1163,7 +1168,7 @@ impl State {
                     if enabled { next_btn = next_btn.on_press(Message::Continue) }
                     bottom_row = bottom_row.push(next_btn);
                 }
-                bottom_row.spacing(8)
+                bottom_row.align_y(iced::Alignment::Center).spacing(8)
             })
             .spacing(8)
             .padding(8)

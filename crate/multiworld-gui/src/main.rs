@@ -1533,8 +1533,12 @@ impl State {
                             col = col
                                 .push("Some USB devices were found but they all reported errors.")
                                 .push("Make sure your console is turned on and connected, and your USB cable supports data.")
-                                .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo(false)))
-                                .push(if self.debug_info_copied.contains(&false) { "Copied!" } else { "for pasting into Discord" });
+                                .push(Row::new()
+                                    .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo(false)))
+                                    .push(if self.debug_info_copied.contains(&false) { "Copied!" } else { "for pasting into Discord" })
+                                    .align_y(iced::Alignment::Center)
+                                    .spacing(8)
+                                );
                         }
                     }
                     EverDriveState::Connected => col = col
@@ -1599,6 +1603,7 @@ impl State {
                         .push(Row::new()
                             .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo(false)))
                             .push(if self.debug_info_copied.contains(&false) { "Copied!" } else { "for pasting into Discord" })
+                            .align_y(iced::Alignment::Center)
                             .spacing(8)
                         )
                         .spacing(8)
@@ -1650,6 +1655,7 @@ impl State {
                     .push(Row::new()
                         .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo(false)))
                         .push(if self.debug_info_copied.contains(&false) { "Copied!" } else { "for pasting into Discord" })
+                        .align_y(iced::Alignment::Center)
                         .spacing(8)
                     )
                     .push(Space::with_width(Length::Fill))
@@ -1664,6 +1670,7 @@ impl State {
                                 #[cfg(debug_assertions)] { " (debug)" }
                                 #[cfg(not(debug_assertions))] { "" }
                             })))
+                            .align_y(iced::Alignment::Center)
                         );
                     if login_state.is_some() {
                         col = col.push("You are signed in."); //TODO option to sign out
@@ -1680,12 +1687,14 @@ impl State {
                     .push(Row::new()
                         .push(Button::new("Create a Mido's House account").on_press(Message::CreateMidosHouseAccount(provider)))
                         .push(",")
+                        .align_y(iced::Alignment::Center)
                         .spacing(8)
                     )
                     .push(Row::new()
                         .push("then")
                         .push(Button::new("try again").on_press(Message::SetLobbyView(LobbyView::Login { provider, no_midos_house_account: false })))
                         .push(".")
+                        .align_y(iced::Alignment::Center)
                         .spacing(8)
                     )
                     .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
@@ -1817,6 +1826,7 @@ impl State {
                             .push(hash_icon(server3))
                             .push(hash_icon(server4))
                             .push(hash_icon(server5))
+                            .align_y(iced::Alignment::Center)
                             .spacing(8)
                         )
                         .push(Row::new()
@@ -1827,6 +1837,7 @@ impl State {
                             .push(hash_icon(client3))
                             .push(hash_icon(client4))
                             .push(hash_icon(client5))
+                            .align_y(iced::Alignment::Center)
                             .spacing(8)
                         )
                         .spacing(8)
@@ -1873,6 +1884,7 @@ impl State {
                                     }
                                     input
                                 })
+                                .align_y(iced::Alignment::Center)
                                 .spacing(8)
                             )
                             .push(Row::new()
@@ -1891,6 +1903,7 @@ impl State {
                                     }
                                     btn
                                 })
+                                .align_y(iced::Alignment::Center)
                                 .spacing(8)
                             );
                     }
@@ -1919,6 +1932,7 @@ impl State {
                             } else {
                                 Button::new("Kick").on_press(Message::Kick(player_id))
                             })
+                            .align_y(iced::Alignment::Center)
                             .into()
                         ).collect_vec()));
                     if !other.is_empty() {
@@ -2025,6 +2039,7 @@ fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, update: b
         .push(Row::new()
             .push(Button::new("Copy debug info").on_press(Message::CopyDebugInfo(update)))
             .push(if debug_info_copied { "Copied!" } else { "for pasting into Discord" })
+            .align_y(iced::Alignment::Center)
             .spacing(8)
         )
         .push(Text::new("Support").size(24))
@@ -2032,12 +2047,14 @@ fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, update: b
         .push(Row::new()
             .push("• ")
             .push(Button::new("Open a GitHub issue").on_press(Message::NewIssue(update)))
+            .align_y(iced::Alignment::Center)
             .spacing(8)
         )
         .push("• Or post in #setup-support on the OoT Randomizer Discord. Please ping @fenhl in your message.")
         .push(Row::new()
             .push(Button::new("invite link").on_press(Message::DiscordInvite))
             .push(Button::new("direct channel link").on_press(Message::DiscordChannel))
+            .align_y(iced::Alignment::Center)
             .spacing(8)
         )
         .push("• Or post in #general on the OoTR MW Tournament Discord.")
