@@ -5313,6 +5313,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "multiworld-post-release-macos"
+version = "16.3.2"
+dependencies = [
+ "clap",
+ "futures",
+ "itertools 0.13.0",
+ "lazy-regex",
+ "semver",
+ "sha2",
+ "tokio",
+ "tokio-util",
+ "wheel",
+]
+
+[[package]]
 name = "multiworld-release"
 version = "16.3.2"
 dependencies = [

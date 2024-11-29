@@ -1315,7 +1315,9 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
             let line = cli.new_line("publishing release").await?;
             repo.publish_release(&client, release).await?;
             line.replace("release published").await?;
-            //TODO update version and sha256 at https://github.com/midoshouse/homebrew-tap/blob/main/Casks/mhmw.rb
+            let line = cli.new_line("updating Homebrew tap").await?;
+            Command::new("ssh").arg(MACOS_ADDR).arg("/opt/git/github.com/midoshouse/ootr-multiworld/main/target/release/multiworld-post-release-macos").arg(version::version().await.to_string()).check("multiworld-post-release-macos").await?;
+            line.replace("Homebrew tap updated").await?;
             let line = cli.new_line("relabelling issues").await?;
             let mut token = github_app_auth::InstallationAccessToken::new(github_app_auth::GithubAuthParams {
                 user_agent: concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")).to_owned(),
