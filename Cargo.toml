@@ -20,5 +20,6 @@ unused_qualifications = "deny"
 warnings = "deny"
 
 [profile.release]
+codegen-units = 1
 lto = true
 strip = true
