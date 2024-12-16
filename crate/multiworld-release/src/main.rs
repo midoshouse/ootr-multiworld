@@ -79,7 +79,7 @@ use {
 mod cli;
 mod version;
 
-const MACOS_ADDR: &str = "192.168.178.51";
+const MACOS_ADDR: &str = "192.168.178.115";
 
 #[derive(Clone)] struct WindowsUpdaterNotification;
 #[derive(Clone)] struct LinuxGuiNotification;
