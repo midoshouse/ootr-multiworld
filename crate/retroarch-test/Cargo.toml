@@ -1,0 +1,12 @@
+[package]
+name = "retroarch-test"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+itermore = { version = "0.7.1", features = ["array_chunks"] }
+thiserror = "2.0.3"
+tokio = { version = "1.41.1", features = ["net"] }
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }

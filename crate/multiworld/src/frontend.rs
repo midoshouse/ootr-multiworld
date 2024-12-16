@@ -30,6 +30,7 @@ pub enum Kind {
     BizHawk,
     Pj64V3,
     Pj64V4,
+    RetroArch,
 }
 
 impl Kind {
@@ -40,6 +41,7 @@ impl Kind {
             Self::BizHawk => cfg!(any(target_os = "linux", target_os = "windows")),
             Self::Pj64V3 => cfg!(target_os = "windows"),
             Self::Pj64V4 => false, // hide until Project64 version 4 is released
+            Self::RetroArch => true,
         }
     }
 }
@@ -51,6 +53,7 @@ impl fmt::Display for Kind {
             Self::EverDrive => write!(f, "EverDrive"),
             Self::BizHawk => write!(f, "BizHawk"),
             Self::Pj64V3 | Self::Pj64V4 => write!(f, "Project64"),
+            Self::RetroArch => write!(f, "RetroArch"),
         }
     }
 }
