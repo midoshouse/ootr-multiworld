@@ -359,16 +359,16 @@ impl State {
                 Page::InstallEmulator { .. } => unreachable!(),
                 Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => match emulator {
                     Emulator::Dummy => unreachable!(),
-                    Emulator::EverDrive => Page::EmulatorWarning { emulator, install_emulator: Some(false), emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
+                    Emulator::EverDrive | Emulator::RetroArch => Page::EmulatorWarning { emulator, install_emulator: Some(false), emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
                     Emulator::BizHawk | Emulator::Pj64V3 | Emulator::Pj64V4 => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone().expect("emulator path must be set for this emulator"), multiworld_path: Some(multiworld_path.clone()) },
                 },
                 Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path, .. } | Page::AskLaunch { emulator, ref emulator_path, ref multiworld_path } => match emulator {
                     Emulator::Dummy | Emulator::EverDrive => unreachable!(),
                     Emulator::BizHawk | Emulator::Pj64V4 => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone().expect("emulator path must be set for BizHawk"), multiworld_path: multiworld_path.clone() },
-                    Emulator::Pj64V3 => if let Some(multiworld_path) = multiworld_path.clone() {
+                    Emulator::Pj64V3 | Emulator::RetroArch => if let Some(multiworld_path) = multiworld_path.clone() {
                         Page::LocateMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path }
                     } else {
-                        Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone().expect("emulator path must be set for Project64"), multiworld_path: None }
+                        Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone().expect("emulator path must be set for Project64/RetroArch"), multiworld_path: None }
                     },
                 },
             },
@@ -381,6 +381,8 @@ impl State {
                         (Emulator::BizHawk, true) => "Choose Location for BizHawk Installation",
                         (Emulator::Pj64V3 | Emulator::Pj64V4, false) => "Select Project64 Folder",
                         (Emulator::Pj64V3 | Emulator::Pj64V4, true) => "Choose Location for Project64 Installation",
+                        (Emulator::RetroArch, false) => "Select RetroArch Folder",
+                        (Emulator::RetroArch, true) => "Choose Location for RetroArch Installation",
                     }).set_directory(Path::new(&current_path)).pick_folder().await {
                         Message::EmulatorPath(emulator_dir.path().to_str().ok_or(Error::NonUtf8Path)?.to_owned())
                     } else {
@@ -411,7 +413,7 @@ impl State {
                 Page::SelectEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => {
                     let emulator = emulator.expect("emulator must be selected to continue here");
                     match emulator {
-                        Emulator::EverDrive => {
+                        Emulator::EverDrive | Emulator::RetroArch => {
                             self.page = Page::EmulatorWarning { emulator, install_emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
                             return Task::none()
                         }
@@ -442,8 +444,8 @@ impl State {
                                 if bizhawk_install_path.exists() {
                                     let Ok(bizhawk_install_path) = bizhawk_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
                                     (false, bizhawk_install_path)
-                                } else if let Some(default_bizhawk_dir) = UserDirs::new()
-                                    .and_then(|dirs| dirs.download_dir().map(|downloads| downloads.to_owned()))
+                                } else if let Some(default_bizhawk_dir) = user_dirs.download_dir()
+                                    .map(|downloads| downloads.to_owned())
                                     .and_then(|downloads| downloads.read_dir().ok())
                                     .into_iter()
                                     .flatten()
@@ -468,6 +470,24 @@ impl State {
                             } else {
                                 (true, String::default())
                             },
+                            Emulator::RetroArch => {
+                                #[cfg(target_os = "windows")] {
+                                    if let Some(user_dirs) = UserDirs::new() {
+                                        let retroarch_install_path = user_dirs.home_dir().join("scoop").join("shims");
+                                        if retroarch_install_path.join("retroarch.exe").exists() {
+                                            let Ok(retroarch_install_path) = retroarch_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
+                                            (false, retroarch_install_path)
+                                        } else {
+                                            //TODO check RetroArch installed via Steam or official installer
+                                            (true, String::default())
+                                        }
+                                    } else {
+                                        (true, String::default())
+                                    }
+                                }
+                                #[cfg(target_os = "linux")] { unimplemented!() } //TODO
+                                #[cfg(target_os = "macos")] { unimplemented!() } //TODO
+                            }
                         },
                     };
                     self.page = Page::LocateEmulator { emulator, install_emulator, emulator_path, multiworld_path: multiworld_path.clone() };
@@ -605,6 +625,7 @@ impl State {
                             })
                         }
                         Emulator::Pj64V4 => unimplemented!(), //TODO
+                        Emulator::RetroArch => unimplemented!(), //TODO
                     }
                 } else {
                     let new_emulator = match emulator {
@@ -657,6 +678,7 @@ impl State {
                                 (5.., _) => return cmd(future::err(Error::Project64TooNew)),
                             })
                         }
+                        Emulator::RetroArch => None,
                     };
                     return cmd(future::ok(Message::LocateMultiworld(new_emulator)))
                 },
@@ -736,6 +758,7 @@ impl State {
                                     return cmd(future::ready(Err(e).at(pj64_path).map_err(Error::from)))
                                 }
                             }
+                            Emulator::RetroArch => unimplemented!(), //TODO
                         }
                     }
                     return iced::exit()
@@ -874,6 +897,11 @@ impl State {
                             }
                         })
                     }
+                    Emulator::RetroArch => {
+                        //TODO locate RetroArch config
+                        //TODO adjust RetroArch config
+                        unimplemented!()
+                    }
                 }
             }
             Message::LocateMultiworld(new_emulator) => {
@@ -885,7 +913,7 @@ impl State {
                 };
                 if let Some(new_emulator) = new_emulator {
                     // To keep the UI simple, we only show one “Project64” option.
-                    // If we're asked to install Project64, we'll install the latest release (currently hardcoded to v3, will be adjusted once v4 releases)
+                    // If we're asked to install Project64, we'll install the latest release (currently hardcoded to v3, will be adjusted once v4 releases).
                     // If multiworld is installed for an existing copy of Project64, we check its metadata for the major version number, then adjust the choice here.
                     *emulator = new_emulator;
                 }
@@ -893,7 +921,7 @@ impl State {
                 match emulator {
                     Emulator::Dummy => unreachable!(),
                     Emulator::BizHawk | Emulator::Pj64V4 => return cmd(future::ok(Message::InstallMultiworld)),
-                    Emulator::EverDrive | Emulator::Pj64V3 => {
+                    Emulator::EverDrive | Emulator::Pj64V3 | Emulator::RetroArch => {
                         let multiworld_path = if let Some(multiworld_path) = multiworld_path {
                             multiworld_path
                         } else {
@@ -1029,6 +1057,7 @@ impl State {
                 Some((Text::new("Understood").into(), true))
             ),
             Page::LocateEmulator { emulator, install_emulator, ref emulator_path, .. } => (
+                //TODO for RetroArch, check expected install/config locations for known ways to install RA, offer to install if none found (no path selection, button to recheck in case the user wants to install manually)
                 {
                     let mut col = Column::new();
                     col = col.push(Radio::new(format!("Install {emulator} to:"), true, Some(install_emulator), Message::SetInstallEmulator));
@@ -1044,6 +1073,7 @@ impl State {
                                     #[cfg(target_os = "windows")] { Cow::Borrowed("The folder with EmuHawk.exe in it") }
                                 }
                                 Emulator::Pj64V3 | Emulator::Pj64V4 => Cow::Borrowed("The folder with Project64.exe in it"),
+                                Emulator::RetroArch => unimplemented!(), //TODO
                             }
                         }, emulator_path).on_input(Message::EmulatorPath).on_paste(Message::EmulatorPath).padding(5))
                         .push(Button::new(Text::new("Browse…")).on_press(Message::BrowseEmulatorPath))
@@ -1150,6 +1180,10 @@ impl State {
                         Emulator::Pj64V4 => {
                             col = col.push(Text::new("To play multiworld, in Project64, select Debugger → Scripts → ootrmw.js and click Run."));
                             col = col.push(Checkbox::new("Open Project64 now", self.open_emulator).on_toggle(Message::SetOpenEmulator));
+                        }
+                        Emulator::RetroArch => {
+                            col = col.push(Text::new("To play multiworld, open the “Mido's House Multiworld” app and follow its instructions."));
+                            col = col.push(Checkbox::new("Open Multiworld and RetroArch now", self.open_emulator).on_toggle(Message::SetOpenEmulator));
                         }
                     }
                     col.spacing(8).into()

@@ -524,7 +524,7 @@ impl State {
                     .push_line_safe(e.to_string())
                     .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                     .build()
-            } else if self.frontend_writer.is_none() && self.frontend.kind != Frontend::Dummy && matches!(self.frontend.kind, Frontend::EverDrive) && matches!(self.frontend.everdrive, EverDriveState::Searching(_)) {
+            } else if self.frontend_writer.is_none() && self.frontend.kind == Frontend::EverDrive && matches!(self.frontend.everdrive, EverDriveState::Searching(_)) {
                 let EverDriveState::Searching(ref errors) = self.frontend.everdrive else { unreachable!() };
                 if errors.is_empty() {
                     MessageBuilder::default()
@@ -622,12 +622,13 @@ impl FrontendState {
             #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
             Frontend::Pj64V3 => "Project64 3.x".into(),
             Frontend::Pj64V4 => "Project64 4.x".into(),
+            Frontend::RetroArch => "RetroArch".into(),
         }
     }
 
     fn is_locked(&self) -> bool {
         match self.kind {
-            Frontend::Dummy | Frontend::EverDrive | Frontend::Pj64V3 => false,
+            Frontend::Dummy | Frontend::EverDrive | Frontend::Pj64V3 | Frontend::RetroArch => false,
             Frontend::Pj64V4 => false, //TODO pass port from PJ64, consider locked if present
             #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => self.bizhawk.is_some(),
             #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
@@ -656,6 +657,7 @@ impl State {
                 Some(FrontendArgs::BizHawk { .. }) => Frontend::BizHawk,
                 Some(FrontendArgs::Pj64V3) => Frontend::Pj64V3,
                 Some(FrontendArgs::Pj64V4) => Frontend::Pj64V4,
+                Some(FrontendArgs::RetroArch) => Frontend::RetroArch,
             },
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             bizhawk: if let Some(FrontendArgs::BizHawk { path, pid, version, port }) = frontend {
@@ -790,6 +792,11 @@ impl State {
                                     },
                                     Frontend::Pj64V3 | Frontend::Pj64V4 => {
                                         cmd.arg("pj64");
+                                        cmd.arg(env::current_exe()?);
+                                        cmd.arg(process::id().to_string());
+                                    }
+                                    Frontend::RetroArch => {
+                                        cmd.arg("retroarch");
                                         cmd.arg(env::current_exe()?);
                                         cmd.arg(process::id().to_string());
                                     }
@@ -1584,6 +1591,10 @@ impl State {
                         .push("Waiting for Project64…")
                         .push("This should take less than 5 seconds.");
                 }
+                Frontend::RetroArch => {
+                    col = col.push("Waiting for RetroArch…");
+                    //TODO button to launch RetroArch? (need installer to save path)
+                }
             }
             col.spacing(8)
         } else {
@@ -2027,6 +2038,7 @@ impl State {
                 #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
                 Frontend::Pj64V3 => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Listener { frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })),
                 Frontend::Pj64V4 => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })), //TODO allow Project64 to specify port via command-line arg
+                Frontend::RetroArch => unimplemented!(), //TODO
             }
             if !matches!(self.server_connection, SessionState::Error { .. } | SessionState::Closed { .. }) {
                 subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from server", inner: subscriptions::Client { log: self.log, websocket_url: self.websocket_url.clone() } }));
@@ -2083,6 +2095,7 @@ enum FrontendArgs {
     },
     Pj64V3,
     Pj64V4,
+    RetroArch,
 }
 
 #[derive(clap::Parser)]

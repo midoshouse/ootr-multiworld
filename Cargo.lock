@@ -7220,6 +7220,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "retroarch-test"
+version = "16.3.2"
+dependencies = [
+ "itermore",
+ "thiserror 2.0.3",
+ "tokio",
+ "wheel",
+]
+
+[[package]]
 name = "rfd"
 version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
