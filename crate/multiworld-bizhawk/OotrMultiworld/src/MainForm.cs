@@ -685,7 +685,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
         var trackerCtxVersion = APIs.Memory.ReadU32(trackerCtxAddr, "System Bus");
         if (trackerCtxVersion < 4) { return; } // partial functionality is available in older rando versions, but supporting those is not worth the effort of checking rando version to disambiguate tracker context v3
         // CAN_DRAW_DUNGEON_INFO
-        var cfg_dungeon_info_enable = APIs.Memory.ReadU32(trackerCtxAddr + 0x04, "System Bus");
+        var cfg_dungeon_info_enable = APIs.Memory.ReadU32(trackerCtxAddr + 0x0004, "System Bus");
         if (cfg_dungeon_info_enable == 0) { return; }
         var pause_state = APIs.Memory.ReadU16(0x1d8c00 + 0x01d4, "RDRAM");
         if (pause_state != 6) { return; }
@@ -697,14 +697,16 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
         var pause_item_cursor = APIs.Memory.ReadS16(0x1d8c00 + 0x0218, "RDRAM");
         if (pause_item_cursor == 0x16) {
             // Z64_SLOT_ADULT_TRADE
-            // assume CFG_ADULT_TRADE_SHUFFLE
-            //TODO check via https://github.com/OoTRandomizer/OoT-Randomizer/pull/2156
-            return;
+            if (trackerCtxVersion < 5 || APIs.Memory.ReadU8(trackerCtxAddr + 0x0123, "System Bus") != 0) {
+                // CFG_ADULT_TRADE_SHUFFLE
+                return;
+            }
         } else if (pause_item_cursor == 0x17) {
             // Z64_SLOT_CHILD_TRADE
-            // assume CFG_CHILD_TRADE_SHUFFLE
-            //TODO check via https://github.com/OoTRandomizer/OoT-Randomizer/pull/2156
-            return;
+            if (trackerCtxVersion < 5 || APIs.Memory.ReadU8(trackerCtxAddr + 0x0124, "System Bus") != 0) {
+                // CFG_CHILD_TRADE_SHUFFLE
+                return;
+            }
         }
         // draw
         uint cosmeticsCtxVersion = 0;
