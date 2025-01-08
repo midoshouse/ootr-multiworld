@@ -17,7 +17,7 @@ winresource = "0.1"
 multiworld-bizhawk = { path = "../multiworld-bizhawk" }
 
 [target.'cfg(unix)'.build-dependencies]
-itertools = "0.13"
+itertools = "0.14"
 multiworld = { path = "../multiworld" }
 reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "macos-system-configuration", "rustls-tls"] }
 
@@ -30,7 +30,7 @@ enum-iterator = "2"
 futures = "0.3"
 iced = { version = "0.13", default-features = false, features = ["image", "tiny-skia", "tokio"] }
 image = { version = "0.24", default-features = false, features = ["ico"] } # transitive dependency of iced
-itertools = "0.13"
+itertools = "0.14"
 lazy-regex = "3"
 multiworld = { path = "../multiworld" }
 open = "5"

@@ -21,7 +21,7 @@ warnings = "deny"
 [dependencies]
 async-proto = "0.24"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-itertools = "0.13"
+itertools = "0.14"
 libc = "0.2"
 multiworld = { path = "../multiworld" }
 multiworld-derive = { path = "../multiworld-derive" }
@@ -37,5 +37,5 @@ xdg = "2"
 [target.'cfg(windows)'.dependencies]
 directories = "5"
 semver = "1"
-windows = { version = "0.58", features = ["Win32_Storage_FileSystem"] }
+windows = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
 winver = { git = "https://github.com/fenhl/winver", branch = "main" }

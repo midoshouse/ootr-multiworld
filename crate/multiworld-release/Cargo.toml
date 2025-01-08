@@ -20,7 +20,7 @@ futures = "0.3"
 github-app-auth = { git = "https://github.com/fenhl/github-app-auth", branch = "deps" }
 graphql_client = "0.14"
 gres = { git = "https://github.com/fenhl/gres", branch = "main" }
-itertools = "0.13"
+itertools = "0.14"
 lazy-regex = "3"
 log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
 multiworld = { path = "../multiworld", features = ["github-app-auth"] }

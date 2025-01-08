@@ -12,7 +12,7 @@ workspace = true
 proc-macro = true
 
 [dependencies]
-itertools = "0.13"
+itertools = "0.14"
 lazy-regex = "3"
 proc-macro2 = "1"
 quote = "1"

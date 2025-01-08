@@ -14,7 +14,7 @@ chrono = { version = "0.4", default-features = false, features = ["alloc", "cloc
 clap = { version = "4", features = ["derive"] }
 crossterm = { version = "0.28", features = ["event-stream"] }
 futures = "0.3"
-itertools = "0.13"
+itertools = "0.14"
 multiworld = { path = "../multiworld" }
 ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils", branch = "main" }
 serde_json = { package = "serde_json_path_to_error", version = "0.1" }

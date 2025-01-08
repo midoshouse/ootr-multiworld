@@ -26,14 +26,14 @@ dark-light = "1"
 futures = "0.3"
 iced = { version = "0.13", default-features = false, features = ["image", "tiny-skia", "tokio"] }
 image = { version = "0.24", default-features = false, features = ["ico"] } # recursive dependency of iced
-itertools = "0.13"
+itertools = "0.14"
 multiworld = { path = "../multiworld" }
 open = "5"
 reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "macos-system-configuration", "rustls-tls", "stream"] }
 runas = "1.2"
 semver = "1"
 serenity = { version = "0.12", default-features = false, features = ["utils"] }
-sysinfo = { version = "0.32", default-features = false, features = ["system"] }
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "parking_lot", "time"] }
@@ -46,7 +46,7 @@ xdg = "2"
 
 [target.'cfg(windows)'.dependencies]
 directories = "5"
-windows = { version = "0.58", features = ["Win32_Storage_FileSystem"] }
+windows = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }

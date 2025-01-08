@@ -28,7 +28,7 @@ futures = "0.3"
 iced = { version = "0.13", default-features = false, features = ["advanced", "image", "svg", "tiny-skia", "tokio"] }
 if_chain = "1"
 image = { version = "0.24", default-features = false, features = ["ico"] } # transitive dependency of iced
-itertools = "0.13"
+itertools = "0.14"
 log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
 multiworld = { path = "../multiworld" }
 oauth2 = "4"
@@ -45,7 +45,7 @@ rocket-util = { git = "https://github.com/fenhl/rocket-util", branch = "main" }
 semver = "1"
 serde_json = { package = "serde_json_path_to_error", version = "0.1" }
 serenity = { version = "0.12", default-features = false, features = ["utils"] }
-sysinfo = { version = "0.32", default-features = false, features = ["system"] }
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "net", "parking_lot", "sync", "time"] }
 tokio-io-timeout = "1.2.0"
