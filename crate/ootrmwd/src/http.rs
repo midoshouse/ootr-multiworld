@@ -12,6 +12,7 @@ use {
     },
     chrono::prelude::*,
     futures::stream::StreamExt as _,
+    lazy_regex::regex_captures,
     log_lock::*,
     ring::rand::SystemRandom,
     rocket::{
@@ -40,6 +41,7 @@ use {
     wheel::traits::IsNetworkError as _,
     multiworld::{
         ClientWriter as _,
+        user_agent_hash,
         ws::{
             Version,
             VersionedReader,
@@ -95,10 +97,16 @@ macro_rules! supported_version {
                         eprintln!("server error in WebSocket handler ({}): {msg}", stringify!($version));
                         if let UserAgent(Some(ref user_agent)) = user_agent {
                             eprintln!("user agent: {user_agent:?}");
+                            if let Some((_, version, found_hash)) = regex_captures!(r"^[0-9A-Za-z_]+/([0-9.]+) \(.+, ([0-9a-f]+)\)$", user_agent) {
+                                if let Some(expected_hash) = user_agent_hash(version) {
+                                    if expected_hash.into_iter().map(|byte| format!("{byte:02x}")).collect::<String>() == found_hash {
+                                        let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("server error in WebSocket handler (client version {version}): {msg}"))).await;
+                                    }
+                                }
+                            }
                         } else {
                             eprintln!("no user agent");
                         }
-                        let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("server error in WebSocket handler ({}): {msg}\nuser agent: {:?}", stringify!($version), user_agent.0))).await;
                         let _ = lock!(writer = writer; writer.write(ServerMessage::OtherError(msg)).await);
                     }
                     Err(e) if e.is_network_error() => {
@@ -110,11 +118,17 @@ macro_rules! supported_version {
                         eprintln!("error in WebSocket handler ({}): {e}", stringify!($version));
                         if let UserAgent(Some(ref user_agent)) = user_agent {
                             eprintln!("user agent: {user_agent:?}");
+                            if let Some((_, version, found_hash)) = regex_captures!(r"^[0-9A-Za-z_]+/([0-9.]+) \(.+, ([0-9a-f]+)\)$", user_agent) {
+                                if let Some(expected_hash) = user_agent_hash(version) {
+                                    if expected_hash.into_iter().map(|byte| format!("{byte:02x}")).collect::<String>() == found_hash {
+                                        let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("error in WebSocket handler (client version {version}): {e}\ndebug info: {e:?}"))).await;
+                                    }
+                                }
+                            }
                         } else {
                             eprintln!("no user agent");
                         }
                         eprintln!("debug info: {e:?}");
-                        let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("error in WebSocket handler ({}): {e}\nuser agent: {:?}\ndebug info: {e:?}", stringify!($version), user_agent.0))).await;
                         let _ = lock!(writer = writer; writer.write(ServerMessage::OtherError(e.to_string())).await);
                     }
                 }

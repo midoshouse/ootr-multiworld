@@ -92,19 +92,24 @@ pub const CREDENTIAL_LEN: usize = ring::digest::SHA512_OUTPUT_LEN;
 pub fn version() -> Version { Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version") }
 pub fn proto_version() -> u8 { version().major.try_into().expect("version number does not fit into u8") }
 
+pub fn user_agent_hash(version: &str) -> Option<[u8; CREDENTIAL_LEN]> {
+    let salt = option_env!("MHMW_USER_AGENT_SALT")?;
+    let mut rng = Xoshiro256StarStar::seed_from_u64(salt.parse().expect("MHMW_USER_AGENT_SALT environment variable must be a valid u64"));
+    let mut user_agent_salt = [0; CREDENTIAL_LEN];
+    rng.fill(&mut user_agent_salt);
+    let mut user_agent_hash = [0; CREDENTIAL_LEN];
+    pbkdf2::derive(
+        pbkdf2::PBKDF2_HMAC_SHA512,
+        NonZero::new(100_000).expect("no hashing iterations specified"),
+        &user_agent_salt,
+        version.as_bytes(),
+        &mut user_agent_hash,
+    );
+    Some(user_agent_hash)
+}
+
 pub fn user_agent() -> String {
-    if let Some(salt) = option_env!("MHMW_USER_AGENT_SALT") {
-        let mut rng = Xoshiro256StarStar::seed_from_u64(salt.parse().expect("MHMW_USER_AGENT_SALT environment variable must be a valid u64"));
-        let mut user_agent_salt = [0; CREDENTIAL_LEN];
-        rng.fill(&mut user_agent_salt);
-        let mut user_agent_hash = [0; CREDENTIAL_LEN];
-        pbkdf2::derive(
-            pbkdf2::PBKDF2_HMAC_SHA512,
-            NonZero::new(100_000).expect("no hashing iterations specified"),
-            &user_agent_salt,
-            env!("CARGO_PKG_VERSION").as_bytes(),
-            &mut user_agent_hash,
-        );
+    if let Some(user_agent_hash) = user_agent_hash(env!("CARGO_PKG_VERSION")) {
         format!("{}/{} ({}, {})", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_REPOSITORY"), user_agent_hash.into_iter().map(|byte| format!("{byte:02x}")).format(""))
     } else {
         format!("{}/{} ({})", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_REPOSITORY"))

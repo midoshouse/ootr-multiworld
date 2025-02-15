@@ -106,7 +106,7 @@ enum Error {
     #[error("The update requires an older version of BizHawk. Update manually at your own risk, or ask Fenhl to release a new version.")]
     BizHawkVersionRegression,
     #[error("clone of unexpected message kind")]
-    Cloned,
+    Cloned(String),
     #[error("tried to copy debug info or open a GitHub issue with no active error")]
     CopyDebugInfo,
     #[error("latest release does not have a download for this platform")]
@@ -160,7 +160,7 @@ enum Message {
     DiscordInvite,
     DiscordChannel,
     NewIssue,
-    Cloned,
+    Cloned(String),
 }
 
 impl Clone for Message {
@@ -171,7 +171,7 @@ impl Clone for Message {
             Self::DiscordInvite => Self::DiscordInvite,
             Self::DiscordChannel => Self::DiscordChannel,
             Self::NewIssue => Self::NewIssue,
-            _ => Self::Cloned,
+            _ => Self::Cloned(format!("{self:?}")),
         }
     }
 }
@@ -480,7 +480,7 @@ impl App {
             } else {
                 self.state = State::Error(Arc::new(Error::CopyDebugInfo), false);
             },
-            Message::Cloned => self.state = State::Error(Arc::new(Error::Cloned), false),
+            Message::Cloned(debug) => self.state = State::Error(Arc::new(Error::Cloned(debug)), false),
         }
         Task::none()
     }
