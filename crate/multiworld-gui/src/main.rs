@@ -300,8 +300,6 @@ enum Error {
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[cfg(unix)] #[error(transparent)] Xdg(#[from] xdg::BaseDirectoriesError),
-    #[error("tried to copy debug info with no active error")]
-    CopyDebugInfo,
     #[cfg(windows)]
     #[error("user folder not found")]
     MissingHomeDir,
@@ -320,7 +318,7 @@ impl IsNetworkError for Error {
     fn is_network_error(&self) -> bool {
         match self {
             Self::Elapsed(_) => true,
-            Self::Config(_) | Self::EverDrive(_) | Self::Http(_) | Self::InvalidUri(_) | Self::Json(_) | Self::MpscFrontendSend(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::CopyDebugInfo | Self::InvalidPj64ScriptPath | Self::VersionMismatch { .. } => false,
+            Self::Config(_) | Self::EverDrive(_) | Self::Http(_) | Self::InvalidUri(_) | Self::Json(_) | Self::MpscFrontendSend(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::InvalidPj64ScriptPath | Self::VersionMismatch { .. } => false,
             Self::Client(e) => e.is_network_error(),
             Self::Io(e) | Self::Pj64LaunchFailed(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),
@@ -388,6 +386,7 @@ enum Message {
     SetRoomView(RoomView),
     SetSendAllPath(String),
     SetSendAllWorld(String),
+    ShowConflictingItemKindsIssue,
     ShowLoggingInstructions,
     ToggleRoomFilter,
     ToggleUpdateErrorDetails,
@@ -447,8 +446,8 @@ struct State {
 }
 
 impl State {
-    fn error_to_markdown(&self, update: bool) -> Option<String> {
-        Some(if update {
+    fn error_to_markdown(&self, update: bool) -> String {
+        if update {
             if let UpdateState::Error { ref e, .. } = self.update_state {
                 MessageBuilder::default()
                     .push_line(format!("{}error while attempting to update Mido's House Multiworld from version {}{}:",
@@ -463,7 +462,7 @@ impl State {
                     .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                     .build()
             } else {
-                return None
+                format!("tried to copy debug info with no active error")
             }
         } else {
             if let Some(ref e) = self.icon_error {
@@ -577,10 +576,10 @@ impl State {
                         .push_line_safe(e.to_string())
                         .push_codeblock_safe(format!("{e:?}"), Some("rust"))
                         .build(),
-                    _ => return None,
+                    _ => format!("tried to copy debug info with no active error"),
                 }
             }
-        })
+        }
     }
 }
 
@@ -828,12 +827,11 @@ impl State {
                     Ok(Message::Nop)
                 })
             },
-            Message::CopyDebugInfo(update) => if let Some(error_md) = self.error_to_markdown(update) {
+            Message::CopyDebugInfo(update) => {
+                let error_md = self.error_to_markdown(update);
                 self.debug_info_copied.insert(update);
                 return clipboard::write(error_md)
-            } else {
-                return cmd(future::err(Error::CopyDebugInfo))
-            },
+            }
             Message::CreateMidosHouseAccount(provider) => if let Err(e) = open(match provider {
                 login::Provider::Discord => "https://midos.house/login/discord",
                 login::Provider::RaceTime => "https://midos.house/login/racetime",
@@ -972,9 +970,7 @@ impl State {
                     Ok(issue_url) => issue_url,
                     Err(e) => return cmd(future::err(e.into())),
                 };
-                if let Some(error_md) = self.error_to_markdown(update) {
-                    issue_url.query_pairs_mut().append_pair("body", &error_md);
-                }
+                issue_url.query_pairs_mut().append_pair("body", &self.error_to_markdown(update));
                 if let Err(e) = open(issue_url.to_string()) {
                     return cmd(future::err(e.into()))
                 }
@@ -1443,6 +1439,9 @@ impl State {
             Message::SetRoomFilter(new_room_filter) => self.room_filter = new_room_filter,
             Message::SetSendAllPath(new_path) => self.send_all_path = new_path,
             Message::SetSendAllWorld(new_world) => self.send_all_world = new_world,
+            Message::ShowConflictingItemKindsIssue => if let Err(e) = open("https://github.com/midoshouse/ootr-multiworld/issues/43") {
+                return cmd(future::err(e.into()))
+            },
             Message::ShowLoggingInstructions => if let Err(e) = open({
                 #[cfg(target_os = "windows")] { "https://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/logging-windows.md" }
                 #[cfg(target_os = "linux")] { "https://github.com/midoshouse/ootr-multiworld/blob/main/assets/doc/logging-linux.md" }
@@ -1811,7 +1810,8 @@ impl State {
                             .push(Button::new("How to enable logging").on_press(Message::ShowLoggingInstructions));
                     }
                     col
-                        .push(Space::with_width(Length::Fill))
+                        .push(Button::new("More info").on_press(Message::ShowConflictingItemKindsIssue))
+                        .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
                         .push(Button::new("Dismiss").on_press(Message::DismissConflictingItemKinds))
                         .spacing(8)
                 }

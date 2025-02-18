@@ -111,7 +111,7 @@ impl Recipe for Connection {
     fn stream(self: Box<Self>, _: EventStream) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
         let frontend = self.frontend;
         let log = self.log;
-        stream::once(TcpStream::connect((Ipv4Addr::LOCALHOST, self.port)).map_err(Error::from))
+        stream::once(TcpStream::connect((Ipv4Addr::LOCALHOST, self.port)).err_into())
             .and_then(move |mut tcp_stream| async move {
                 frontend::PROTOCOL_VERSION.write(&mut tcp_stream).await?;
                 let client_version = u8::read(&mut tcp_stream).await?;
