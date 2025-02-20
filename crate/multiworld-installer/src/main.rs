@@ -94,6 +94,7 @@ use {
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error(transparent)] Config(#[from] multiworld::config::Error),
+    #[error(transparent)] Icon(#[from] icon::Error),
     #[error(transparent)] IniDe(#[from] serde_ini::de::Error),
     #[error(transparent)] IniSer(#[from] serde_ini::ser::Error),
     #[error(transparent)] Io(#[from] io::Error),
@@ -296,18 +297,22 @@ struct State {
 }
 
 impl State {
-    fn new(emulator: Option<Emulator>) -> Self {
+    fn new(icon_error: Option<icon::Error>, emulator: Option<Emulator>) -> Self {
         Self {
             http_client: reqwest::Client::builder()
                 .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
                 .use_rustls_tls()
                 .https_only(true)
                 .build().expect("failed to build HTTP client"),
-            page: Page::SelectEmulator {
-                install_emulator: None,
-                emulator_path: None,
-                multiworld_path: None,
-                emulator,
+            page: if let Some(e) = icon_error {
+                Page::Error(Arc::new(e.into()), false)
+            } else {
+                Page::SelectEmulator {
+                    install_emulator: None,
+                    emulator_path: None,
+                    multiworld_path: None,
+                    emulator,
+                }
             },
             create_multiworld_desktop_shortcut: true,
             create_emulator_desktop_shortcut: true,
@@ -1183,27 +1188,22 @@ struct Args {
     emulator: Option<Emulator>,
 }
 
-#[derive(Debug, thiserror::Error)]
-enum MainError {
-    #[error(transparent)] Iced(#[from] iced::Error),
-    #[error(transparent)] Icon(#[from] icon::Error),
-    #[error(transparent)] Io(#[from] io::Error),
-    #[error(transparent)] Wheel(#[from] wheel::Error),
-}
-
 #[wheel::main]
-fn main(Args { mut emulator }: Args) -> Result<(), MainError> {
+fn main(Args { mut emulator }: Args) -> iced::Result {
+    let (icon, icon_error) = match icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico)) {
+        Ok(icon) => (Some(icon), None),
+        Err(e) => (None, Some(e)),
+    };
     if let Ok(only_emulator) = all().filter(Emulator::is_supported).exactly_one() {
         emulator.get_or_insert(only_emulator);
     }
     let task = if emulator.is_some() { cmd(future::ok(Message::Continue)) } else { Task::none() };
-    Ok(iced::application(State::title, State::update, State::view)
+    iced::application(State::title, State::update, State::view)
         .window(window::Settings {
             size: Size { width: 400.0, height: 360.0 },
-            icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
+            icon,
             ..window::Settings::default()
         })
         .theme(State::theme)
-        .run_with(move || (State::new(emulator), task))?
-    )
+        .run_with(move || (State::new(icon_error, emulator), task))
 }

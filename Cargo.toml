@@ -4,7 +4,7 @@ default-members = ["crate/ootrmwd"]
 resolver = "2"
 
 [workspace.package]
-version = "16.3.6"
+version = "16.3.7"
 authors = ["Fenhl <fenhl@fenhl.net>"]
 edition = "2021"
 repository = "https://github.com/midoshouse/ootr-multiworld"

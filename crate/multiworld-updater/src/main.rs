@@ -97,6 +97,7 @@ mod util;
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error(transparent)] Config(#[from] multiworld::config::Error),
+    #[error(transparent)] Icon(#[from] icon::Error),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] SemVer(#[from] semver::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
@@ -208,8 +209,15 @@ struct App {
 }
 
 impl App {
-    fn new(args: EmuArgs) -> Self {
-        Self { args, state: State::WaitExit }
+    fn new(icon_error: Option<icon::Error>, args: EmuArgs) -> Self {
+        Self {
+            state: if let Some(e) = icon_error {
+                State::Error(Arc::new(e.into()), false)
+            } else {
+                State::WaitExit
+            },
+            args,
+        }
     }
 
     fn title(&self) -> String { format!("updating Mido's House Multiworld…") }
@@ -616,7 +624,6 @@ enum Args {
 enum MainError {
     #[error(transparent)] Config(#[from] multiworld::config::Error),
     #[error(transparent)] Iced(#[from] iced::Error),
-    #[error(transparent)] Icon(#[from] icon::Error),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[cfg(windows)]
     #[error("user folder not found")]
@@ -626,16 +633,20 @@ enum MainError {
 #[wheel::main]
 fn main(args: Args) -> Result<(), MainError> {
     match args {
-        Args::Emu(args) => Ok(
+        Args::Emu(args) => {
+            let (icon, icon_error) = match icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico)) {
+                Ok(icon) => (Some(icon), None),
+                Err(e) => (None, Some(e)),
+            };
             iced::application(App::title, App::update, App::view)
                 .window(window::Settings {
                     size: Size { width: 320.0, height: 240.0 },
-                    icon: Some(icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico))?),
+                    icon,
                     ..window::Settings::default()
                 })
                 .theme(App::theme)
                 .run_with(|| (
-                    App::new(args.clone()),
+                    App::new(icon_error, args.clone()),
                     cmd(async move {
                         let mut system = sysinfo::System::default();
                         match args {
@@ -652,26 +663,24 @@ fn main(args: Args) -> Result<(), MainError> {
                         }
                         Ok(Message::Exited)
                     }),
-                ))?
-        ),
-        Args::Pj64Script { src, dst } => match pj64script(&src, &dst) {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                if Config::blocking_load()?.log {
-                    let path = {
-                        #[cfg(unix)] {
-                            BaseDirectories::new().expect("failed to determine XDG base directories").place_data_file("midos-house/multiworld-updater.log").expect("failed to create log dir")
-                        }
-                        #[cfg(windows)] {
-                            let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(MainError::MissingHomeDir)?;
-                            std::fs::create_dir_all(project_dirs.data_dir()).at(project_dirs.data_dir())?;
-                            project_dirs.data_dir().join("updater.log")
-                        }
-                    };
-                    write!(std::fs::File::create(&path).at(&path)?, "{} error in pj64script subcommand: {e}\ndebug info: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")).at(path)?;
-                }
-                Err(MainError::Wheel(e))
+                ))?;
+        }
+        Args::Pj64Script { src, dst } => if let Err(e) = pj64script(&src, &dst) {
+            if Config::blocking_load()?.log {
+                let path = {
+                    #[cfg(unix)] {
+                        BaseDirectories::new().expect("failed to determine XDG base directories").place_data_file("midos-house/multiworld-updater.log").expect("failed to create log dir")
+                    }
+                    #[cfg(windows)] {
+                        let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(MainError::MissingHomeDir)?;
+                        std::fs::create_dir_all(project_dirs.data_dir()).at(project_dirs.data_dir())?;
+                        project_dirs.data_dir().join("updater.log")
+                    }
+                };
+                write!(std::fs::File::create(&path).at(&path)?, "{} error in pj64script subcommand: {e}\ndebug info: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")).at(path)?;
             }
+            return Err(MainError::Wheel(e))
         },
     }
+    Ok(())
 }
