@@ -774,7 +774,7 @@ impl<C: ClientKind> Rooms<C> {
             entry.insert(room.clone());
             let _ = rooms.change_tx.send(RoomListChange::New(room.clone()));
         });
-        lock!(@write room = room; room.save(true).await)?;
+        lock!(@write room = room; room.save(false).await)?;
         Ok(())
     }
 
