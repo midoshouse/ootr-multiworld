@@ -2,6 +2,7 @@ use {
     std::{
         collections::HashMap,
         mem,
+        num::NonZero,
         sync::Arc,
         time::Duration,
     },
@@ -65,6 +66,8 @@ pub(crate) enum ClientMessage {
         hash4: HashIcon,
         hash5: HashIcon,
         players: Vec<u64>,
+        #[clap(long)]
+        tracker_room_name: Option<String>,
     },
     PrepareRestart {
         #[clap(long)]
@@ -158,7 +161,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                             WaitUntilInactiveMessage::Inactive.write(&mut sock).await.expect("error writing to UNIX socket");
                             return
                         }
-                        ClientMessage::CreateTournamentRoom { name, hash1, hash2, hash3, hash4, hash5, players } => {
+                        ClientMessage::CreateTournamentRoom { name, hash1, hash2, hash3, hash4, hash5, players, tracker_room_name } => {
                             let id = loop {
                                 let id = thread_rng().gen::<u64>();
                                 match sqlx::query_scalar!(r#"SELECT EXISTS (SELECT 1 FROM mw_rooms WHERE id = $1) AS "exists!""#, id as i64).fetch_one(&db_pool).await {
@@ -170,7 +173,8 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                     }
                                 }
                             };
-                            rooms.add(ArcRwLock::new(Room {
+                            let world_count = players.len().try_into().ok().and_then(NonZero::new);
+                            let room = ArcRwLock::new(Room {
                                 auth: RoomAuth::Invitational(players),
                                 clients: HashMap::default(),
                                 file_hash: Some([hash1, hash2, hash3, hash4, hash5]),
@@ -184,7 +188,17 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 db_pool: db_pool.clone(),
                                 tracker_state: None,
                                 id, name,
-                            })).await.is_ok().write(&mut sock).await.expect("error writing to UNIX socket");
+                            });
+                            (rooms.add(room.clone()).await.is_ok()
+                            && if let Some(tracker_room_name) = tracker_room_name {
+                                if let Some(world_count) = world_count {
+                                    lock!(@write room = room; room.init_tracker(tracker_room_name, world_count).await).is_ok()
+                                } else {
+                                    false
+                                }
+                            } else {
+                                true
+                            }).write(&mut sock).await.expect("error writing to UNIX socket");
                         }
                         ClientMessage::PrepareRestart { async_proto: _ } => {
                             let mut deadline = Utc::now() + TimeDelta::try_days(1).expect("1-day timedelta out of bounds");
