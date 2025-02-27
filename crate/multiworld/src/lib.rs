@@ -953,6 +953,7 @@ impl<C: ClientKind> Room<C> {
                     if verbose_logging { println!("item is a duplicate") }
                 } else {
                     eprintln!("conflicting item kinds at location 0x{key:016x} from world {source_world} in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name);
+                    wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("conflicting item kinds at location 0x{key:016x} from world {source_world} in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name))).await?;
                     if let Some(source_client) = source_client {
                         self.write(source_client, unversioned::ServerMessage::StructuredError(ServerError::ConflictingItemKinds)).await?;
                     }
