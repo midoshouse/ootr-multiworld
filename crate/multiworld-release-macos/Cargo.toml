@@ -10,8 +10,8 @@ workspace = true
 [dependencies]
 async-proto = "0.24.1"
 clap = { version = "4.5.21", features = ["derive"] }
-dir-lock = { git = "https://github.com/fenhl/rust-dir-lock", branch = "main", version = "0.3.1" }
-directories = "5.0.1"
+dir-lock = "0.4"
+directories = "6"
 git2 = "0.20"
 multiworld = { version = "16.0.0", path = "../multiworld" }
 thiserror = "2.0.3"

@@ -710,8 +710,16 @@ impl State {
             }
         }
         match dark_light::detect() {
-            Dark => Theme::Dark,
-            Light | dark_light::Mode::Default => Theme::Light,
+            Ok(Dark) => Theme::Dark,
+            Ok(Light) => Theme::Light,
+            Ok(dark_light::Mode::Unspecified) => {
+                #[cfg(debug_assertions)] { eprintln!("got unspecified system theme") }
+                Theme::Light
+            }
+            #[cfg_attr(not(debug_assertions), allow(unused))] Err(e) => {
+                #[cfg(debug_assertions)] { eprintln!("error determining system theme: {e} ({e:?})") }
+                Theme::Light
+            }
         }
     }
 

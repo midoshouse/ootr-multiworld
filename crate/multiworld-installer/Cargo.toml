@@ -24,8 +24,8 @@ reqwest = { version = "0.12", default-features = false, features = ["charset", "
 [dependencies]
 async_zip = { version = "0.0.17", features = ["full"] }
 clap = { version = "4", features = ["derive"] }
-dark-light = "1"
-directories = "5"
+dark-light = "2"
+directories = "6"
 enum-iterator = "2"
 futures = "0.3"
 iced = { version = "0.13", default-features = false, features = ["image", "tiny-skia", "tokio"] }

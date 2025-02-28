@@ -45,4 +45,4 @@ wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["
 xdg = "2"
 
 [target.'cfg(windows)'.dependencies]
-directories = "5"
+directories = "6"

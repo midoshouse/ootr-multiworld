@@ -22,7 +22,7 @@ async_zip = { version = "0.0.17", features = ["full"] }
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
-dark-light = "1"
+dark-light = "2"
 futures = "0.3"
 iced = { version = "0.13", default-features = false, features = ["image", "tiny-skia", "tokio"] }
 image = { version = "0.24", default-features = false, features = ["ico"] } # recursive dependency of iced
@@ -45,8 +45,8 @@ wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["
 xdg = "2"
 
 [target.'cfg(windows)'.dependencies]
-directories = "5"
-windows = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
+directories = "6"
+windows = { version = "0.60", features = ["Win32_Storage_FileSystem"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
