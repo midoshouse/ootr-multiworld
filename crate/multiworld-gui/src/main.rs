@@ -143,6 +143,7 @@ use {
 mod everdrive;
 mod login;
 mod persistent_state;
+mod retroarch;
 mod subscriptions;
 
 static LOG: Lazy<Mutex<std::fs::File>> = Lazy::new(|| {
@@ -294,6 +295,7 @@ enum Error {
     #[error(transparent)] PersistentState(#[from] persistent_state::Error),
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
+    #[error(transparent)] RetroArch(#[from] retroarch::Error),
     #[error(transparent)] Semver(#[from] semver::Error),
     #[error(transparent)] Url(#[from] url::ParseError),
     #[error(transparent)] WebSocket(#[from] tungstenite::Error),
@@ -317,8 +319,21 @@ enum Error {
 impl IsNetworkError for Error {
     fn is_network_error(&self) -> bool {
         match self {
-            Self::Elapsed(_) => true,
-            Self::Config(_) | Self::EverDrive(_) | Self::Http(_) | Self::InvalidUri(_) | Self::Json(_) | Self::MpscFrontendSend(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::InvalidPj64ScriptPath | Self::VersionMismatch { .. } => false,
+            | Self::Config(_)
+            | Self::EverDrive(_)
+            | Self::Http(_)
+            | Self::InvalidUri(_)
+            | Self::Json(_)
+            | Self::MpscFrontendSend(_)
+            | Self::PersistentState(_)
+            | Self::RetroArch(_)
+            | Self::Semver(_)
+            | Self::Url(_)
+            | Self::InvalidPj64ScriptPath
+            | Self::VersionMismatch { .. }
+                => false,
+            | Self::Elapsed(_)
+                => true,
             Self::Client(e) => e.is_network_error(),
             Self::Io(e) | Self::Pj64LaunchFailed(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),

@@ -48,9 +48,7 @@ fn start_len<T: Add<Output = T> + Copy>(start: T, len: T) -> Range<T> {
     start..start + len
 }
 
-/// The RetroArch UDP API does not seem to be documented,
-/// but there is a Python implementation at
-/// <https://github.com/eadmaster/console_hiscore/blob/master/tools/retroarchpythonapi.py>
+/// The RetroArch UDP API is documented at <https://docs.libretro.com/development/retroarch/network-control-interface/>
 async fn retroarch_read_ram(sock: &UdpSocket, Range { start, end }: Range<u32>) -> Result<Vec<u8>, Error> {
     let len = end - start;
     // make sure we're word-aligned on both ends
@@ -68,6 +66,7 @@ async fn retroarch_read_ram(sock: &UdpSocket, Range { start, end }: Range<u32>) 
         const MAX_ENCODED_BYTES_PER_BUFFER: u32 = ((4_096 - "READ_CORE_RAM ffffffff 9999\n".len() as u32) / 3) & !0x3;
 
         // using READ_CORE_MEMORY instead of READ_CORE_RAM as suggested in https://github.com/libretro/RetroArch/blob/0357b6c/command.h#L430-L437 fails with “-1 no memory map defined”
+        // this may be fixed by https://github.com/libretro/mupen64plus-libretro-nx/pull/545 in the future
         let count = aligned_len.min(MAX_ENCODED_BYTES_PER_BUFFER);
         prefix.clear();
         write!(&mut prefix, "READ_CORE_RAM {aligned_start:x} ")?;

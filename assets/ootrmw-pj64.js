@@ -593,7 +593,7 @@ function handle_frame(write, error) {
                     return error('randomizer version too old (version 5.1.4 or higher required)');
                 }
                 if (coopContextVersion > 7) {
-                    return error("randomizer version too new (version " + mem.u32[newCoopContextAddr] + "; please tell Fenhl that Mido's House Multiworld needs to be updated)");
+                    return error("randomizer version too new (version " + coopContextVersion + "; please tell Fenhl that Mido's House Multiworld needs to be updated)");
                 }
                 if (coopContextVersion >= 3) {
                     mem.u8[newCoopContextAddr + 0x000a] = 1; // enable MW_SEND_OWN_ITEMS for server-side tracking
@@ -866,5 +866,5 @@ if (typeof PJ64_JSAPI_VERSION === 'undefined') {
         throw 'The companion app seems to be missing. This can happen if you upgraded Project64 from version 3 to version 4. Try running the installer again.';
     }
 } else {
-    throw "Project64 version too new (API version" + PJ64_JSAPI_VERSION + "; please tell Fenhl that Mido's House Multiworld needs to be updated)";
+    throw "Project64 version too new (API version " + PJ64_JSAPI_VERSION + "; please tell Fenhl that Mido's House Multiworld needs to be updated)";
 }
