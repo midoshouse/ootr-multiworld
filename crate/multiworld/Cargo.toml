@@ -26,8 +26,8 @@ oauth2 = "4"
 ootr = { git = "https://github.com/fenhl/oottracker", branch = "mw" }
 ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils", branch = "main" }
 oottracker = { git = "https://github.com/fenhl/oottracker", branch = "mw" }
-rand = "0.8.5"
-rand_xoshiro = "0.6.0"
+rand = "0.9"
+rand_xoshiro = "0.7"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }
 ring = "0.17"
 rocket_ws = "0.1"

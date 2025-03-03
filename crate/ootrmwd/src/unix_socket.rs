@@ -22,7 +22,10 @@ use {
         lock,
     },
     ootr_utils::spoiler::HashIcon,
-    rand::prelude::*,
+    rand::{
+        prelude::*,
+        rng,
+    },
     sqlx::PgPool,
     tokio::{
         io,
@@ -163,7 +166,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                         }
                         ClientMessage::CreateTournamentRoom { name, hash1, hash2, hash3, hash4, hash5, players, tracker_room_name } => {
                             let id = loop {
-                                let id = thread_rng().gen::<u64>();
+                                let id = rng().random::<u64>();
                                 match sqlx::query_scalar!(r#"SELECT EXISTS (SELECT 1 FROM mw_rooms WHERE id = $1) AS "exists!""#, id as i64).fetch_one(&db_pool).await {
                                     Ok(true) => {}
                                     Ok(false) => break id, //TODO save room to database in same transaction

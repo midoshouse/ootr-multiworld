@@ -38,7 +38,6 @@ use {
         Mutex,
         lock,
     },
-    rand::prelude::*,
     ring::{
         pbkdf2,
         rand::{
@@ -396,7 +395,7 @@ async fn lobby_session<C: ClientKind>(
                         });
                         let autodelete_delta = Duration::from_secs(60 * 60 * 24 * 7);
                         let id = loop {
-                            let id = thread_rng().gen::<u64>();
+                            let id = rand::random::<u64>();
                             if !sqlx::query_scalar!(r#"SELECT EXISTS (SELECT 1 FROM mw_rooms WHERE id = $1) AS "exists!""#, id as i64).fetch_one(&db_pool).await? { break id } //TODO save room to database in same transaction
                         };
                         let room = ArcRwLock::new(Room {
