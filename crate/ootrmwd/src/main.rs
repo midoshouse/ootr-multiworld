@@ -1021,7 +1021,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     Err(AddRoomError::Sql(e)) => return Err(e.into()),
                     Err(e @ (AddRoomError::DuplicateId { .. } | AddRoomError::NameConflict { .. })) => {
                         eprintln!("deleting duplicate room {:?}: {e} ({e:?})", row.name);
-                        wheel::night_report("/games/zelda/oot/mhmw/duplicateRoomError", Some(&format!("deleting duplicate room {:?}: {e} ({e:?})", row.name))).await?;
+                        wheel::night_report("/games/zelda/oot/mhmw/duplicateRoomDeleted", Some(&format!("deleting duplicate room {:?}: {e} ({e:?})", row.name))).await?;
                         sqlx::query!("DELETE FROM mw_rooms WHERE id = $1", row.id).execute(&db_pool).await?;
                     }
                 }
@@ -1085,7 +1085,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     for [room1, room2] in rooms.list.values().array_combinations() {
                         lock!(@read room1 = room1; lock!(@read room2 = room2; if room1.name == room2.name && room1.auth.same_namespace(&room2.auth) {
                             eprintln!("found duplicate room {:?} (IDs {:?} and {:?})", room1.name, room1.id, room2.id);
-                            wheel::night_report("/games/zelda/oot/mhmw/duplicateRoomError", Some(&format!("found duplicate room {:?} (IDs {:?} and {:?})", room1.name, room1.id, room2.id))).await?;
+                            wheel::night_report("/games/zelda/oot/mhmw/duplicateRoomFound", Some(&format!("found duplicate room {:?} (IDs {:?} and {:?})", room1.name, room1.id, room2.id))).await?;
                         }));
                     }
                 });
