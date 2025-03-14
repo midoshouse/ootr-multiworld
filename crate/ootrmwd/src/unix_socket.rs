@@ -177,14 +177,16 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 }
                             };
                             let world_count = players.len().try_into().ok().and_then(NonZero::new);
+                            let now = Utc::now();
                             let room = ArcRwLock::new(Room {
                                 auth: RoomAuth::Invitational(players),
                                 clients: HashMap::default(),
                                 file_hash: Some([hash1, hash2, hash3, hash4, hash5]),
                                 base_queue: Vec::default(),
                                 player_queues: HashMap::default(),
-                                last_saved: Utc::now(),
+                                last_saved: now,
                                 deleted: false,
+                                created: Some(now),
                                 allow_send_all: false,
                                 autodelete_delta: Duration::from_secs(60 * 60 * 24),
                                 autodelete_tx: lock!(rooms = rooms.0; rooms.autodelete_tx.clone()),

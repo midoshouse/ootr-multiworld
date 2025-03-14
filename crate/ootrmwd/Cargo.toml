@@ -22,6 +22,7 @@ ring = { version = "0.17", features = ["std"] }
 rocket = "0.5"
 rocket-util = { git = "https://github.com/fenhl/rocket-util", branch = "main" }
 rocket_ws = "0.1"
+semver = "1.0.22"
 serde = { version = "1", features = ["derive"] }
 serenity = { version = "0.12", default-features = false, features = ["model", "rustls_backend"] }
 sqlx = { version = "0.8", default-features = false, features = ["chrono", "postgres", "runtime-tokio-rustls"] }

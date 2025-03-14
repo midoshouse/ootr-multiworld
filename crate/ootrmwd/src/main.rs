@@ -46,6 +46,7 @@ use {
         },
     },
     rocket::Rocket,
+    semver::Version,
     serde::Deserialize,
     sqlx::postgres::{
         PgConnectOptions,
@@ -175,7 +176,7 @@ struct Config {
     regional_vc: bool,
 }
 
-async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, shutdown: rocket::Shutdown, maintenance: Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>) -> Result<(), SessionError> {
+async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, version: Option<Version>, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, shutdown: rocket::Shutdown, maintenance: Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>) -> Result<(), SessionError> {
     let config = sqlx::query_as!(Config, "SELECT * FROM mw_config").fetch_one(&db_pool).await?;
     let mut maintenance = maintenance.subscribe();
     let ping_writer = Arc::clone(&writer);
@@ -196,9 +197,9 @@ async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http
         }
     }
     loop {
-        let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, config, writer.clone(), shutdown.clone(), &mut maintenance, &mut logged_in_as_admin, &mut midos_house_user_id).await?;
+        let (room_reader, room, end_rx) = lobby_session(rng, db_pool.clone(), http_client.clone(), rooms.clone(), socket_id, read, config, version.clone(), writer.clone(), shutdown.clone(), &mut maintenance, &mut logged_in_as_admin, &mut midos_house_user_id).await?;
         let _ = lock!(rooms = rooms.0; rooms.change_tx.send(RoomListChange::Join));
-        let (lobby_reader, end) = match room_session(rooms.clone(), room.clone(), socket_id, room_reader, config, writer.clone(), &mut maintenance, end_rx, shutdown.clone(), logged_in_as_admin, midos_house_user_id).await {
+        let (lobby_reader, end) = match room_session(rooms.clone(), room.clone(), socket_id, version.clone(), room_reader, config, writer.clone(), &mut maintenance, end_rx, shutdown.clone(), logged_in_as_admin, midos_house_user_id).await {
             Ok(value) => value,
             Err(e) => {
                 ping_task.abort();
@@ -234,6 +235,7 @@ async fn lobby_session<C: ClientKind>(
     socket_id: C::SessionId,
     mut read: NextMessage<C>,
     config: Config,
+    version: Option<Version>,
     writer: Arc<Mutex<C::Writer>>,
     mut shutdown: rocket::Shutdown,
     maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>,
@@ -338,7 +340,7 @@ async fn lobby_session<C: ClientKind>(
                             if authorized {
                                 if room.clients.len() >= usize::from(u8::MAX) { error!("this room is full") }
                                 let (end_tx, end_rx) = oneshot::channel();
-                                room.add_client(socket_id, Arc::clone(&writer), end_tx).await?;
+                                room.add_client(version, socket_id, Arc::clone(&writer), end_tx).await?;
                                 let mut players = Vec::<Player>::default();
                                 let mut num_unassigned_clients = 0;
                                 for client in room.clients.values() {
@@ -391,13 +393,14 @@ async fn lobby_session<C: ClientKind>(
                             writer: Arc::clone(&writer),
                             tracker_state: Default::default(),
                             adjusted_save: Default::default(),
-                            end_tx,
+                            version, end_tx,
                         });
                         let autodelete_delta = Duration::from_secs(60 * 60 * 24 * 7);
                         let id = loop {
                             let id = rand::random::<u64>();
                             if !sqlx::query_scalar!(r#"SELECT EXISTS (SELECT 1 FROM mw_rooms WHERE id = $1) AS "exists!""#, id as i64).fetch_one(&db_pool).await? { break id } //TODO save room to database in same transaction
                         };
+                        let now = Utc::now();
                         let room = ArcRwLock::new(Room {
                             name: name.clone(),
                             auth: RoomAuth::Password {
@@ -407,8 +410,9 @@ async fn lobby_session<C: ClientKind>(
                             file_hash: None,
                             base_queue: Vec::default(),
                             player_queues: HashMap::default(),
-                            last_saved: Utc::now(),
+                            last_saved: now,
                             deleted: false,
+                            created: Some(now),
                             allow_send_all: true,
                             autodelete_tx: lock!(rooms = rooms.0; rooms.autodelete_tx.clone()),
                             db_pool: db_pool.clone(),
@@ -608,6 +612,7 @@ async fn room_session<C: ClientKind>(
     rooms: Rooms<C>,
     room: ArcRwLock<Room<C>>,
     socket_id: C::SessionId,
+    version: Option<Version>,
     reader: C::Reader,
     config: Config,
     writer: Arc<Mutex<C::Writer>>,
@@ -653,7 +658,7 @@ async fn room_session<C: ClientKind>(
                     ClientMessage::Stop => error!("received a Stop message, which only works in the lobby, but you're in a room"),
                     ClientMessage::Track { .. } => error!("received a Track message, which only works in the lobby, but you're in a room"),
                     ClientMessage::WaitUntilEmpty => error!("received a WaitUntilEmpty message, which only works in the lobby, but you're in a room"),
-                    ClientMessage::PlayerId(id) => match lock!(@write room = room; room.load_player(socket_id, id).await) {
+                    ClientMessage::PlayerId(id) => match lock!(@write room = room; room.load_player(version.clone(), socket_id, id).await) {
                         Ok(true) => {}
                         Ok(false) => lock!(writer = writer; writer.write(ServerMessage::WorldTaken(id)).await)?,
                         Err(multiworld::RoomError::FileHash { server, client }) => lock!(writer = writer; writer.write(ServerMessage::WrongFileHash { server, client }).await)?,
@@ -992,6 +997,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 invites,
                 base_queue,
                 player_queues,
+                created,
                 last_saved,
                 allow_send_all,
                 autodelete_delta
@@ -1009,6 +1015,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     file_hash: None, //TODO store in database
                     base_queue: Vec::read_sync(&mut &*row.base_queue)?,
                     player_queues: HashMap::read_sync(&mut &*row.player_queues)?,
+                    created: row.created,
                     last_saved: row.last_saved,
                     deleted: false,
                     allow_send_all: row.allow_send_all,

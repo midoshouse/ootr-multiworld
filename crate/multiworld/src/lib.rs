@@ -90,7 +90,6 @@ pub const DEFAULT_TCP_PORT: u16 = 24809; //TODO use for LAN support (https://git
 pub const CREDENTIAL_LEN: usize = ring::digest::SHA512_OUTPUT_LEN;
 
 pub fn version() -> Version { Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version") }
-pub fn proto_version() -> u8 { version().major.try_into().expect("version number does not fit into u8") }
 
 pub fn user_agent_hash(version: &str) -> Option<[u8; CREDENTIAL_LEN]> {
     let salt = option_env!("MHMW_USER_AGENT_SALT")?;
@@ -453,6 +452,7 @@ impl ClientWriter for OwnedWriteHalf {
 }
 
 pub struct Client<C: ClientKind> {
+    pub version: Option<Version>,
     pub writer: Arc<Mutex<C::Writer>>,
     pub end_tx: oneshot::Sender<EndRoomSession>,
     pub player: Option<Player>,
@@ -466,8 +466,9 @@ pub struct Client<C: ClientKind> {
 
 impl<C: ClientKind> fmt::Debug for Client<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { writer: _, end_tx, player, pending_world, pending_name, pending_hash, pending_items, tracker_state, adjusted_save } = self;
+        let Self { version, writer: _, end_tx, player, pending_world, pending_name, pending_hash, pending_items, tracker_state, adjusted_save } = self;
         f.debug_struct("Client")
+            .field("version", version)
             .field("writer", &format_args!("_"))
             .field("end_tx", end_tx)
             .field("player", player)
@@ -547,6 +548,7 @@ pub struct Room<C: ClientKind> {
     pub base_queue: Vec<Item>,
     pub player_queues: HashMap<NonZero<u8>, Vec<Item>>,
     pub deleted: bool,
+    pub created: Option<DateTime<Utc>>,
     pub last_saved: DateTime<Utc>,
     pub allow_send_all: bool,
     pub autodelete_delta: Duration,
@@ -730,7 +732,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn add_client(&mut self, client_id: C::SessionId, writer: Arc<Mutex<C::Writer>>, end_tx: oneshot::Sender<EndRoomSession>) -> Result<(), RoomError> {
+    pub async fn add_client(&mut self, version: Option<Version>, client_id: C::SessionId, writer: Arc<Mutex<C::Writer>>, end_tx: oneshot::Sender<EndRoomSession>) -> Result<(), RoomError> {
         // the client doesn't need to be told that it has connected, so notify everyone *before* adding it
         self.write_all(&unversioned::ServerMessage::ClientConnected).await?;
         self.clients.insert(client_id, Client {
@@ -741,7 +743,7 @@ impl<C: ClientKind> Room<C> {
             pending_items: Vec::default(),
             tracker_state: oottracker::ModelState::default(),
             adjusted_save: oottracker::Save::default(),
-            writer, end_tx,
+            version, writer, end_tx,
         });
         Ok(())
     }
@@ -754,8 +756,8 @@ impl<C: ClientKind> Room<C> {
         if let Some(client) = self.clients.remove(&client_id) {
             let _ = client.end_tx.send(to);
             let msg = if let Some(Player { world, .. }) = client.player {
-                if let Some((&client_id, _)) = self.clients.iter().find(|(_, iter_client)| iter_client.pending_world == Some(world)) {
-                    Box::pin(self.load_player(client_id, world)).await?;
+                if let Some((&client_id, client)) = self.clients.iter().find(|(_, iter_client)| iter_client.pending_world == Some(world)) {
+                    Box::pin(self.load_player(client.version.clone(), client_id, world)).await?;
                 }
                 unversioned::ServerMessage::PlayerDisconnected(world)
             } else {
@@ -784,7 +786,7 @@ impl<C: ClientKind> Room<C> {
     }
 
     /// Moves a player from unloaded (no world assigned) to the given `world`.
-    pub async fn load_player(&mut self, client_id: C::SessionId, world: NonZero<u8>) -> Result<bool, RoomError> {
+    pub async fn load_player(&mut self, client_version: Option<Version>, client_id: C::SessionId, world: NonZero<u8>) -> Result<bool, RoomError> {
         if self.clients.iter().any(|(&iter_client_id, iter_client)| iter_client.player.as_ref().map_or(false, |p| p.world == world) && iter_client_id != client_id) {
             let client = self.clients.get_mut(&client_id).expect("tried to set pending world for nonexistent client");
             client.pending_world = Some(world);
@@ -822,7 +824,7 @@ impl<C: ClientKind> Room<C> {
                 self.write(client_id, unversioned::ServerMessage::WorldFreed).await?;
             }
             for (key, kind, target_world) in pending_items {
-                self.queue_item_inner(Some(client_id), new_player.world, key, kind, target_world, "while queueing a pending item", false).await?;
+                self.queue_item_inner(client_version.clone(), Some(client_id), new_player.world, key, kind, target_world, "while queueing a pending item", false).await?;
             }
             for broadcast in broadcasts {
                 self.write_all(&broadcast).await?;
@@ -860,8 +862,8 @@ impl<C: ClientKind> Room<C> {
     pub async fn unload_player(&mut self, client_id: C::SessionId) -> Result<(), RoomError> {
         if let Some(prev_player) = self.clients.get_mut(&client_id).expect("tried to unset world for nonexistent client").player.take() {
             self.write_all(&unversioned::ServerMessage::ResetPlayerId(prev_player.world)).await?;
-            if let Some((&client_id, _)) = self.clients.iter().find(|(_, iter_client)| iter_client.pending_world == Some(prev_player.world)) {
-                self.load_player(client_id, prev_player.world).await?;
+            if let Some((&client_id, client)) = self.clients.iter().find(|(_, iter_client)| iter_client.pending_world == Some(prev_player.world)) {
+                self.load_player(client.version.clone(), client_id, prev_player.world).await?;
             }
         }
         Ok(())
@@ -896,7 +898,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    async fn queue_item_inner(&mut self, source_client: Option<C::SessionId>, source_world: NonZero<u8>, key: u64, kind: u16, target_world: NonZero<u8>, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str, verbose_logging: bool) -> Result<(), RoomError> {
+    async fn queue_item_inner(&mut self, source_version: Option<Version>, source_client: Option<C::SessionId>, source_world: NonZero<u8>, key: u64, kind: u16, target_world: NonZero<u8>, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str, verbose_logging: bool) -> Result<(), RoomError> {
         if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
             if verbose_logging { println!("updating tracker") }
             oottracker::websocket::ClientMessage::MwQueueItem {
@@ -952,8 +954,10 @@ impl<C: ClientKind> Room<C> {
                 if kind == existing_kind {
                     if verbose_logging { println!("item is a duplicate") }
                 } else {
-                    eprintln!("conflicting item kinds at location 0x{key:016x} from world {source_world} in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name);
-                    wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("conflicting item kinds at location 0x{key:016x} from world {source_world} in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name))).await?;
+                    eprintln!("conflicting item kinds at location 0x{key:016x} from world {source_world} (client version: {source_version:?}) in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name);
+                    if self.created.is_some() && source_version.as_ref().is_none_or(|source_version| *source_version >= Version::new(16, 3, 8)) {
+                        wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("conflicting item kinds at location 0x{key:016x} from world {source_world} (client version: {source_version:?}) in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name))).await?;
+                    }
                     if let Some(source_client) = source_client {
                         self.write(source_client, unversioned::ServerMessage::StructuredError(ServerError::ConflictingItemKinds)).await?;
                     }
@@ -1004,7 +1008,8 @@ impl<C: ClientKind> Room<C> {
                     self.file_hash = Some(player_hash);
                 }
             }
-            self.queue_item_inner(Some(source_client_id), source.world, key, kind, target_world, "while queueing an item", verbose_logging).await?;
+            let source_version = source_client.version.clone();
+            self.queue_item_inner(source_version, Some(source_client_id), source.world, key, kind, target_world, "while queueing an item", verbose_logging).await?;
         } else {
             source_client.pending_items.push((key, kind, target_world));
         }
@@ -1034,7 +1039,7 @@ impl<C: ClientKind> Room<C> {
             }
         }
         for (source_world, key, kind, target_world) in items_to_queue {
-            self.queue_item_inner(None, source_world, key, kind, target_world, "while sending all items", false).await?;
+            self.queue_item_inner(None, None, source_world, key, kind, target_world, "while sending all items", false).await?;
         }
         Ok(())
     }
@@ -1131,20 +1136,22 @@ impl<C: ClientKind> Room<C> {
             invites,
             base_queue,
             player_queues,
+            created,
             last_saved,
             autodelete_delta,
             allow_send_all
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO UPDATE SET
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (id) DO UPDATE SET
             name = EXCLUDED.name,
             password_hash = EXCLUDED.password_hash,
             password_salt = EXCLUDED.password_salt,
             invites = EXCLUDED.invites,
             base_queue = EXCLUDED.base_queue,
             player_queues = EXCLUDED.player_queues,
+            created = EXCLUDED.created,
             last_saved = EXCLUDED.last_saved,
             autodelete_delta = EXCLUDED.autodelete_delta,
             allow_send_all = EXCLUDED.allow_send_all
-        ", self.id as i64, &self.name, password_hash, password_salt, invites, base_queue, player_queues, self.last_saved, self.autodelete_delta as _, self.allow_send_all).execute(&self.db_pool).await?;
+        ", self.id as i64, &self.name, password_hash, password_salt, invites, base_queue, player_queues, self.created, self.last_saved, self.autodelete_delta as _, self.allow_send_all).execute(&self.db_pool).await?;
         Ok(())
     }
 
@@ -1166,8 +1173,6 @@ impl<C: ClientKind> Room<C> {
 pub enum ClientError {
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
-    #[error("protocol version mismatch: server is version {0} but we're version {client}", client = proto_version())]
-    VersionMismatch(u8),
 }
 
 impl IsNetworkError for ClientError {
@@ -1175,16 +1180,8 @@ impl IsNetworkError for ClientError {
         match self {
             Self::Read(e) => e.is_network_error(),
             Self::Write(e) => e.is_network_error(),
-            Self::VersionMismatch(_) => false,
         }
     }
-}
-
-pub async fn handshake(tcp_stream: &mut TcpStream) -> Result<(), ClientError> {
-    proto_version().write(tcp_stream).await?;
-    let server_version = u8::read(tcp_stream).await?;
-    if server_version != proto_version() { return Err(ClientError::VersionMismatch(server_version)) }
-    Ok(())
 }
 
 #[derive(Debug, thiserror::Error)]

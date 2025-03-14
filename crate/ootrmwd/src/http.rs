@@ -85,9 +85,26 @@ macro_rules! supported_version {
             let maintenance = (*maintenance).clone();
             let session_id = next_session_id.fetch_add(1, SeqCst);
             ws.channel(move |stream| Box::pin(async move {
+                let version = if let UserAgent(Some(ref user_agent)) = user_agent {
+                    if let Some((_, version, found_hash)) = regex_captures!(r"^[0-9A-Za-z_]+/([0-9.]+) \(.+, ([0-9a-f]+)\)$", user_agent) {
+                        if let Some(expected_hash) = user_agent_hash(version) {
+                            if expected_hash.into_iter().map(|byte| format!("{byte:02x}")).collect::<String>() == found_hash {
+                                version.parse().map_err(|_| "failed to parse version")
+                            } else {
+                                Err("user agent hash mismatch")
+                            }
+                        } else {
+                            Err("server was compiled without user agent salt")
+                        }
+                    } else {
+                        Err("unexpected user agent format")
+                    }
+                } else {
+                    Err("no user agent")
+                };
                 let (sink, stream) = stream.split();
                 let writer = Arc::new(Mutex::new(VersionedWriter { inner: sink, version: Version::$variant }));
-                match client_session(&rng, db_pool.clone(), http_client, rooms, session_id, VersionedReader { inner: stream, version: Version::$variant }, Arc::clone(&writer), shutdown, maintenance).await {
+                match client_session(&rng, db_pool.clone(), http_client, rooms, session_id, version.clone().ok(), VersionedReader { inner: stream, version: Version::$variant }, Arc::clone(&writer), shutdown, maintenance).await {
                     Ok(()) => {}
                     Err(SessionError::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::MessageKind021(tungstenite::Message::Close(_)), .. })) => {} // client disconnected normally
                     Err(SessionError::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::Tungstenite021(tungstenite::Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake)), .. })) => {} // this happens when a player force quits their multiworld app (or normally quits on macOS, see https://github.com/iced-rs/iced/issues/1941)
@@ -97,12 +114,11 @@ macro_rules! supported_version {
                         eprintln!("server error in WebSocket handler ({}): {msg}", stringify!($version));
                         if let UserAgent(Some(ref user_agent)) = user_agent {
                             eprintln!("user agent: {user_agent:?}");
-                            if let Some((_, version, found_hash)) = regex_captures!(r"^[0-9A-Za-z_]+/([0-9.]+) \(.+, ([0-9a-f]+)\)$", user_agent) {
-                                if let Some(expected_hash) = user_agent_hash(version) {
-                                    if expected_hash.into_iter().map(|byte| format!("{byte:02x}")).collect::<String>() == found_hash {
-                                        let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("server error in WebSocket handler (client version {version}): {msg}"))).await;
-                                    }
+                            match version {
+                                Ok(version) => {
+                                    let _ = wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("server error in WebSocket handler (client version {version}): {msg}"))).await;
                                 }
+                                Err(msg) => eprintln!("{msg}"),
                             }
                         } else {
                             eprintln!("no user agent");

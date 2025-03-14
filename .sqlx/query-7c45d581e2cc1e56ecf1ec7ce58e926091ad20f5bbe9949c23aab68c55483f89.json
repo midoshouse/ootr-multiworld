@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO mw_rooms (\n            id,\n            name,\n            password_hash,\n            password_salt,\n            invites,\n            base_queue,\n            player_queues,\n            created,\n            last_saved,\n            autodelete_delta,\n            allow_send_all\n        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (id) DO UPDATE SET\n            name = EXCLUDED.name,\n            password_hash = EXCLUDED.password_hash,\n            password_salt = EXCLUDED.password_salt,\n            invites = EXCLUDED.invites,\n            base_queue = EXCLUDED.base_queue,\n            player_queues = EXCLUDED.player_queues,\n            created = EXCLUDED.created,\n            last_saved = EXCLUDED.last_saved,\n            autodelete_delta = EXCLUDED.autodelete_delta,\n            allow_send_all = EXCLUDED.allow_send_all\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Varchar",
+        "Bytea",
+        "Bytea",
+        "Bytea",
+        "Bytea",
+        "Bytea",
+        "Timestamptz",
+        "Timestamptz",
+        "Interval",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7c45d581e2cc1e56ecf1ec7ce58e926091ad20f5bbe9949c23aab68c55483f89"
+}
