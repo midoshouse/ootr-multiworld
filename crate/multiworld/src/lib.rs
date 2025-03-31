@@ -415,6 +415,7 @@ pub enum EndRoomSession {
 #[async_trait]
 pub trait ClientReader: Unpin + Send + Sized {
     async fn read_owned(self) -> Result<(Self, unversioned::ClientMessage), async_proto::ReadError>;
+    fn version(&self) -> &'static str;
 }
 
 #[async_trait]
@@ -446,6 +447,8 @@ impl ClientReader for OwnedReadHalf {
         let (reader, msg) = latest::ClientMessage::read_owned(self).await?;
         Ok((reader, msg.try_into()?))
     }
+
+    fn version(&self) -> &'static str { "TCP" }
 }
 
 #[async_trait]

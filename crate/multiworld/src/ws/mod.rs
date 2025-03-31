@@ -105,6 +105,15 @@ impl crate::ClientReader for VersionedReader {
             Version::V17 => v17::read_owned(self.inner).await.map(|(inner, msg)| (Self { version: Version::V17, inner }, msg)),
         }
     }
+
+    fn version(&self) -> &'static str {
+        match self.version {
+            Version::V14 => "v14",
+            Version::V15 => "v15",
+            Version::V16 => "v16",
+            Version::V17 => "v17",
+        }
+    }
 }
 
 pub struct VersionedWriter {

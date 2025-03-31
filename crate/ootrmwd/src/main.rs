@@ -321,7 +321,7 @@ async fn lobby_session<C: ClientKind>(
             res = &mut read => {
                 let (reader, msg) = res??;
                 if config.verbose_logging {
-                    println!("lobby received client message: {msg:?}");
+                    println!("lobby received client message ({}): {msg:?}", reader.version());
                 }
                 match msg {
                     ClientMessage::Ping => {}
@@ -642,7 +642,7 @@ async fn room_session<C: ClientKind>(
             res = &mut read => {
                 let (reader, msg) = res??;
                 if config.verbose_logging {
-                    lock!(@read room = room; println!("room {} received client message: {msg:?}", room.name));
+                    lock!(@read room = room; println!("room {} received client message ({}): {msg:?}", room.name, reader.version()));
                 }
                 match msg {
                     ClientMessage::Ping => {}
