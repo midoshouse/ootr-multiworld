@@ -1,8 +1,15 @@
 This document specifies the network protocol used to communicate between the Mido's House Multiworld server (`ootrmwd`) and app (`multiworld-gui`).
 
-The protocol is versioned with respect to breaking changes from a client's perspective, e.g. new client→server messages may be added without a protocol version change but not new server→client messages. The protocol version corresponds to the major [release](https://github.com/midoshouse/ootr-multiworld/releases) version of the first-party client. The current version is 16. Each previous version remains available and supported until 6 months have passed since the last time a client with this version has connected or disconnected, or until 2 years have passed since the following version was released, whichever happens first.
+The protocol is versioned with respect to breaking changes from a client's perspective, e.g. new client→server messages may be added without a protocol version change but not new server→client messages. The protocol version corresponds to the major [release](https://github.com/midoshouse/ootr-multiworld/releases) version of the first-party client. The current version is 17. Each previous version remains available and supported until 6 months have passed since the last time a client with this version has connected or disconnected, or until 2 years have passed since the following version was released, whichever happens first.
 
-This API is available at `wss://mw.midos.house/v16`. All messages are binary [WebSocket](https://en.wikipedia.org/wiki/WebSocket) messages. The message kind is determined from the direction of the message and the first byte according to the following two sections. The data types that appear in the messages are defined in the third section below. All data types are [big-endian](https://en.wikipedia.org/wiki/Endianness). A message that contains multiple fields of data or a compound data type is simply represented as each field in sequence, so you may have to read one field to know where the next field starts. Names of messages, of message fields, and of compound data types are listed here for reference only, they do not appear in the binary forms of the messages themselves.
+This API is available at `wss://mw.midos.house/v17`. All messages are binary [WebSocket](https://en.wikipedia.org/wiki/WebSocket) messages. The message kind is determined from the direction of the message and the first byte according to the following two sections. The data types that appear in the messages are defined in the third section below. All data types are [big-endian](https://en.wikipedia.org/wiki/Endianness). A message that contains multiple fields of data or a compound data type is simply represented as each field in sequence, so you may have to read one field to know where the next field starts. Names of messages, of message fields, and of compound data types are listed here for reference only, they do not appear in the binary forms of the messages themselves.
+
+# Changes from version 16
+
+* All settings other than `keyring_give_bk` have been removed from Client→Server message `0x0d` SendAll.
+* The `randomized_settings` field has been removed from Client→Server message `0x0d` SendAll.
+* Client→Server messages `0x04` Stop and `0x11` WaitUntilEmpty have been removed, their message IDs must no longer be sent and may be reused for new messages in future protocol versions.
+* The [file hash](#file-hash) fields in Server→Client messages `0x11` PlayerFileHash and `0x14` WrongFileHash as well as Client→Server message `0x0f` FileHash are now [optional](#optional). No file hash represents a seed rolled on a randomizer version from before co-op context version 4.
 
 # Server→Client
 
@@ -96,7 +103,7 @@ Notifies the client that the connection will be dropped by the server. Typically
 
 ## `0x11` PlayerFileHash
 
-Sent to a client in a room to inform it about the file hash loaded by a client. This may be used to provide additional information to the user in the event that a WrongFileHash message is received. This message is sent to all clients in the room, including the client that reported its file hash. Consists of the client's world number as a 1-byte number which will never be zero, followed by the client's new [file hash](#file-hash).
+Sent to a client in a room to inform it about the file hash loaded by a client. This may be used to provide additional information to the user in the event that a WrongFileHash message is received. This message is sent to all clients in the room, including the client that reported its file hash. Consists of the client's world number as a 1-byte number which will never be zero, followed by the client's new [optional](#optional) [file hash](#file-hash), where no file hash represents a seed rolled on a randomizer version from before co-op context version 4.
 
 ## `0x12` AutoDeleteDelta
 
@@ -104,11 +111,11 @@ Sent to a client in a room when the duration of inactivity after which this room
 
 ## `0x13` RoomsEmpty
 
-Sent to a client in the lobby which has sent the WaitUntilEmpty message once there are no players with claimed worlds in any of the rooms. This message is deprecated and will be removed in a future version. It contains no data.
+Sent to a client in the lobby which has sent the WaitUntilEmpty message (available only on protocol versions 16 and below) once there are no players with claimed worlds in any of the rooms. This message is deprecated and will be removed once support for protocol version 16 ends. It contains no data.
 
 ## `0x14` WrongFileHash
 
-Sent to a client in a room if it reports a file hash that doesn't match the file hash set for this room, either as previously reported by a client, or as set by the Mido's House integration for a tournament room. Consists of the [file hash](#file-hash) required for this room, followed by the [file hash](#file-hash) reported by the client.
+Sent to a client in a room if it reports a file hash that doesn't match the file hash set for this room, either as previously reported by a client, or as set by the Mido's House integration for a tournament room. Consists of the [optional](#optional) [file hash](#file-hash) required for this room, followed by the [optional](#optional) [file hash](#file-hash) reported by the client. In both cases, no file hash represents a seed rolled on a randomizer version from before co-op context version 4. No file hash is considered to be compatible with no file hash, but no file hash and any given file hash are considered incompatible.
 
 ## `0x15` ProgressiveItems
 
@@ -154,9 +161,9 @@ Attempt to create a new room. If this is successful, the server will move the cl
 
 Attempt to sign into a Mido's House account with a Mido's House API key. Consists of the API key, a [string](#string). API keys are issued by @fenhl at their discretion upon request. Signing into a Mido's House account gives the client access to invite-only rooms, such as tournament rooms.
 
-## `0x04` Stop
+## `0x04` _Unused1
 
-Attempt to stop the multiworld server. Note that the server will usually be restarted immediately by [systemd](https://en.wikipedia.org/wiki/Systemd). Requires being signed in as a MH MW administrator. This message is deprecated and will be removed in a future version. It contains no data.
+This message must not be sent. Message ID `0x04` may be reused for a new message in a future protocol version.
 
 ## `0x05` PlayerId
 
@@ -206,64 +213,11 @@ Requests that all remaining items from the given world be distributed. Useful wh
 * `file_hash`: The seed's [file hash](#file-hash).
 * `:version`: The seed's randomizer version, a [string](#string).
 * `settings`: Information about a subset of each world's settings. Should be sent as a [list](#list) even on versions of the randomizer with no per-world settings. Each element of the list consists of the following fields:
-    * `world_count` as a 1-byte number which must not be zero.
-    * `lacs_condition` as one byte with one of the following values:
-        * `0x00`: `vanilla`
-        * `0x01`: `stones`
-        * `0x02`: `medallions`
-        * `0x03`: `dungeons`
-        * `0x04`: `tokens`
-        * `0x05`: `hearts`
-    * `bridge` as one byte with one of the following values:
-        * `0x00`: `open`
-        * `0x01`: `vanilla`
-        * `0x02`: `stones`
-        * `0x03`: `medallions`
-        * `0x04`: `dungeons`
-        * `0x05`: `tokens`
-        * `0x06`: `hearts`
-        * `0x07`: `random`
-    * `shuffle_ganon_bosskey` as one byte with one of the following values:
-        * `0x00`: `remove`
-        * `0x01`: `vanilla`
-        * `0x02`: `dungeon`
-        * `0x03`: `regional`
-        * `0x04`: `overworld`
-        * `0x05`: `any_dungeon`
-        * `0x06`: `keysanity`
-        * `0x07`: `on_lacs`
-        * `0x08`: `stones`
-        * `0x09`: `medallions`
-        * `0x0a`: `dungeons`
-        * `0x0b`: `tokens`
-        * `0x0c`: `hearts`
     * `keyring_give_bk` as a [Boolean](#boolean)
-    * `free_bombchu_drops` as a [Boolean](#boolean)
-    * `correct_chest_sizes` as a [Boolean](#boolean). Set to false for randomizer versions which don't have this setting anymore due to being replaced with `correct_chest_appearances`.
-    * `correct_chest_appearances` as an [optional](#optional) byte with one of the following values if present:
-        * `0x00`: `off`
-        * `0x01`: `classic`
-        * `0x02`: `textures`
-        * `0x03`: `both`
-    * `minor_items_as_major_chest`, consisting of the following fields:
-        * `bombchus`, a [Boolean](#boolean)
-        * `shields`, a [Boolean](#boolean)
-        * `capacity`, a [Boolean](#boolean)
-    * `invisible_chests`, a [Boolean](#boolean)
-* `randomized_settings`: Information about a subset of each world's randomized settings, a [list](#list) with each element consisting of the following fields:
-    * `bridge` as one byte with the same values as the `bridge` field of the `settings` field
 * `locations`: A [list](#list) of one [map](#map) per world, where each key is a location name as a [string](#string) and each value consists of the following fields:
     * `player`: The world number of the item's recipient, a 1-byte number which must not be zero
     * `item`: The name of the item, a [string](#string)
     * `model`: An [optional](#optional) [string](#string), present if this item is an ice trap in a location where the cloak is relevant, defining the item it is cloaked as
-
-Some of these fields are unused and will be removed in a future version. As of now, they still need to be present and have valid values. The following fields are actually used:
-
-* `source_world`
-* `file_hash`
-* `:version`
-* the `keyring_give_bk` setting
-* `locations`
 
 ## `0x0e` SaveDataError
 
@@ -271,16 +225,15 @@ Should not be sent by third-party clients.
 
 ## `0x0f` FileHash
 
-Updates the file hash for this client. May only be sent while in a room. Consists of the new [file hash](#file-hash).
+Updates the file hash for this client. May only be sent while in a room. Consists of the new [optional](#optional) [file hash](#file-hash), where no file hash represents a seed rolled on a randomizer version from before co-op context version 4.
 
 ## `0x10` AutoDeleteDelta
 
 Changes the duration of inactivity after which this room will be automatically deleted. May only be sent while in a room. Consists of the new [duration](#duration).
 
-## `0x11` WaitUntilEmpty
+## `0x11` _Unused2
 
-Requests that the server send a RoomsEmpty message once there are no clients with assigned world numbers in any room. May only be sent while in the lobby and only after siging in as a MH MW administrator. This message is deprecated and will be removed in a future version. It contains no data.
-
+This message must not be sent. Message ID `0x11` may be reused for a new message in a future protocol version.
 ## `0x12` LoginDiscord
 
 Attempt to sign into a Mido's House account with an [OAuth](https://en.wikipedia.org/wiki/OAuth) bearer token from [Discord](https://discord.com/). May only be sent while in the lobby. Consists of the bearer token, a [string](#string). Signing into a Mido's House account gives the client access to invite-only rooms, such as tournament rooms.
