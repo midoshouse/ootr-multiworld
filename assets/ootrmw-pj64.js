@@ -1,10 +1,10 @@
 const TCP_PORT = 24818;
-const MW_FRONTEND_PROTO_VERSION = 7;
+const MW_FRONTEND_PROTO_VERSION = 8;
 const DEFAULT_PLAYER_NAME = [0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf, 0xdf];
 const SRAM_START = 0xA8000000;
 const REWARD_ROWS = [0, 1, 2, 8, 3, 4, 5, 7, 6];
 
-var fileHash = null;
+var fileHash = undefined;
 var playerID = null;
 var playerName = null;
 var playerNames = [
@@ -600,15 +600,25 @@ function handle_frame(write, error) {
                 }
                 if (coopContextVersion >= 4) {
                     var newFileHash = mem.getblock(newCoopContextAddr + 0x0814, 5);
-                    if (fileHash === null || newFileHash != fileHash) {
-                        const fileHashPacket = new ArrayBuffer(6);
+                    if (newFileHash !== fileHash) {
+                        const fileHashPacket = new ArrayBuffer(7);
                         var fileHashPacketView = new DataView(fileHashPacket);
                         fileHashPacketView.setUint8(0, 4); // message: file hash changed
+                        fileHashPacketView.setUint8(1, 1); // Some
                         for (var c = 0; c < 5; c++) {
-                            fileHashPacketView.setUint8(c + 1, newFileHash[c]);
+                            fileHashPacketView.setUint8(c + 2, newFileHash[c]);
                         }
                         write(new Buffer(new Uint8Array(fileHashPacket)));
                         fileHash = newFileHash;
+                    }
+                } else {
+                    if (fileHash !== null) {
+                        const fileHashPacket = new ArrayBuffer(2);
+                        var fileHashPacketView = new DataView(fileHashPacket);
+                        fileHashPacketView.setUint8(0, 4); // message: file hash changed
+                        fileHashPacketView.setUint8(1, 0); // None
+                        write(new Buffer(new Uint8Array(fileHashPacket)));
+                        fileHash = null;
                     }
                 }
                 if (coopContextVersion >= 5) {

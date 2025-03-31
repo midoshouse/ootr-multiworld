@@ -102,7 +102,7 @@ impl TryFrom<ClientMessage> for unversioned::ClientMessage {
             ClientMessage::SaveData(save) => unversioned::ClientMessage::SaveData(save),
             ClientMessage::SendAll { source_world, spoiler_log } => unversioned::ClientMessage::SendAll { source_world, spoiler_log: spoiler_log.into() },
             ClientMessage::SaveDataError { debug, version } => unversioned::ClientMessage::SaveDataError { debug, version },
-            ClientMessage::FileHash(hash) => unversioned::ClientMessage::FileHash(hash),
+            ClientMessage::FileHash(hash) => unversioned::ClientMessage::FileHash(Some(hash)),
             ClientMessage::AutoDeleteDelta(delta) => unversioned::ClientMessage::AutoDeleteDelta(delta),
             ClientMessage::WaitUntilEmpty => unversioned::ClientMessage::WaitUntilEmpty,
             ClientMessage::LoginDiscord { bearer_token } => unversioned::ClientMessage::LoginDiscord { bearer_token },
@@ -186,10 +186,14 @@ impl From<unversioned::ServerMessage> for Option<ServerMessage> {
             unversioned::ServerMessage::GetItem(item) => Some(ServerMessage::GetItem(item)),
             unversioned::ServerMessage::AdminLoginSuccess { active_connections } => Some(ServerMessage::AdminLoginSuccess { active_connections }),
             unversioned::ServerMessage::Goodbye => Some(ServerMessage::Goodbye),
-            unversioned::ServerMessage::PlayerFileHash(world, hash) => Some(ServerMessage::PlayerFileHash(world, hash)),
+            unversioned::ServerMessage::PlayerFileHash(world, hash) => Some(ServerMessage::PlayerFileHash(world, hash?)),
             unversioned::ServerMessage::AutoDeleteDelta(delta) => Some(ServerMessage::AutoDeleteDelta(delta)),
             unversioned::ServerMessage::RoomsEmpty => Some(ServerMessage::RoomsEmpty),
-            unversioned::ServerMessage::WrongFileHash { server, client } => Some(ServerMessage::WrongFileHash { server, client }),
+            unversioned::ServerMessage::WrongFileHash { server, client } => Some(if let (Some(server), Some(client)) = (server, client) {
+                ServerMessage::WrongFileHash { server, client }
+            } else {
+                ServerMessage::OtherError(format!("this room is for a different seed: server has {} but client has {}", crate::format_opt_hash(server), crate::format_opt_hash(client)))
+            }),
             unversioned::ServerMessage::ProgressiveItems { world, state } => Some(ServerMessage::ProgressiveItems { world, state }),
             unversioned::ServerMessage::LoginSuccess => Some(ServerMessage::LoginSuccess),
             unversioned::ServerMessage::WorldTaken(world) => Some(ServerMessage::WorldTaken(world)),

@@ -181,7 +181,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                             let room = ArcRwLock::new(Room {
                                 auth: RoomAuth::Invitational(players),
                                 clients: HashMap::default(),
-                                file_hash: Some([hash1, hash2, hash3, hash4, hash5]),
+                                file_hash: Some(Some([hash1, hash2, hash3, hash4, hash5])),
                                 base_queue: Vec::default(),
                                 player_queues: HashMap::default(),
                                 last_saved: now,

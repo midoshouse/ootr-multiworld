@@ -171,6 +171,7 @@ unsupported_version!("/v13", v13);
 supported_version!("/v14", v14, V14, 14);
 supported_version!("/v15", v15, V15, 15);
 supported_version!("/v16", v16, V16, 16);
+supported_version!("/v17", v17, V17, 17);
 
 #[rocket::catch(404)]
 async fn not_found() -> RawHtml<String> {
@@ -213,6 +214,35 @@ async fn internal_server_error() -> Result<RawHtml<String>, rocket_util::Error<w
     })
 }
 
+#[rocket::catch(default)]
+async fn fallback_catcher(status: Status, _: &Request<'_>) -> Result<RawHtml<String>, rocket_util::Error<wheel::Error>> {
+    wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("responding with unexpected HTTP status code: {} {}", status.code, status.reason_lossy()))).await?;
+    Ok(html! {
+        : Doctype;
+        html {
+            head {
+                meta(charset = "utf-8");
+                meta(name = "viewport", content = "width=device-width, initial-scale=1, shrink-to-fit=no");
+                title {
+                    : status.reason_lossy();
+                    : " — Mido's House Multiworld";
+                };
+                link(rel = "icon", sizes = "1024x1024", type = "image/png", href = uri!("https://midos.house/static/mw.png").to_string());
+                link(rel = "stylesheet", href = uri!("https://midos.house/static/common.css").to_string());
+            }
+            body {
+                h1 {
+                    : "Error ";
+                    : status.code;
+                    : ": ";
+                    : status.reason_lossy();
+                }
+                p : "Sorry, something went wrong. Please notify Fenhl on Discord.";
+            }
+        }
+    })
+}
+
 pub(crate) async fn rocket(db_pool: PgPool, http_client: reqwest::Client, rng: Arc<SystemRandom>, port: u16, rooms: Rooms<WebSocket>, maintenance: Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>) -> Result<Rocket<rocket::Ignite>, crate::Error> {
     Ok(rocket::custom(rocket::Config {
         log_level: rocket::config::LogLevel::Critical,
@@ -226,6 +256,7 @@ pub(crate) async fn rocket(db_pool: PgPool, http_client: reqwest::Client, rng: A
     .register("/", rocket::catchers![
         not_found,
         internal_server_error,
+        fallback_catcher,
     ])
     .manage(db_pool)
     .manage(http_client)

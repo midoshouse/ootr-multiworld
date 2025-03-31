@@ -6,16 +6,25 @@ use {
     async_proto::Protocol,
     if_chain::if_chain,
     log_lock::*,
+    ootr_utils::spoiler::HashIcon,
 };
 #[cfg(unix)] use xdg::BaseDirectories;
 #[cfg(windows)] use directories::ProjectDirs;
 
-const VERSION: u8 = 1;
+const VERSION: u8 = 2;
+
+#[derive(Protocol)]
+pub(crate) struct PendingItem {
+    pub(crate) hash: Option<[HashIcon; 5]>,
+    pub(crate) key: u64,
+    pub(crate) kind: u16,
+    pub(crate) target_world: NonZeroU8,
+}
 
 #[derive(Default, Protocol)]
 pub(crate) struct Data {
-    pub(crate) pending_items_before_save: Vec<(u64, u16, NonZeroU8)>,
-    pub(crate) pending_items_after_save: Vec<(u64, u16, NonZeroU8)>,
+    pub(crate) pending_items_before_save: Vec<PendingItem>,
+    pub(crate) pending_items_after_save: Vec<PendingItem>,
 }
 
 #[derive(Default, Clone)]

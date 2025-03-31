@@ -235,7 +235,7 @@ impl FromExpr for ClientMessage {
                         //TODO SaveData (read from path?)
                         "FileHash" => {
                             let hash = call.args.into_iter().exactly_one()?;
-                            Ok(Self::FileHash(<[HashIcon; 5]>::from_expr(hash)?))
+                            Ok(Self::FileHash(Option::from_expr(hash)?))
                         }
                         "AutoDeleteDelta" => {
                             let interval = call.args.into_iter().exactly_one()?;
@@ -251,7 +251,6 @@ impl FromExpr for ClientMessage {
             Expr::Path(path) => if let Some(ident) = path.path.get_ident() {
                 match &*ident.to_string() {
                     "Ping" => Ok(Self::Ping),
-                    "Stop" => Ok(Self::Stop),
                     "ResetPlayerId" => Ok(Self::ResetPlayerId),
                     "DeleteRoom" => Ok(Self::DeleteRoom),
                     "LeaveRoom" => Ok(Self::LeaveRoom),

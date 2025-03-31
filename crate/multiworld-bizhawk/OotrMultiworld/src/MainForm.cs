@@ -72,6 +72,7 @@ internal class Native {
     [DllImport("multiworld")] internal static extern UnitResult client_reset_player_id(Client client);
     [DllImport("multiworld")] internal static extern UnitResult client_set_player_name(Client client, IntPtr name);
     [DllImport("multiworld")] internal static extern UnitResult client_set_file_hash(Client client, IntPtr hash);
+    [DllImport("multiworld")] internal static extern UnitResult client_set_unknown_file_hash(Client client);
     [DllImport("multiworld")] internal static extern UnitResult client_set_save_data(Client client, IntPtr save);
     [DllImport("multiworld")] internal static extern OptMessageResult client_try_recv_message(Client client);
     [DllImport("multiworld")] internal static extern void opt_message_result_free(IntPtr opt_msg_res);
@@ -188,6 +189,10 @@ internal class Client : SafeHandle {
         Marshal.FreeHGlobal(hashPtr);
     }
 
+    internal void SendUnknownFileHash() {
+        Native.client_set_unknown_file_hash(this);
+    }
+
     internal OptMessageResult TryRecv() => Native.client_try_recv_message(this);
     internal UnitResult SendItem(ulong key, ushort kind, byte targetWorld) => Native.client_send_item(this, key, kind, targetWorld);
     internal UnitResult SendCurrentScene(byte currentScene) => Native.client_send_current_scene(this, currentScene);
@@ -297,6 +302,7 @@ internal class OwnedStringHandle : SafeHandle {
 [ExternalToolEmbeddedIcon("MidosHouse.OotrMultiworld.Resources.icon.ico")]
 public sealed class MainForm : ToolFormBase, IExternalToolForm {
     private readonly List<byte> REWARD_ROWS = new List<byte> { 0, 1, 2, 8, 3, 4, 5, 7, 6 };
+    private readonly List<byte> UNKNOWN_FILE_HASH = new List<byte> { 0xff, 0xff, 0xff, 0xff, 0xff };
 
     private Client? client;
     private List<byte> fileHash = new List<byte> { 0xff, 0xff, 0xff, 0xff, 0xff };
@@ -566,6 +572,11 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                                 if (this.client != null && !Enumerable.SequenceEqual(this.fileHash, newFileHash)) {
                                     this.client.SendFileHash(newFileHash);
                                     this.fileHash = new List<byte>(newFileHash);
+                                }
+                            } else {
+                                if (this.client != null && !Enumerable.SequenceEqual(this.fileHash, UNKNOWN_FILE_HASH)) {
+                                    this.client.SendUnknownFileHash();
+                                    this.fileHash = UNKNOWN_FILE_HASH;
                                 }
                             }
                             if (coopContextVersion >= 5) {

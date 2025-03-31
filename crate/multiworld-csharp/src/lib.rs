@@ -431,7 +431,12 @@ impl Client {
 #[csharp_ffi] pub unsafe extern "C" fn client_set_file_hash(client: *mut Client, hash: *const FfiHashIcon) -> HandleOwned<Result<(), Error>> {
     let client = &mut *client;
     let hash = slice::from_raw_parts(hash, 5);
-    HandleOwned::new(client.write(ClientMessage::FileHash(<[FfiHashIcon; 5]>::try_from(hash).expect("file hashes are 5 bytes").map(HashIcon::from))))
+    HandleOwned::new(client.write(ClientMessage::FileHash(Some(<[FfiHashIcon; 5]>::try_from(hash).expect("file hashes are 5 bytes").map(HashIcon::from)))))
+}
+
+#[csharp_ffi] pub unsafe extern "C" fn client_set_unknown_file_hash(client: *mut Client) -> HandleOwned<Result<(), Error>> {
+    let client = &mut *client;
+    HandleOwned::new(client.write(ClientMessage::FileHash(None)))
 }
 
 /// # Safety

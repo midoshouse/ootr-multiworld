@@ -259,7 +259,7 @@ impl Recipe for Subscription {
                         (vec![
                             Message::FrontendConnected(FrontendWriter::Mpsc(tx)),
                             Message::Plugin(Box::new(frontend::ClientMessage::PlayerId(player_id))),
-                            Message::Plugin(Box::new(frontend::ClientMessage::FileHash(file_hash))),
+                            Message::Plugin(Box::new(frontend::ClientMessage::FileHash(Some(file_hash)))),
                         ], SubscriptionState::Connected {
                             session: SessionState::Handshake,
                             read: read_from_port(reader).boxed(),

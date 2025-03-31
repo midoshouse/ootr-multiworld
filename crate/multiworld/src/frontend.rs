@@ -20,7 +20,7 @@ use {
 ///
 /// If possible, prefer having the OS select an unused port dynamically, to allow multiple instances of multiworld to run in parallel on the same computer.
 pub const PORT: u16 = 24818;
-pub const PROTOCOL_VERSION: u8 = 7;
+pub const PROTOCOL_VERSION: u8 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Sequence, Deserialize, Serialize, clap::ValueEnum)]
 #[clap(rename_all = "lower")]
@@ -73,7 +73,7 @@ pub enum ClientMessage {
         target_world: NonZeroU8,
     },
     SaveData([u8; oottracker::save::SIZE]),
-    FileHash([HashIcon; 5]),
+    FileHash(Option<[HashIcon; 5]>),
     ResetPlayerId,
     DungeonRewardInfo {
         emerald: Option<(NonZeroU8, HintArea)>,

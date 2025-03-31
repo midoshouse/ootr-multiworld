@@ -6,7 +6,7 @@ edition.workspace = true
 repository.workspace = true
 
 [dependencies]
-async-proto = { version = "0.24", features = ["chrono"] }
+async-proto = { version = "0.25", features = ["chrono"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
 derivative = "2"
@@ -29,7 +29,7 @@ sqlx = { version = "0.8", default-features = false, features = ["chrono", "postg
 thiserror = "2"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "parking_lot", "process", "rt-multi-thread", "sync", "time"] }
 tokio-tungstenite = "0.21" # waiting for https://github.com/rwf2/Rocket/pull/2823
-wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["reqwest", "rocket", "serde", "serde_json", "serde_json_path_to_error"] }
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["reqwest", "rocket", "serde_json"] }
 
 [target.'cfg(unix)'.dependencies]
 either = "1"

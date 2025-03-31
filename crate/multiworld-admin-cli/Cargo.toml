@@ -9,7 +9,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-async-proto = { version = "0.24", features = ["tokio-tungstenite024"] }
+async-proto = { version = "0.25", features = ["tokio-tungstenite024"] }
 chrono = { version = "0.4", default-features = false, features = ["alloc", "clock"] }
 clap = { version = "4", features = ["derive"] }
 crossterm = { version = "0.28", features = ["event-stream"] }

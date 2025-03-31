@@ -438,7 +438,7 @@ struct State {
     wait_time: Duration,
     last_world: Option<NonZeroU8>,
     last_name: Filename,
-    last_hash: Option<[HashIcon; 5]>,
+    last_hash: Option<Option<[HashIcon; 5]>>,
     last_save: Option<oottracker::Save>,
     last_dungeon_reward_locations: HashMap<DungeonReward, (NonZeroU8, HintArea)>,
     update_state: UpdateState,
@@ -1042,11 +1042,13 @@ impl State {
                             Ok(Message::Nop)
                         })
                     } else {
-                        let persistent_state = self.persistent_state.clone();
-                        return cmd(async move {
-                            persistent_state.edit(move |state| state.pending_items_after_save.push((key, kind, target_world))).await?;
-                            Ok(Message::Nop)
-                        })
+                        if let Some(hash) = self.last_hash {
+                            let persistent_state = self.persistent_state.clone();
+                            return cmd(async move {
+                                persistent_state.edit(move |state| state.pending_items_after_save.push(persistent_state::PendingItem { hash, key, kind, target_world })).await?;
+                                Ok(Message::Nop)
+                            })
+                        }
                     }
                 }
                 frontend::ClientMessage::SaveData(save) => match oottracker::Save::from_save_data(&save) {
@@ -1334,7 +1336,10 @@ impl State {
                                     server_writer.write(ClientMessage::FileHash(hash)).await?;
                                 }
                             }
-                            for (key, kind, target_world) in pending_items_before_save {
+                            for persistent_state::PendingItem { hash, key, kind, target_world } in pending_items_before_save {
+                                if let Some(last_hash) = file_hash {
+                                    if hash != last_hash { continue }
+                                }
                                 server_writer.write(ClientMessage::SendItem { key, kind, target_world }).await?;
                             }
                             if let Some(save) = save {
@@ -1343,7 +1348,10 @@ impl State {
                             for (reward, (world, area)) in dungeon_reward_locations {
                                 server_writer.write(ClientMessage::DungeonRewardInfo { reward, world, area }).await?;
                             }
-                            for (key, kind, target_world) in pending_items_after_save {
+                            for persistent_state::PendingItem { hash, key, kind, target_world } in pending_items_after_save {
+                                if let Some(last_hash) = file_hash {
+                                    if hash != last_hash { continue }
+                                }
                                 server_writer.write(ClientMessage::SendItem { key, kind, target_world }).await?;
                             }
                             for player in players {
@@ -1826,31 +1834,39 @@ impl State {
                         .push(Button::new("Dismiss").on_press(Message::DismissConflictingItemKinds))
                         .spacing(8)
                 }
-                SessionState::Room { conflicting_item_kinds: false, wrong_file_hash: Some([[server1, server2, server3, server4, server5], [client1, client2, client3, client4, client5]]), .. } => Column::new()
+                SessionState::Room { conflicting_item_kinds: false, wrong_file_hash: Some([server, client]), .. } => Column::new()
                     .push("This room is for a different seed.")
                     .push(Scrollable::new(Column::new()
-                        .push(Row::new()
-                            .push("Room:")
-                            //TODO add gray background or drop shadow in light mode
-                            .push(hash_icon(server1))
-                            .push(hash_icon(server2))
-                            .push(hash_icon(server3))
-                            .push(hash_icon(server4))
-                            .push(hash_icon(server5))
-                            .align_y(iced::Alignment::Center)
-                            .spacing(8)
-                        )
-                        .push(Row::new()
-                            .push("You:")
-                            //TODO add gray background or drop shadow in light mode
-                            .push(hash_icon(client1))
-                            .push(hash_icon(client2))
-                            .push(hash_icon(client3))
-                            .push(hash_icon(client4))
-                            .push(hash_icon(client5))
-                            .align_y(iced::Alignment::Center)
-                            .spacing(8)
-                        )
+                        .push(if let Some([server1, server2, server3, server4, server5]) = server {
+                            Row::new()
+                                .push("Room:")
+                                //TODO add gray background or drop shadow in light mode
+                                .push(hash_icon(server1))
+                                .push(hash_icon(server2))
+                                .push(hash_icon(server3))
+                                .push(hash_icon(server4))
+                                .push(hash_icon(server5))
+                                .align_y(iced::Alignment::Center)
+                                .spacing(8)
+                                .into()
+                        } else {
+                            Element::from("Room: (old randomizer version)")
+                        })
+                        .push(if let Some([client1, client2, client3, client4, client5]) = client {
+                            Row::new()
+                                .push("You:")
+                                //TODO add gray background or drop shadow in light mode
+                                .push(hash_icon(client1))
+                                .push(hash_icon(client2))
+                                .push(hash_icon(client3))
+                                .push(hash_icon(client4))
+                                .push(hash_icon(client5))
+                                .align_y(iced::Alignment::Center)
+                                .spacing(8)
+                                .into()
+                        } else {
+                            Element::from("You: (old randomizer version)")
+                        })
                         .spacing(8)
                     ).direction(scrollable::Direction::Horizontal(scrollable::Scrollbar::default())))
                     .push(Row::new()

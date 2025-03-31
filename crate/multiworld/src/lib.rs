@@ -26,15 +26,18 @@ use {
         Mutex,
         lock,
     },
+    nonempty_collections::{
+        IntoIteratorExt as _,
+        IntoNonEmptyIterator,
+        NEVec,
+        NonEmptyIterator as _,
+    },
     ootr::model::{
         DungeonReward,
         DungeonRewardLocation,
         MainDungeon,
     },
-    ootr_utils::spoiler::{
-        HashIcon,
-        SpoilerLog,
-    },
+    ootr_utils::spoiler::HashIcon,
     oottracker::websocket::MwItem as Item,
     rand::prelude::*,
     rand_xoshiro::Xoshiro256StarStar,
@@ -136,18 +139,22 @@ pub enum MacReleaseMessage {
 
 const TRIFORCE_PIECE: u16 = 0x00ca;
 
-fn natjoin<T: fmt::Display>(elts: impl IntoIterator<Item = T>) -> Option<String> {
-    let mut elts = elts.into_iter().fuse();
-    match (elts.next(), elts.next(), elts.next()) {
-        (None, _, _) => None,
-        (Some(elt), None, _) => Some(elt.to_string()),
-        (Some(elt1), Some(elt2), None) => Some(format!("{elt1} and {elt2}")),
-        (Some(elt1), Some(elt2), Some(elt3)) => {
-            let mut rest = [elt2, elt3].into_iter().chain(elts).collect_vec();
-            let last = rest.pop().expect("rest contains at least elt2 and elt3");
-            Some(format!("{elt1}, {}, and {last}", rest.into_iter().format(", ")))
+fn natjoin<T: fmt::Display>(elts: impl IntoNonEmptyIterator<Item = T>) -> String {
+    let (first, rest) = elts.into_nonempty_iter().next();
+    let mut rest = rest.fuse();
+    match (rest.next(), rest.next()) {
+        (None, _) => first.to_string(),
+        (Some(second), None) => format!("{first} and {second}"),
+        (Some(second), Some(third)) => {
+            let mut rest = [second, third].into_nonempty_iter().chain(rest).collect::<NEVec<_>>();
+            let last = rest.pop().expect("rest contains at least second and third");
+            format!("{first}, {}, and {last}", rest.into_iter().format(", "))
         }
     }
+}
+
+fn natjoin_opt<T: fmt::Display>(elts: impl IntoIterator<Item = T>) -> Option<String> {
+    elts.try_into_nonempty_iter().map(|iter| natjoin(iter))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -170,7 +177,7 @@ impl fmt::Display for DurationFormatter {
             .chain((hours > 0).then(|| format!("{hours} hour{}", if hours == 1 { "" } else { "s" })))
             .chain((mins > 0).then(|| format!("{mins} minute{}", if mins == 1 { "" } else { "s" })))
             .chain((secs > 0).then(|| format!("{secs} second{}", if secs == 1 { "" } else { "s" })));
-        if let Some(formatted) = natjoin(parts) {
+        if let Some(formatted) = natjoin_opt(parts) {
             write!(f, "{formatted}")
         } else {
             write!(f, "0 seconds")
@@ -386,7 +393,7 @@ impl PartialEq<&[u8]> for Filename {
 pub struct Player {
     pub world: NonZero<u8>,
     pub name: Filename,
-    file_hash: Option<[HashIcon; 5]>,
+    file_hash: Option<Option<[HashIcon; 5]>>,
 }
 
 impl Player {
@@ -458,7 +465,7 @@ pub struct Client<C: ClientKind> {
     pub player: Option<Player>,
     pub pending_world: Option<NonZero<u8>>,
     pub pending_name: Option<Filename>,
-    pub pending_hash: Option<[HashIcon; 5]>,
+    pub pending_hash: Option<Option<[HashIcon; 5]>>,
     pub pending_items: Vec<(u64, u16, NonZero<u8>)>,
     pub tracker_state: oottracker::ModelState,
     pub adjusted_save: oottracker::Save,
@@ -544,7 +551,7 @@ pub struct Room<C: ClientKind> {
     pub name: String,
     pub auth: RoomAuth,
     pub clients: HashMap<C::SessionId, Client<C>>,
-    pub file_hash: Option<[HashIcon; 5]>,
+    pub file_hash: Option<Option<[HashIcon; 5]>>,
     pub base_queue: Vec<Item>,
     pub player_queues: HashMap<NonZero<u8>, Vec<Item>>,
     pub deleted: bool,
@@ -688,14 +695,22 @@ impl ProgressiveItems {
     }
 }
 
+fn format_opt_hash(hash: Option<[HashIcon; 5]>) -> String {
+    if let Some(hash) = hash {
+        natjoin(hash)
+    } else {
+        format!("(old randomizer version)")
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RoomError {
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
-    #[error("this room is for a different seed: server has {} but client has {}", natjoin(.server).unwrap(), natjoin(.client).unwrap())]
+    #[error("this room is for a different seed: server has {} but client has {}", format_opt_hash(*.server), format_opt_hash(*.client))]
     FileHash {
-        server: [HashIcon; 5],
-        client: [HashIcon; 5],
+        server: Option<[HashIcon; 5]>,
+        client: Option<[HashIcon; 5]>,
     },
 }
 
@@ -881,7 +896,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn set_file_hash(&mut self, client_id: C::SessionId, hash: [HashIcon; 5]) -> Result<(), RoomError> {
+    pub async fn set_file_hash(&mut self, client_id: C::SessionId, hash: Option<[HashIcon; 5]>) -> Result<(), RoomError> {
         if let Some(room_hash) = self.file_hash {
             if room_hash != hash {
                 return Err(RoomError::FileHash { server: room_hash, client: hash })
@@ -1016,16 +1031,16 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn send_all(&mut self, source_world: NonZero<u8>, spoiler_log: &SpoilerLog, logged_in_as_admin: bool) -> Result<(), SendAllError> {
+    pub async fn send_all(&mut self, source_world: NonZero<u8>, spoiler_log: &latest::SpoilerLog, logged_in_as_admin: bool) -> Result<(), SendAllError> {
         if !self.allow_send_all && !logged_in_as_admin {
             return Err(SendAllError::Disallowed)
         }
-        if let Some(room_hash) = self.file_hash {
+        if let Some(Some(room_hash)) = self.file_hash {
             if spoiler_log.file_hash != room_hash {
-                return Err(SendAllError::Room(RoomError::FileHash { server: room_hash, client: spoiler_log.file_hash }))
+                return Err(SendAllError::Room(RoomError::FileHash { server: Some(room_hash), client: Some(spoiler_log.file_hash) }))
             }
         } else {
-            self.file_hash = Some(spoiler_log.file_hash);
+            self.file_hash = Some(Some(spoiler_log.file_hash));
         }
         spoiler_log.version.clone_repo().await?;
         let py_modules = spoiler_log.version.py_modules("/usr/bin/python3")?;
@@ -1279,7 +1294,7 @@ pub enum SessionState<E> {
         autodelete_delta: Duration,
         allow_send_all: bool,
         view: RoomView,
-        wrong_file_hash: Option<[[HashIcon; 5]; 2]>,
+        wrong_file_hash: Option<[Option<[HashIcon; 5]>; 2]>,
         world_taken: Option<NonZero<u8>>,
         conflicting_item_kinds: bool,
     },

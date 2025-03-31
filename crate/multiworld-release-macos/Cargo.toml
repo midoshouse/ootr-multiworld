@@ -8,12 +8,12 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-async-proto = "0.24.1"
+async-proto = "0.25"
 clap = { version = "4.5.21", features = ["derive"] }
 dir-lock = "0.4"
 directories = "6"
 git2 = "0.20"
-multiworld = { version = "16.0.0", path = "../multiworld" }
+multiworld = { path = "../multiworld" }
 thiserror = "2.0.3"
 tokio = { version = "1.41.1", features = ["io-std", "parking_lot", "process"] }
 wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }

@@ -10,19 +10,38 @@ use {
         Sink,
         stream::Stream,
     },
+    ootr::model::DungeonReward,
     ootr_utils::spoiler::HashIcon,
     semver::Version,
+    serde::Deserialize,
     tokio_tungstenite::tungstenite,
     crate::{
         Filename,
+        HintArea,
         Player,
         ws::{
             ServerError,
             unversioned,
-            v16::SpoilerLog,
         },
     },
 };
+
+#[derive(Debug, Deserialize, Protocol)]
+pub struct SpoilerLogSettings {
+    #[serde(default)]
+    pub keyring_give_bk: bool,
+}
+
+#[derive(Debug, Deserialize, Protocol)]
+pub struct SpoilerLog {
+    pub file_hash: [HashIcon; 5],
+    #[serde(rename = ":version")]
+    pub version: ootr_utils::Version,
+    #[serde(deserialize_with = "ootr_utils::spoiler::deserialize_multiworld")]
+    pub settings: Vec<SpoilerLogSettings>,
+    #[serde(deserialize_with = "ootr_utils::spoiler::deserialize_multiworld")]
+    pub locations: Vec<BTreeMap<String, ootr_utils::spoiler::Item>>,
+}
 
 #[derive(Debug, Protocol)]
 pub enum ClientMessage {
@@ -38,7 +57,7 @@ pub enum ClientMessage {
     LoginApiKey {
         api_key: String,
     },
-    Stop,
+    _Unused1,
     PlayerId(NonZeroU8),
     ResetPlayerId,
     PlayerName(Filename),
@@ -63,9 +82,9 @@ pub enum ClientMessage {
         debug: String,
         version: Version,
     },
-    FileHash([HashIcon; 5]),
+    FileHash(Option<[HashIcon; 5]>),
     AutoDeleteDelta(Duration),
-    WaitUntilEmpty,
+    _Unused2,
     LoginDiscord {
         bearer_token: String,
     },
@@ -73,6 +92,12 @@ pub enum ClientMessage {
         bearer_token: String,
     },
     LeaveRoom,
+    DungeonRewardInfo {
+        reward: DungeonReward,
+        world: NonZeroU8,
+        area: HintArea,
+    },
+    CurrentScene(u8),
 }
 
 impl TryFrom<ClientMessage> for unversioned::ClientMessage {
@@ -84,7 +109,10 @@ impl TryFrom<ClientMessage> for unversioned::ClientMessage {
             ClientMessage::JoinRoom { id, password } => unversioned::ClientMessage::JoinRoom { id, password },
             ClientMessage::CreateRoom { name, password } => unversioned::ClientMessage::CreateRoom { name, password },
             ClientMessage::LoginApiKey { api_key } => unversioned::ClientMessage::LoginApiKey { api_key },
-            ClientMessage::Stop => unversioned::ClientMessage::Stop,
+            ClientMessage::_Unused1 => return Err(async_proto::ReadError {
+                context: async_proto::ErrorContext::Custom(format!("multiworld: unversioned ClientMessage from v17")),
+                kind: async_proto::ReadErrorKind::Custom(format!("Received ClientMessage::_Unused1. This is a bug in your multiworld client.")),
+            }),
             ClientMessage::PlayerId(world) => unversioned::ClientMessage::PlayerId(world),
             ClientMessage::ResetPlayerId => unversioned::ClientMessage::ResetPlayerId,
             ClientMessage::PlayerName(filename) => unversioned::ClientMessage::PlayerName(filename),
@@ -95,12 +123,17 @@ impl TryFrom<ClientMessage> for unversioned::ClientMessage {
             ClientMessage::SaveData(save) => unversioned::ClientMessage::SaveData(save),
             ClientMessage::SendAll { source_world, spoiler_log } => unversioned::ClientMessage::SendAll { source_world, spoiler_log: spoiler_log.into() },
             ClientMessage::SaveDataError { debug, version } => unversioned::ClientMessage::SaveDataError { debug, version },
-            ClientMessage::FileHash(hash) => unversioned::ClientMessage::FileHash(Some(hash)),
+            ClientMessage::FileHash(hash) => unversioned::ClientMessage::FileHash(hash),
             ClientMessage::AutoDeleteDelta(delta) => unversioned::ClientMessage::AutoDeleteDelta(delta),
-            ClientMessage::WaitUntilEmpty => unversioned::ClientMessage::WaitUntilEmpty,
+            ClientMessage::_Unused2 => return Err(async_proto::ReadError {
+                context: async_proto::ErrorContext::Custom(format!("multiworld: unversioned ClientMessage from v17")),
+                kind: async_proto::ReadErrorKind::Custom(format!("Received ClientMessage::_Unused2. This is a bug in your multiworld client.")),
+            }),
             ClientMessage::LoginDiscord { bearer_token } => unversioned::ClientMessage::LoginDiscord { bearer_token },
             ClientMessage::LoginRaceTime { bearer_token } => unversioned::ClientMessage::LoginRaceTime { bearer_token },
             ClientMessage::LeaveRoom => unversioned::ClientMessage::LeaveRoom,
+            ClientMessage::DungeonRewardInfo { reward, world, area } => unversioned::ClientMessage::DungeonRewardInfo { reward, world, area },
+            ClientMessage::CurrentScene(scene) => unversioned::ClientMessage::CurrentScene(scene),
         })
     }
 }
@@ -138,12 +171,12 @@ pub enum ServerMessage {
         active_connections: BTreeMap<u64, (Vec<Player>, u8)>,
     },
     Goodbye,
-    PlayerFileHash(NonZeroU8, [HashIcon; 5]),
+    PlayerFileHash(NonZeroU8, Option<[HashIcon; 5]>),
     AutoDeleteDelta(Duration),
     RoomsEmpty,
     WrongFileHash {
-        server: [HashIcon; 5],
-        client: [HashIcon; 5],
+        server: Option<[HashIcon; 5]>,
+        client: Option<[HashIcon; 5]>,
     },
     ProgressiveItems {
         world: NonZeroU8,
@@ -178,14 +211,10 @@ impl From<unversioned::ServerMessage> for Option<ServerMessage> {
             unversioned::ServerMessage::GetItem(item) => Some(ServerMessage::GetItem(item)),
             unversioned::ServerMessage::AdminLoginSuccess { active_connections } => Some(ServerMessage::AdminLoginSuccess { active_connections }),
             unversioned::ServerMessage::Goodbye => Some(ServerMessage::Goodbye),
-            unversioned::ServerMessage::PlayerFileHash(world, hash) => Some(ServerMessage::PlayerFileHash(world, hash?)),
+            unversioned::ServerMessage::PlayerFileHash(world, hash) => Some(ServerMessage::PlayerFileHash(world, hash)),
             unversioned::ServerMessage::AutoDeleteDelta(delta) => Some(ServerMessage::AutoDeleteDelta(delta)),
             unversioned::ServerMessage::RoomsEmpty => Some(ServerMessage::RoomsEmpty),
-            unversioned::ServerMessage::WrongFileHash { server, client } => Some(if let (Some(server), Some(client)) = (server, client) {
-                ServerMessage::WrongFileHash { server, client }
-            } else {
-                ServerMessage::OtherError(format!("this room is for a different seed: server has {} but client has {}", crate::format_opt_hash(server), crate::format_opt_hash(client)))
-            }),
+            unversioned::ServerMessage::WrongFileHash { server, client } => Some(ServerMessage::WrongFileHash { server, client }),
             unversioned::ServerMessage::ProgressiveItems { world, state } => Some(ServerMessage::ProgressiveItems { world, state }),
             unversioned::ServerMessage::LoginSuccess => Some(ServerMessage::LoginSuccess),
             unversioned::ServerMessage::WorldTaken(world) => Some(ServerMessage::WorldTaken(world)),

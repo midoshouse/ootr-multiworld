@@ -6,16 +6,16 @@ use {
     },
     chrono::prelude::*,
     ootr::model::DungeonReward,
-    ootr_utils::spoiler::{
-        HashIcon,
-        SpoilerLog,
-    },
+    ootr_utils::spoiler::HashIcon,
     semver::Version,
     crate::{
         Filename,
         HintArea,
         Player,
-        ws::ServerError,
+        ws::{
+            ServerError,
+            latest::SpoilerLog,
+        },
     },
 };
 
@@ -73,8 +73,8 @@ pub enum ClientMessage {
         debug: String,
         version: Version,
     },
-    /// Reports the loaded seed's file hash icons, allowing the server to ensure that all players are on the same seed. Only works after [`ServerMessage::PlayerId`].
-    FileHash([HashIcon; 5]),
+    /// Reports the loaded seed's file hash icons, allowing the server to ensure that all players are on the same seed. A value of `None` means that the seed uses a co-op context version lower than 4, and so the file hash could not be determined. Only works after [`ServerMessage::PlayerId`].
+    FileHash(Option<[HashIcon; 5]>),
     /// Sets the time after which the room should be automatically deleted. Only works after [`ServerMessage::EnterRoom`].
     AutoDeleteDelta(Duration),
     /// Requests a [`ServerMessage::RoomsEmpty`] when no players with claimed worlds are in any rooms. Only works after [`ServerMessage::AdminLoginSuccess`].
@@ -153,15 +153,15 @@ pub enum ServerMessage {
     /// The client will now be disconnected.
     Goodbye,
     /// A player has sent their file select hash icons.
-    PlayerFileHash(NonZeroU8, [HashIcon; 5]),
+    PlayerFileHash(NonZeroU8, Option<[HashIcon; 5]>),
     /// Sets the time after which the room will be automatically deleted has been changed.
     AutoDeleteDelta(Duration),
     /// There are no active players in any rooms. Sent after [`ClientMessage::WaitUntilEmpty`].
     RoomsEmpty,
     /// The client has the wrong seed loaded.
     WrongFileHash {
-        server: [HashIcon; 5],
-        client: [HashIcon; 5],
+        server: Option<[HashIcon; 5]>,
+        client: Option<[HashIcon; 5]>,
     },
     /// Updates the progressive items state for the given player.
     ProgressiveItems {
