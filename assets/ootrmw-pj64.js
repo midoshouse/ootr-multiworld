@@ -600,7 +600,7 @@ function handle_frame(write, error) {
                 }
                 if (coopContextVersion >= 4) {
                     var newFileHash = mem.getblock(newCoopContextAddr + 0x0814, 5);
-                    if (newFileHash !== fileHash) {
+                    if (fileHash === undefined || fileHash === null || newFileHash[0] !== fileHash[0] || newFileHash[1] !== fileHash[1] || newFileHash[2] !== fileHash[2] || newFileHash[3] !== fileHash[3] || newFileHash[4] !== fileHash[4]) {
                         const fileHashPacket = new ArrayBuffer(7);
                         var fileHashPacketView = new DataView(fileHashPacket);
                         fileHashPacketView.setUint8(0, 4); // message: file hash changed
