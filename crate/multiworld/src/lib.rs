@@ -974,7 +974,7 @@ impl<C: ClientKind> Room<C> {
                 } else {
                     eprintln!("conflicting item kinds at location 0x{key:016x} from world {source_world} (client version: {source_version:?}) in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name);
                     if self.created.is_some() && source_version.as_ref().is_none_or(|source_version| *source_version >= Version::new(16, 3, 8)) {
-                        wheel::night_report("/games/zelda/oot/mhmw/error", Some(&format!("conflicting item kinds at location 0x{key:016x} from world {source_world} (client version: {source_version:?}) in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name))).await?;
+                        wheel::night_report("/games/zelda/oot/mhmw/conflictingItemKinds", Some(&format!("conflicting item kinds at location 0x{key:016x} from world {source_world} (client version: {source_version:?}) in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name))).await?;
                     }
                     if let Some(source_client) = source_client {
                         self.write(source_client, unversioned::ServerMessage::StructuredError(ServerError::ConflictingItemKinds)).await?;
