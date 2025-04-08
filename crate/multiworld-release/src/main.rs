@@ -975,7 +975,7 @@ impl Task<Result<(), Error>> for BuildServer {
                 }))
             }).await,
             Self::WaitRestart { start, child: None, .. } => gres::transpose(async move {
-                Ok(Err(if Command::new("ssh").arg("midos.house").arg("systemctl is-active ootrmw").status().await?.code() == Some(3) {
+                Ok(Err(if Command::new("ssh").arg("midos.house").arg("systemctl is-active ootrmw").output().await?.status.code() == Some(3) {
                     Self::Stop
                 } else {
                     let mut child = Command::new("ssh").arg("midos.house").arg("sudo -u mido /usr/local/share/midos-house/bin/ootrmwd prepare-restart --async-proto").stdout(Stdio::piped()).spawn()?;
@@ -999,7 +999,7 @@ impl Task<Result<(), Error>> for BuildServer {
                         // try again
                         Self::WaitRestart { start, child: None, stdout: None, rooms: None, deadline: None }
                     }
-                    Err(e) => if Command::new("ssh").arg("midos.house").arg("systemctl is-active ootrmw").status().await?.code() == Some(3) {
+                    Err(e) => if Command::new("ssh").arg("midos.house").arg("systemctl is-active ootrmw").output().await?.status.code() == Some(3) {
                         // prepare-restart command failed because the multiworld server was stopped
                         Self::Stop
                     } else {
