@@ -248,7 +248,7 @@ Leave the current room and go to the lobby. May only be sent while in a room. Th
 
 ## `0x15` DungeonRewardInfo
 
-Notifies the server about information on the locations of dungeon rewards (medallions and spiritual stones) that the player has obtained from the game. Should be sent each time the player gains new relevant information, whether by opening the dungeon reward info screen in the pause menu or by other means such as reading a hint or collecting the reward itself. The server only uses this information for auto-tracking, but should always be sent regardless. May only be sent while in a room. Consists of the following fields:
+Notifies the server about information on the locations of dungeon rewards (medallions and spiritual stones) that the player has obtained from the game. Should be sent each time the player gains new relevant information, whether by opening the dungeon reward info screen in the pause menu or by other means such as reading a hint or collecting the reward itself. This information is only used for auto-tracking, but should always be sent regardless. May only be sent while in a room. Consists of the following fields:
 
 * `reward`: 2 bytes with one of the following values:
     * `0x0000`: Light Medallion
@@ -301,7 +301,7 @@ Notifies the server about information on the locations of dungeon rewards (medal
 
 ## `0x16` CurrentScene
 
-Notifies the server about the scene ID the player is currently in. Should be sent each time this changes, regardless of whether the client is in the lobby or in a room. Currently only used for special events, but should always be sent regardless. Consists of the new scene ID as a 1-byte number.
+Notifies the server about the scene ID the player is currently in. Should be sent each time this changes, regardless of whether the client is in the lobby or in a room. Used only for auto-tracking and special events, but should always be sent regardless. Consists of the new scene ID as a 1-byte number.
 
 # Data types
 

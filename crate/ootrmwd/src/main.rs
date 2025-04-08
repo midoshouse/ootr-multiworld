@@ -697,15 +697,18 @@ async fn room_session<C: ClientKind>(
                     ClientMessage::DungeonRewardInfo { reward, world, area } => if let Ok(location) = area.try_into() {
                         lock!(@write room = room; room.add_dungeon_reward_info(socket_id, reward, world, location).await)?;
                     },
-                    ClientMessage::CurrentScene(scene) => if config.regional_vc {
-                        if let Some(midos_house_user_id) = midos_house_user_id {
-                            let mut cmd = Command::new("/usr/local/share/midos-house/bin/midos-house");
-                            cmd.arg("update-regional-vc");
-                            cmd.arg(midos_house_user_id.to_string());
-                            cmd.arg(scene.to_string());
-                            cmd.check("midos-house update-regional-vc").await?;
+                    ClientMessage::CurrentScene(scene) => {
+                        if config.regional_vc {
+                            if let Some(midos_house_user_id) = midos_house_user_id {
+                                let mut cmd = Command::new("/usr/local/share/midos-house/bin/midos-house");
+                                cmd.arg("update-regional-vc");
+                                cmd.arg(midos_house_user_id.to_string());
+                                cmd.arg(scene.to_string());
+                                cmd.check("midos-house update-regional-vc").await?;
+                            }
                         }
-                    },
+                        lock!(@write room = room; room.set_current_scene(socket_id, scene).await)?;
+                    }
                 }
                 read = next_message::<C>(reader);
             },

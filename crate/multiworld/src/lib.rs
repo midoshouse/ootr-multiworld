@@ -1102,6 +1102,16 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
+    pub async fn set_current_scene(&mut self, client_id: C::SessionId, scene: u8) -> Result<(), async_proto::WriteError> {
+        let client = self.clients.get_mut(&client_id).expect("tried to set current scene for nonexistent client");
+        if let Some(Player { world, .. }) = client.player {
+            if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
+                oottracker::websocket::ClientMessage::MwCurrentScene { room: tracker_room_name.clone(), world, scene }.write_ws021(sock).await?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn init_tracker(&mut self, tracker_room_name: String, world_count: NonZero<u8>) -> Result<(), async_proto::WriteError> {
         let mut worlds = (1..=world_count.get())
             .map(|player_id| (
