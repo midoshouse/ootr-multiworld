@@ -15,11 +15,13 @@ use {
     tokio_tungstenite::tungstenite,
     crate::{
         Filename,
-        Player,
         ws::{
             ServerError,
             unversioned,
-            v16::SpoilerLog,
+            v16::{
+                Player,
+                SpoilerLog,
+            },
         },
     },
 };
@@ -167,7 +169,10 @@ impl From<unversioned::ServerMessage> for Option<ServerMessage> {
             unversioned::ServerMessage::EnterLobby { rooms } => Some(ServerMessage::EnterLobby { rooms }),
             unversioned::ServerMessage::NewRoom { id, name, password_required } => Some(ServerMessage::NewRoom { id, name, password_required }),
             unversioned::ServerMessage::DeleteRoom(id) => Some(ServerMessage::DeleteRoom(id)),
-            unversioned::ServerMessage::EnterRoom { room_id, players, num_unassigned_clients, autodelete_delta, allow_send_all } => Some(ServerMessage::EnterRoom { room_id, players, num_unassigned_clients, autodelete_delta, allow_send_all }),
+            unversioned::ServerMessage::EnterRoom { room_id, players, num_unassigned_clients, autodelete_delta, allow_send_all } => Some(ServerMessage::EnterRoom {
+                players: players.into_iter().map(Player::from).collect(),
+                room_id, num_unassigned_clients, autodelete_delta, allow_send_all,
+            }),
             unversioned::ServerMessage::PlayerId(world) => Some(ServerMessage::PlayerId(world)),
             unversioned::ServerMessage::ResetPlayerId(world) => Some(ServerMessage::ResetPlayerId(world)),
             unversioned::ServerMessage::ClientConnected => Some(ServerMessage::ClientConnected),
@@ -176,7 +181,9 @@ impl From<unversioned::ServerMessage> for Option<ServerMessage> {
             unversioned::ServerMessage::PlayerName(world, filename) => Some(ServerMessage::PlayerName(world, filename)),
             unversioned::ServerMessage::ItemQueue(items) => Some(ServerMessage::ItemQueue(items)),
             unversioned::ServerMessage::GetItem(item) => Some(ServerMessage::GetItem(item)),
-            unversioned::ServerMessage::AdminLoginSuccess { active_connections } => Some(ServerMessage::AdminLoginSuccess { active_connections }),
+            unversioned::ServerMessage::AdminLoginSuccess { active_connections } => Some(ServerMessage::AdminLoginSuccess {
+                active_connections: active_connections.into_iter().map(|(room_id, (players, num_unassigned_clients))| (room_id, (players.into_iter().map(Player::from).collect(), num_unassigned_clients))).collect(),
+            }),
             unversioned::ServerMessage::Goodbye => Some(ServerMessage::Goodbye),
             unversioned::ServerMessage::PlayerFileHash(world, hash) => Some(ServerMessage::PlayerFileHash(world, hash?)),
             unversioned::ServerMessage::AutoDeleteDelta(delta) => Some(ServerMessage::AutoDeleteDelta(delta)),
