@@ -462,7 +462,7 @@ impl ClientWriter for OwnedWriteHalf {
 }
 
 pub struct Client<C: ClientKind> {
-    pub version: Option<Version>,
+    pub version: Result<Version, &'static str>,
     pub writer: Arc<Mutex<C::Writer>>,
     pub end_tx: oneshot::Sender<EndRoomSession>,
     pub player: Option<Player>,
@@ -750,7 +750,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    pub async fn add_client(&mut self, version: Option<Version>, client_id: C::SessionId, writer: Arc<Mutex<C::Writer>>, end_tx: oneshot::Sender<EndRoomSession>) -> Result<(), RoomError> {
+    pub async fn add_client(&mut self, version: Result<Version, &'static str>, client_id: C::SessionId, writer: Arc<Mutex<C::Writer>>, end_tx: oneshot::Sender<EndRoomSession>) -> Result<(), RoomError> {
         // the client doesn't need to be told that it has connected, so notify everyone *before* adding it
         self.write_all(&unversioned::ServerMessage::ClientConnected).await?;
         self.clients.insert(client_id, Client {
@@ -804,7 +804,7 @@ impl<C: ClientKind> Room<C> {
     }
 
     /// Moves a player from unloaded (no world assigned) to the given `world`.
-    pub async fn load_player(&mut self, client_version: Option<Version>, client_id: C::SessionId, world: NonZero<u8>) -> Result<bool, RoomError> {
+    pub async fn load_player(&mut self, client_version: Result<Version, &'static str>, client_id: C::SessionId, world: NonZero<u8>) -> Result<bool, RoomError> {
         if self.clients.iter().any(|(&iter_client_id, iter_client)| iter_client.player.as_ref().map_or(false, |p| p.world == world) && iter_client_id != client_id) {
             let client = self.clients.get_mut(&client_id).expect("tried to set pending world for nonexistent client");
             client.pending_world = Some(world);
@@ -916,7 +916,7 @@ impl<C: ClientKind> Room<C> {
         Ok(())
     }
 
-    async fn queue_item_inner(&mut self, source_version: Option<Version>, source_client: Option<C::SessionId>, source_world: NonZero<u8>, key: u64, kind: u16, target_world: NonZero<u8>, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str, verbose_logging: bool) -> Result<(), RoomError> {
+    async fn queue_item_inner(&mut self, source_version: Result<Version, &'static str>, source_client: Option<C::SessionId>, source_world: NonZero<u8>, key: u64, kind: u16, target_world: NonZero<u8>, #[cfg_attr(not(feature = "sqlx"), allow(unused))] context: &str, verbose_logging: bool) -> Result<(), RoomError> {
         if let Some((ref tracker_room_name, ref mut sock)) = self.tracker_state {
             if verbose_logging { println!("updating tracker") }
             oottracker::websocket::ClientMessage::MwQueueItem {
@@ -973,7 +973,7 @@ impl<C: ClientKind> Room<C> {
                     if verbose_logging { println!("item is a duplicate") }
                 } else {
                     eprintln!("conflicting item kinds at location 0x{key:016x} from world {source_world} (client version: {source_version:?}) in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name);
-                    if self.created.is_some() && source_version.as_ref().is_none_or(|source_version| *source_version >= Version::new(16, 3, 8)) {
+                    if self.created.is_some() && source_version.as_ref().ok().is_none_or(|source_version| *source_version >= Version::new(16, 3, 8)) {
                         wheel::night_report("/games/zelda/oot/mhmw/conflictingItemKinds", Some(&format!("conflicting item kinds at location 0x{key:016x} from world {source_world} (client version: {source_version:?}) in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name))).await?;
                     }
                     if let Some(source_client) = source_client {
@@ -1057,7 +1057,7 @@ impl<C: ClientKind> Room<C> {
             }
         }
         for (source_world, key, kind, target_world) in items_to_queue {
-            self.queue_item_inner(None, None, source_world, key, kind, target_world, "while sending all items", false).await?;
+            self.queue_item_inner(Err("item from send_all"), None, source_world, key, kind, target_world, "while sending all items", false).await?;
         }
         Ok(())
     }

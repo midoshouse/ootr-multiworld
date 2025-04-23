@@ -176,7 +176,7 @@ struct Config {
     regional_vc: bool,
 }
 
-async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, version: Option<Version>, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, shutdown: rocket::Shutdown, maintenance: Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>) -> Result<(), SessionError> {
+async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, version: Result<Version, &'static str>, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, shutdown: rocket::Shutdown, maintenance: Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>) -> Result<(), SessionError> {
     let config = sqlx::query_as!(Config, "SELECT * FROM mw_config").fetch_one(&db_pool).await?;
     let mut maintenance = maintenance.subscribe();
     let ping_writer = Arc::clone(&writer);
@@ -235,7 +235,7 @@ async fn lobby_session<C: ClientKind>(
     socket_id: C::SessionId,
     mut read: NextMessage<C>,
     config: Config,
-    version: Option<Version>,
+    version: Result<Version, &'static str>,
     writer: Arc<Mutex<C::Writer>>,
     mut shutdown: rocket::Shutdown,
     maintenance: &mut watch::Receiver<Option<(DateTime<Utc>, Duration)>>,
@@ -612,7 +612,7 @@ async fn room_session<C: ClientKind>(
     rooms: Rooms<C>,
     room: ArcRwLock<Room<C>>,
     socket_id: C::SessionId,
-    version: Option<Version>,
+    version: Result<Version, &'static str>,
     reader: C::Reader,
     config: Config,
     writer: Arc<Mutex<C::Writer>>,

@@ -104,7 +104,7 @@ macro_rules! supported_version {
                 };
                 let (sink, stream) = stream.split();
                 let writer = Arc::new(Mutex::new(VersionedWriter { inner: sink, version: Version::$variant }));
-                match client_session(&rng, db_pool.clone(), http_client, rooms, session_id, version.clone().ok(), VersionedReader { inner: stream, version: Version::$variant }, Arc::clone(&writer), shutdown, maintenance).await {
+                match client_session(&rng, db_pool.clone(), http_client, rooms, session_id, version.clone(), VersionedReader { inner: stream, version: Version::$variant }, Arc::clone(&writer), shutdown, maintenance).await {
                     Ok(()) => {}
                     Err(SessionError::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::MessageKind021(tungstenite::Message::Close(_)), .. })) => {} // client disconnected normally
                     Err(SessionError::Read(async_proto::ReadError { kind: async_proto::ReadErrorKind::Tungstenite021(tungstenite::Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake)), .. })) => {} // this happens when a player force quits their multiworld app (or normally quits on macOS, see https://github.com/iced-rs/iced/issues/1941)
