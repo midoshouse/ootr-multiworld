@@ -95,7 +95,10 @@ pub const CREDENTIAL_LEN: usize = ring::digest::SHA512_OUTPUT_LEN;
 pub fn version() -> Version { Version::parse(env!("CARGO_PKG_VERSION")).expect("failed to parse package version") }
 
 pub fn user_agent_hash(version: &str) -> Option<[u8; CREDENTIAL_LEN]> {
-    let salt = option_env!("MHMW_USER_AGENT_SALT")?;
+    let salt = {
+        #[cfg(feature = "require-user-agent-salt")] { env!("MHMW_USER_AGENT_SALT") }
+        #[cfg(not(feature = "require-user-agent-salt"))] { option_env!("MHMW_USER_AGENT_SALT")? }
+    };
     let mut rng = Xoshiro256StarStar::seed_from_u64(salt.parse().expect("MHMW_USER_AGENT_SALT environment variable must be a valid u64"));
     let mut user_agent_salt = [0; CREDENTIAL_LEN];
     rng.fill(&mut user_agent_salt);

@@ -18,6 +18,9 @@ unused_lifetimes = "deny"
 unused_qualifications = "deny"
 warnings = "deny"
 
+[features]
+require-user-agent-salt = ["multiworld/require-user-agent-salt"]
+
 [dependencies]
 async-proto = "0.25"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

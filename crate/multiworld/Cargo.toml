@@ -8,6 +8,9 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+require-user-agent-salt = []
+
 [dependencies]
 async-proto = { version = "0.25", features = ["chrono", "semver"] }
 async-trait = "0.1"

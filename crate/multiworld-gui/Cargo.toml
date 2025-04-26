@@ -14,6 +14,9 @@ unused_lifetimes = "deny"
 unused_qualifications = "deny"
 warnings = "deny"
 
+[features]
+require-user-agent-salt = ["multiworld/require-user-agent-salt"]
+
 [build-dependencies]
 winresource = "0.1"
 

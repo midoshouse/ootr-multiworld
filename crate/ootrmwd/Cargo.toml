@@ -5,6 +5,9 @@ authors.workspace = true
 edition.workspace = true
 repository.workspace = true
 
+[features]
+require-user-agent-salt = ["multiworld/require-user-agent-salt"]
+
 [dependencies]
 async-proto = { version = "0.25", features = ["chrono"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
