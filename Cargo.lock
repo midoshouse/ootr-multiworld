@@ -4034,7 +4034,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.0",
+ "windows-core 0.57.0",
 ]
 
 [[package]]
@@ -6134,7 +6134,7 @@ checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 [[package]]
 name = "ootr"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#1a15d59c4f682b2fe11a4a3301363b3c6b1594f0"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#4b6a43415601ef8e3770e787f3c26eba91f9700a"
 dependencies = [
  "async-proto",
  "enum-iterator",
@@ -6204,7 +6204,7 @@ dependencies = [
 [[package]]
 name = "oottracker"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#1a15d59c4f682b2fe11a4a3301363b3c6b1594f0"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#4b6a43415601ef8e3770e787f3c26eba91f9700a"
 dependencies = [
  "async-proto",
  "async-stream",
@@ -6235,7 +6235,7 @@ dependencies = [
 [[package]]
 name = "oottracker-derive"
 version = "0.7.4"
-source = "git+https://github.com/fenhl/oottracker?branch=mw#1a15d59c4f682b2fe11a4a3301363b3c6b1594f0"
+source = "git+https://github.com/fenhl/oottracker?branch=mw#4b6a43415601ef8e3770e787f3c26eba91f9700a"
 dependencies = [
  "convert_case 0.8.0",
  "itertools 0.14.0",
@@ -9946,7 +9946,7 @@ dependencies = [
  "js-sys",
  "log",
  "naga",
- "parking_lot 0.12.3",
+ "parking_lot 0.11.2",
  "profiling",
  "raw-window-handle",
  "smallvec",
@@ -9974,7 +9974,7 @@ dependencies = [
  "log",
  "naga",
  "once_cell",
- "parking_lot 0.12.3",
+ "parking_lot 0.11.2",
  "profiling",
  "raw-window-handle",
  "rustc-hash 1.1.0",
@@ -10016,7 +10016,7 @@ dependencies = [
  "ndk-sys 0.5.0+25.2.9519653",
  "objc",
  "once_cell",
- "parking_lot 0.12.3",
+ "parking_lot 0.11.2",
  "profiling",
  "range-alloc",
  "raw-window-handle",
@@ -10044,7 +10044,7 @@ dependencies = [
 [[package]]
 name = "wheel"
 version = "0.15.0"
-source = "git+https://github.com/fenhl/wheel?branch=main#e83a20ea6a6249184ef007172dba7207f23a37d8"
+source = "git+https://github.com/fenhl/wheel?branch=main#21df9959dba1ea22814b80c5417e8c3664df8ed9"
 dependencies = [
  "async-proto",
  "async-trait",
@@ -10069,7 +10069,7 @@ dependencies = [
 [[package]]
 name = "wheel-derive"
 version = "0.15.0"
-source = "git+https://github.com/fenhl/wheel?branch=main#e83a20ea6a6249184ef007172dba7207f23a37d8"
+source = "git+https://github.com/fenhl/wheel?branch=main#21df9959dba1ea22814b80c5417e8c3664df8ed9"
 dependencies = [
  "itertools 0.14.0",
  "proc-macro2",
@@ -10253,20 +10253,7 @@ dependencies = [
  "windows-interface 0.59.1",
  "windows-link",
  "windows-result 0.3.2",
- "windows-strings 0.3.1",
-]
-
-[[package]]
-name = "windows-core"
-version = "0.61.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4763c1de310c86d75a878046489e2e5ba02c649d185f21c67d4cf8a56d098980"
-dependencies = [
- "windows-implement 0.60.0",
- "windows-interface 0.59.1",
- "windows-link",
- "windows-result 0.3.2",
- "windows-strings 0.4.0",
+ "windows-strings",
 ]
 
 [[package]]
@@ -10295,17 +10282,6 @@ name = "windows-implement"
 version = "0.59.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83577b051e2f49a058c308f17f273b570a6a758386fc291b5f6a934dd84e48c1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.100",
-]
-
-[[package]]
-name = "windows-implement"
-version = "0.60.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a47fddd13af08290e67f4acabf4b459f647552718f683a7b415d290ac744a836"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -10357,7 +10333,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4286ad90ddb45071efd1a66dfa43eb02dd0dfbae1545ad6cc3c51cf34d7e8ba3"
 dependencies = [
  "windows-result 0.3.2",
- "windows-strings 0.3.1",
+ "windows-strings",
  "windows-targets 0.53.0",
 ]
 
@@ -10384,15 +10360,6 @@ name = "windows-strings"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "87fa48cc5d406560701792be122a10132491cff9d0aeb23583cc2dcafc847319"
-dependencies = [
- "windows-link",
-]
-
-[[package]]
-name = "windows-strings"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a2ba9642430ee452d5a7aa78d72907ebe8cfda358e8cb7918a2050581322f97"
 dependencies = [
  "windows-link",
 ]
