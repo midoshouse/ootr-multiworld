@@ -8,6 +8,9 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+require-user-agent-salt = []
+
 [build-dependencies]
 lazy-regex = "3"
 thiserror = "2"
