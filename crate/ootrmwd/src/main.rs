@@ -780,8 +780,8 @@ impl<C: ClientKind> Rooms<C> {
             };
             entry.insert(room.clone());
             let _ = rooms.change_tx.send(RoomListChange::New(room.clone()));
+            lock!(@write room = room; room.save(false).await)?; // ensure new room is saved to database while room list is still locked, to avoid double-clicks creating multiple rooms with the same name
         });
-        lock!(@write room = room; room.save(false).await)?;
         Ok(())
     }
 
