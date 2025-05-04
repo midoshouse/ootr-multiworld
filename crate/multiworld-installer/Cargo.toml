@@ -27,7 +27,6 @@ reqwest = { version = "0.12", default-features = false, features = ["charset", "
 [dependencies]
 async_zip = { version = "0.0.17", features = ["full"] }
 clap = { version = "4", features = ["derive"] }
-dark-light = "2"
 directories = "6"
 enum-iterator = "2"
 futures = "0.3"
@@ -46,11 +45,10 @@ serenity = { version = "0.12", default-features = false, features = ["utils"] }
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "parking_lot", "process", "rt-multi-thread"] }
 url = { version = "2", features = ["serde"] }
-wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["gui"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
-gio = "0.20"
 tokio-tar = "0.3"
 which = "7"
 xdg = "2"

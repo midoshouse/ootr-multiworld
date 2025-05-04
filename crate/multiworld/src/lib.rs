@@ -1048,8 +1048,8 @@ impl<C: ClientKind> Room<C> {
         } else {
             self.file_hash = Some(Some(spoiler_log.file_hash));
         }
-        spoiler_log.version.clone_repo().await?;
-        let py_modules = spoiler_log.version.py_modules("/usr/bin/python3")?;
+        spoiler_log.version.clone_repo(false).await?;
+        let py_modules = spoiler_log.version.py_modules("/usr/bin/python3", false)?;
         let mut items_to_queue = Vec::default();
         let world_locations = spoiler_log.locations.get(usize::from(source_world.get() - 1)).ok_or(SendAllError::NoSuchWorld)?;
         for (loc, ootr_utils::spoiler::Item { player, item, model: _ }) in world_locations {

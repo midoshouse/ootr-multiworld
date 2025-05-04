@@ -13,10 +13,6 @@ use {
         },
         sync::Arc,
     },
-    dark_light::Mode::{
-        Dark,
-        Light,
-    },
     directories::{
         ProjectDirs,
         UserDirs,
@@ -31,7 +27,6 @@ use {
         Length,
         Size,
         Task,
-        Theme,
         clipboard,
         widget::*,
         window::{
@@ -71,7 +66,6 @@ use {
         io::Cursor,
         os::unix::fs::PermissionsExt as _,
     },
-    gio::prelude::*,
     which::which,
     xdg::BaseDirectories,
     multiworld::fix_bizhawk_permissions,
@@ -317,32 +311,6 @@ impl State {
             create_multiworld_desktop_shortcut: true,
             create_emulator_desktop_shortcut: true,
             open_emulator: true,
-        }
-    }
-
-    fn theme(&self) -> Theme {
-        //TODO automatically update on system theme change (https://github.com/gtk-rs/gtk-rs-core/discussions/1278 for GNOME, https://github.com/frewsxcv/rust-dark-light/pull/26 for other platforms)
-        #[cfg(target_os = "linux")] {
-            let settings = gio::Settings::new("org.gnome.desktop.interface");
-            if settings.settings_schema().map_or(false, |schema| schema.has_key("color-scheme")) {
-                match settings.string("color-scheme").as_str() {
-                    "prefer-light" => return Theme::Light,
-                    "prefer-dark" => return Theme::Dark,
-                    _ => {}
-                }
-            }
-        }
-        match dark_light::detect() {
-            Ok(Dark) => Theme::Dark,
-            Ok(Light) => Theme::Light,
-            Ok(dark_light::Mode::Unspecified) => {
-                #[cfg(debug_assertions)] { eprintln!("got unspecified system theme") }
-                Theme::Light
-            }
-            #[cfg_attr(not(debug_assertions), allow(unused))] Err(e) => {
-                #[cfg(debug_assertions)] { eprintln!("error determining system theme: {e} ({e:?})") }
-                Theme::Light
-            }
         }
     }
 
@@ -1212,6 +1180,6 @@ fn main(Args { mut emulator }: Args) -> iced::Result {
             icon,
             ..window::Settings::default()
         })
-        .theme(State::theme)
+        .theme(|_| wheel::gui::theme())
         .run_with(move || (State::new(icon_error, emulator), task))
 }

@@ -27,10 +27,6 @@ use {
         TimeDelta,
         prelude::*,
     },
-    dark_light::Mode::{
-        Dark,
-        Light,
-    },
     enum_iterator::all,
     futures::{
         future::{
@@ -46,7 +42,6 @@ use {
         Task,
         Size,
         Subscription,
-        Theme,
         advanced::subscription,
         clipboard,
         widget::*,
@@ -138,10 +133,7 @@ use {
 };
 #[cfg(unix)] use xdg::BaseDirectories;
 #[cfg(windows)] use directories::ProjectDirs;
-#[cfg(target_os = "linux")] use {
-    std::os::unix::fs::PermissionsExt as _,
-    gio::prelude::*,
-};
+#[cfg(target_os = "linux")] use std::os::unix::fs::PermissionsExt as _;
 
 mod everdrive;
 mod login;
@@ -697,32 +689,6 @@ impl State {
             show_room_filter: false,
             room_filter: String::default(),
             frontend, config_error, persistent_state_error, persistent_state,
-        }
-    }
-
-    fn theme(&self) -> Theme {
-        //TODO automatically update on system theme change (https://github.com/gtk-rs/gtk-rs-core/discussions/1278 for GNOME, https://github.com/frewsxcv/rust-dark-light/pull/26 for other platforms)
-        #[cfg(target_os = "linux")] {
-            let settings = gio::Settings::new("org.gnome.desktop.interface");
-            if settings.settings_schema().map_or(false, |schema| schema.has_key("color-scheme")) {
-                match settings.string("color-scheme").as_str() {
-                    "prefer-light" => return Theme::Light,
-                    "prefer-dark" => return Theme::Dark,
-                    _ => {}
-                }
-            }
-        }
-        match dark_light::detect() {
-            Ok(Dark) => Theme::Dark,
-            Ok(Light) => Theme::Light,
-            Ok(dark_light::Mode::Unspecified) => {
-                #[cfg(debug_assertions)] { eprintln!("got unspecified system theme") }
-                Theme::Light
-            }
-            #[cfg_attr(not(debug_assertions), allow(unused))] Err(e) => {
-                #[cfg(debug_assertions)] { eprintln!("error determining system theme: {e} ({e:?})") }
-                Theme::Light
-            }
         }
     }
 
@@ -2125,7 +2091,7 @@ fn main(CliArgs { frontend }: CliArgs) -> iced::Result {
             icon,
             ..window::Settings::default()
         })
-        .theme(State::theme)
+        .theme(|_| wheel::gui::theme())
         .run_with(|| (
             State::new(icon_error, Config::blocking_load(), PersistentState::blocking_load(), frontend),
             cmd(future::ok(Message::CheckForUpdates)),

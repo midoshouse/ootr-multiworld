@@ -25,7 +25,6 @@ async_zip = { version = "0.0.17", features = ["full"] }
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
-dark-light = "2"
 futures = "0.3"
 iced = { version = "0.13", default-features = false, features = ["image", "tiny-skia", "tokio"] }
 image = { version = "0.24", default-features = false, features = ["ico"] } # recursive dependency of iced
@@ -42,7 +41,7 @@ thiserror = "2"
 tokio = { version = "1", features = ["fs", "parking_lot", "time"] }
 tokio-util = { version = "0.7", features = ["io"] }
 url = "2"
-wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["reqwest"] }
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["gui", "reqwest"] }
 
 [target.'cfg(unix)'.dependencies]
 xdg = "2"
@@ -53,5 +52,4 @@ windows = { version = "0.60", features = ["Win32_Storage_FileSystem"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
-gio = "0.20"
 tokio-tar = "0.3"

@@ -25,7 +25,6 @@ arrayref = "0.3.7"
 async-proto = "0.25"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
-dark-light = "2"
 enum-iterator = "2"
 futures = "0.3"
 iced = { version = "0.13", default-features = false, features = ["advanced", "image", "svg", "tiny-skia", "tokio"] }
@@ -56,13 +55,10 @@ tokio-serial = "5.4.4"
 tokio-stream = "0.1"
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 url = "2"
-wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["reqwest", "tungstenite024"] }
+wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["gui", "reqwest", "tungstenite024"] }
 
 [target.'cfg(unix)'.dependencies]
 xdg = "2"
 
 [target.'cfg(windows)'.dependencies]
 directories = "6"
-
-[target.'cfg(target_os = "linux")'.dependencies]
-gio = "0.20"
