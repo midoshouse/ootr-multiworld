@@ -2,8 +2,11 @@ use {
     std::{
         collections::{
             BTreeMap,
-            HashMap,
             HashSet,
+            hash_map::{
+                self,
+                HashMap,
+            },
         },
         fmt,
         hash::Hash,
@@ -81,7 +84,10 @@ use {
     },
     wheel::fs,
 };
-#[cfg(feature = "sqlx")] use sqlx::PgPool;
+#[cfg(feature = "sqlx")] use sqlx::{
+    PgPool,
+    types::Json,
+};
 
 pub mod config;
 pub mod frontend;
@@ -569,6 +575,13 @@ pub struct Room<C: ClientKind> {
     #[cfg(feature = "sqlx")]
     pub db_pool: PgPool,
     pub tracker_state: Option<(String, tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>)>,
+    pub metadata: RoomMetadata,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct RoomMetadata {
+    #[serde(default)]
+    pub item_sources: HashMap<(NonZero<u8>, NonZero<u8>, u64), String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -933,12 +946,18 @@ impl<C: ClientKind> Room<C> {
         if kind == TRIFORCE_PIECE {
             if verbose_logging { println!("is Triforce piece") }
             if !self.base_queue.iter().any(|item| item.source == source_world && item.key == key) {
-                self.player_queues.entry(source_world).or_insert_with(|| self.base_queue.clone()); // make sure the sender doesn't get a duplicate of this piece from the base queue
+                if let hash_map::Entry::Vacant(entry) = self.player_queues.entry(source_world) {
+                    entry.insert(self.base_queue.clone()); // make sure the sender doesn't get a duplicate of this piece from the base queue
+                    for &Item { source, key, kind: _ } in &self.base_queue {
+                        self.metadata.item_sources.insert((source, source_world, key), format!("copied from base queue"));
+                    }
+                }
                 let item = Item { source: source_world, key, kind };
                 self.base_queue.push(item);
                 for (&target_world, queue) in &mut self.player_queues {
                     if source_world != target_world {
                         queue.push(item);
+                        self.metadata.item_sources.insert((source_world, target_world, key), format!("client version: {source_version:?}"));
                     }
                 }
                 let msg = unversioned::ServerMessage::GetItem(kind);
@@ -975,9 +994,11 @@ impl<C: ClientKind> Room<C> {
                 if kind == existing_kind {
                     if verbose_logging { println!("item is a duplicate") }
                 } else {
-                    eprintln!("conflicting item kinds at location 0x{key:016x} from world {source_world} (client version: {source_version:?}) in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name);
-                    if self.created.is_some() && source_version.as_ref().ok().is_none_or(|source_version| *source_version >= Version::new(16, 3, 8)) {
-                        wheel::night_report("/games/zelda/oot/mhmw/conflictingItemKinds", Some(&format!("conflicting item kinds at location 0x{key:016x} from world {source_world} (client version: {source_version:?}) in room {:?}: sent earlier as 0x{existing_kind:04x}, now as 0x{kind:04x}", self.name))).await?;
+                    if let Some(existing_source) = self.metadata.item_sources.get(&(target_world, source_world, key)) {
+                        eprintln!("conflicting item kinds at location 0x{key:016x} from world {source_world} in room {:?}: sent earlier as 0x{existing_kind:04x} ({existing_source}), now as 0x{kind:04x} (client version: {source_version:?})", self.name);
+                        if self.created.is_some() && source_version.as_ref().ok().is_none_or(|source_version| *source_version >= Version::new(16, 3, 8)) {
+                            wheel::night_report("/games/zelda/oot/mhmw/conflictingItemKinds", Some(&format!("conflicting item kinds at location 0x{key:016x} from world {source_world} in room {:?}: sent earlier as 0x{existing_kind:04x} ({existing_source}), now as 0x{kind:04x} (client version: {source_version:?})", self.name))).await?;
+                        }
                     }
                     if let Some(source_client) = source_client {
                         self.write(source_client, unversioned::ServerMessage::StructuredError(ServerError::ConflictingItemKinds)).await?;
@@ -985,7 +1006,10 @@ impl<C: ClientKind> Room<C> {
                 }
             } else {
                 if verbose_logging { println!("item not a duplicate") }
-                self.player_queues.entry(target_world).or_insert_with(|| self.base_queue.clone()).push(Item { source: source_world, key, kind });
+                self.player_queues.entry(target_world).or_insert_with(|| {
+                    self.metadata.item_sources.insert((source_world, target_world, key), format!("client version: {source_version:?}"));
+                    self.base_queue.clone()
+                }).push(Item { source: source_world, key, kind });
                 if let Some((&target_client, client)) = self.clients.iter_mut().find(|(_, c)| c.player.is_some_and(|p| p.world == target_world)) {
                     if verbose_logging { println!("target is connected") }
                     let old_progressive_items = ProgressiveItems::new(&client.adjusted_save);
@@ -1170,8 +1194,9 @@ impl<C: ClientKind> Room<C> {
             created,
             last_saved,
             autodelete_delta,
-            allow_send_all
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (id) DO UPDATE SET
+            allow_send_all,
+            metadata
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (id) DO UPDATE SET
             name = EXCLUDED.name,
             password_hash = EXCLUDED.password_hash,
             password_salt = EXCLUDED.password_salt,
@@ -1181,8 +1206,9 @@ impl<C: ClientKind> Room<C> {
             created = EXCLUDED.created,
             last_saved = EXCLUDED.last_saved,
             autodelete_delta = EXCLUDED.autodelete_delta,
-            allow_send_all = EXCLUDED.allow_send_all
-        ", self.id as i64, &self.name, password_hash, password_salt, invites, base_queue, player_queues, self.created, self.last_saved, self.autodelete_delta as _, self.allow_send_all).execute(&self.db_pool).await?;
+            allow_send_all = EXCLUDED.allow_send_all,
+            metadata = EXCLUDED.metadata
+        ", self.id as i64, &self.name, password_hash, password_salt, invites, base_queue, player_queues, self.created, self.last_saved, self.autodelete_delta as _, self.allow_send_all, Json(&self.metadata) as _).execute(&self.db_pool).await?;
         Ok(())
     }
 

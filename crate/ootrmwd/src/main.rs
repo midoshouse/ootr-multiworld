@@ -48,10 +48,13 @@ use {
     rocket::Rocket,
     semver::Version,
     serde::Deserialize,
-    sqlx::postgres::{
-        PgConnectOptions,
-        PgPool,
-        types::PgInterval,
+    sqlx::{
+        postgres::{
+            PgConnectOptions,
+            PgPool,
+            types::PgInterval,
+        },
+        types::Json,
     },
     tokio::{
         io,
@@ -84,6 +87,7 @@ use {
         Room,
         RoomAuth,
         RoomAvailability,
+        RoomMetadata,
         SendAllError,
         ws::{
             ServerError,
@@ -417,6 +421,7 @@ async fn lobby_session<C: ClientKind>(
                             autodelete_tx: lock!(rooms = rooms.0; rooms.autodelete_tx.clone()),
                             db_pool: db_pool.clone(),
                             tracker_state: None,
+                            metadata: RoomMetadata::default(),
                             id, clients, autodelete_delta,
                         });
                         match rooms.add(room.clone()).await {
@@ -1003,7 +1008,8 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 created,
                 last_saved,
                 allow_send_all,
-                autodelete_delta
+                autodelete_delta,
+                metadata AS "metadata: Json<RoomMetadata>"
             FROM mw_rooms"#).fetch(&db_pool);
             while let Some(row) = query.try_next().await? {
                 match rooms.add(ArcRwLock::new(Room {
@@ -1026,6 +1032,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     autodelete_tx: lock!(rooms = rooms.0; rooms.autodelete_tx.clone()),
                     db_pool: db_pool.clone(),
                     tracker_state: None,
+                    metadata: row.metadata.0,
                 })).await {
                     Ok(()) => {}
                     Err(AddRoomError::Sql(e)) => return Err(e.into()),

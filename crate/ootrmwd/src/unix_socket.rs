@@ -45,6 +45,7 @@ use {
         ClientKind,
         Room,
         RoomAuth,
+        RoomMetadata,
         WaitUntilInactiveMessage,
     },
     crate::{
@@ -192,6 +193,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 autodelete_tx: lock!(rooms = rooms.0; rooms.autodelete_tx.clone()),
                                 db_pool: db_pool.clone(),
                                 tracker_state: None,
+                                metadata: RoomMetadata::default(),
                                 id, name,
                             });
                             (rooms.add(room.clone()).await.is_ok()

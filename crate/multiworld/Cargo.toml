@@ -38,7 +38,7 @@ rocket_ws = "0.1"
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { package = "serde_json_path_to_error", version = "0.1" }
-sqlx = { version = "0.8", default-features = false, features = ["macros", "postgres"], optional = true }
+sqlx = { version = "0.8", default-features = false, features = ["json", "macros", "postgres"], optional = true }
 thiserror = "2"
 tokio = { version = "1", features = ["net", "parking_lot", "process", "sync", "time"] }
 tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"] } # waiting for https://github.com/rwf2/Rocket/pull/2823

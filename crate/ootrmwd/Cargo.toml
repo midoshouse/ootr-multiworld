@@ -28,7 +28,7 @@ rocket_ws = "0.1"
 semver = "1.0.22"
 serde = { version = "1", features = ["derive"] }
 serenity = { version = "0.12", default-features = false, features = ["model", "rustls_backend"] }
-sqlx = { version = "0.8", default-features = false, features = ["chrono", "postgres", "runtime-tokio-rustls"] }
+sqlx = { version = "0.8", default-features = false, features = ["chrono", "json", "postgres", "runtime-tokio-rustls"] }
 thiserror = "2"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "parking_lot", "process", "rt-multi-thread", "sync", "time"] }
 tokio-tungstenite = "0.21" # waiting for https://github.com/rwf2/Rocket/pull/2823
