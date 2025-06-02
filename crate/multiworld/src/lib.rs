@@ -50,6 +50,10 @@ use {
         Deserialize,
         Serialize,
     },
+    serde_with::{
+        Seq,
+        serde_as,
+    },
     tokio::{
         net::{
             TcpStream,
@@ -578,9 +582,11 @@ pub struct Room<C: ClientKind> {
     pub metadata: RoomMetadata,
 }
 
+#[serde_as]
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct RoomMetadata {
     #[serde(default)]
+    #[serde_as(as = "Seq<(_, _)>")]
     pub item_sources: HashMap<(NonZero<u8>, NonZero<u8>, u64), String>,
 }
 
