@@ -795,15 +795,14 @@ impl<C: ClientKind> Room<C> {
     pub async fn remove_client(&mut self, client_id: C::SessionId, to: EndRoomSession) -> Result<(), RoomError> {
         if let Some(client) = self.clients.remove(&client_id) {
             let _ = client.end_tx.send(to);
-            let msg = if let Some(Player { world, .. }) = client.player {
+            if let Some(Player { world, .. }) = client.player {
+                Box::pin(self.write_all(&unversioned::ServerMessage::PlayerDisconnected(world))).await?;
                 if let Some((&client_id, client)) = self.clients.iter().find(|(_, iter_client)| iter_client.pending_world == Some(world)) {
                     Box::pin(self.load_player(client.version.clone(), client_id, world)).await?;
                 }
-                unversioned::ServerMessage::PlayerDisconnected(world)
             } else {
-                unversioned::ServerMessage::UnregisteredClientDisconnected
-            };
-            Box::pin(self.write_all(&msg)).await?;
+                Box::pin(self.write_all(&unversioned::ServerMessage::UnregisteredClientDisconnected)).await?;
+            }
         }
         Ok(())
     }
