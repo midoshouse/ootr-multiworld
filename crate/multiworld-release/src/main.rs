@@ -963,6 +963,7 @@ impl Task<Result<(), Error>> for BuildServer {
                 Ok(Err(Self::Build(wait_restart)))
             }).await,
             Self::Build(wait_restart) => gres::transpose(async move {
+                //TODO build on vendredi to prepare for having status.midos.house handle the server build (directory structure like MH builds by status.midos.house)
                 Command::new("wsl").arg("--distribution").arg("debian-m2").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("/home/fenhl/.cargo/bin/cargo").arg("build").arg("--release").arg("--package=ootrmwd").arg("--features=require-user-agent-salt").check("debian run cargo build --package=ootrmwd").await?;
                 Ok(Err(Self::Copy(wait_restart)))
             }).await,
