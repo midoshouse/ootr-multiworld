@@ -887,11 +887,7 @@ impl Task<Result<(), Error>> for BuildInstallerLinux {
 }
 
 enum BuildServer {
-    Sync(bool),
-    UpdateRust(bool),
     Build(bool),
-    Copy(bool),
-    Upload(bool),
     WaitRestart {
         start: DateTime<Utc>,
         child: Option<Child>,
@@ -907,18 +903,14 @@ enum BuildServer {
 
 impl BuildServer {
     fn new(wait_restart: bool) -> Self {
-        Self::Sync(wait_restart)
+        Self::Build(wait_restart)
     }
 }
 
 impl fmt::Display for BuildServer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Sync(..) => write!(f, "syncing repo to Debian"),
-            Self::UpdateRust(..) => write!(f, "updating Rust on Debian"),
             Self::Build(..) => write!(f, "building ootrmwd"),
-            Self::Copy(..) => write!(f, "copying ootrmwd to Windows"),
-            Self::Upload(..) => write!(f, "uploading ootrmwd to Mido's House"),
             Self::WaitRestart { rooms, deadline, .. } => write!(f, "waiting for {}rooms to be inactive{}{}",
                 if let Some(rooms) = rooms { format!("{} ", rooms.len()) } else { String::default() },
                 if let Some(rooms) = rooms { format!(" (current ETA: {})", rooms.values().map(|(inactive_at, _)| inactive_at).max().expect("waiting for 0 rooms").format("%Y-%m-%d %H:%M:%S UTC")) } else { String::default() },
@@ -935,11 +927,7 @@ impl fmt::Display for BuildServer {
 impl GetPriority for BuildServer {
     fn priority(&self) -> Priority {
         match self {
-            Self::Sync(..) => Priority::Active,
-            Self::UpdateRust(..) => Priority::Active,
             Self::Build(..) => Priority::Active,
-            Self::Copy(..) => Priority::Active,
-            Self::Upload(..) => Priority::Active,
             Self::WaitRestart { .. } => Priority::Waiting,
             Self::Stop => Priority::Active,
             Self::UpdateRepo => Priority::Active,
@@ -953,27 +941,8 @@ impl GetPriority for BuildServer {
 impl Task<Result<(), Error>> for BuildServer {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
-            Self::Sync(wait_restart) => gres::transpose(async move {
-                Command::new("wsl").arg("--distribution").arg("debian-m2").arg("rsync").arg("--delete").arg("-av").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/").arg("--exclude").arg(".cargo/config.toml").arg("--exclude").arg("target").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/BizHawk").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/bin").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/obj").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll").check("debian run rsync").await?;
-                Ok(Err(Self::UpdateRust(wait_restart)))
-            }).await,
-            Self::UpdateRust(wait_restart) => gres::transpose(async move {
-                //TODO obtain syncbin lock for rustup
-                Command::new("wsl").arg("--distribution").arg("debian-m2").arg("rustup").arg("update").arg("stable").check("debian run rustup").await?;
-                Ok(Err(Self::Build(wait_restart)))
-            }).await,
             Self::Build(wait_restart) => gres::transpose(async move {
-                //TODO build on vendredi to prepare for having status.midos.house handle the server build (directory structure like MH builds by status.midos.house)
-                Command::new("wsl").arg("--distribution").arg("debian-m2").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("/home/fenhl/.cargo/bin/cargo").arg("build").arg("--release").arg("--package=ootrmwd").arg("--features=require-user-agent-salt").check("debian run cargo build --package=ootrmwd").await?;
-                Ok(Err(Self::Copy(wait_restart)))
-            }).await,
-            Self::Copy(wait_restart) => gres::transpose(async move {
-                fs::create_dir_all("target/wsl/release").await?;
-                Command::new("wsl").arg("--distribution").arg("debian-m2").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/ootrmwd").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/ootrmwd").check("debian run cp").await?;
-                Ok(Err(Self::Upload(wait_restart)))
-            }).await,
-            Self::Upload(wait_restart) => gres::transpose(async move {
-                Command::new("scp").arg("target/wsl/release/ootrmwd").arg("midos.house:bin/ootrmwd-next").check("scp").await?;
+                Command::new("ssh").arg("midos.house").arg("sudo -u mido /home/mido/.cargo/bin/mhstatus build-mw").check("ssh midos.house mhstatus build-mw").await?;
                 Ok(Err(if wait_restart {
                     Self::WaitRestart { start: Utc::now(), child: None, stdout: None, rooms: None, deadline: None }
                 } else {
