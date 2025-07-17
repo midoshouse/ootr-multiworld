@@ -34,6 +34,7 @@ use {
             icon,
         },
     },
+    if_chain::if_chain,
     ::image::ImageFormat,
     itertools::Itertools as _,
     lazy_regex::regex_is_match,
@@ -405,13 +406,12 @@ impl State {
                         (_, _) => match emulator {
                             Emulator::Dummy | Emulator::EverDrive => unreachable!(),
                             Emulator::BizHawk => if let Some(user_dirs) = UserDirs::new() {
-                                // check for existing BizHawk install in Downloads folder (where the bizhawk-co-op install scripts places it)
+                                // check for existing BizHawk install in ~/bin (where this installer places it by default) and the Downloads folder (where the bizhawk-co-op install script places it)
                                 let bizhawk_install_path = user_dirs.home_dir().join("bin").join("BizHawk");
                                 if bizhawk_install_path.exists() {
                                     let Ok(bizhawk_install_path) = bizhawk_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
                                     (false, bizhawk_install_path)
-                                } else if let Some(default_bizhawk_dir) = UserDirs::new()
-                                    .and_then(|dirs| dirs.download_dir().map(|downloads| downloads.to_owned()))
+                                } else if let Some(default_bizhawk_dir) = user_dirs.download_dir()
                                     .and_then(|downloads| downloads.read_dir().ok())
                                     .into_iter()
                                     .flatten()
@@ -429,12 +429,32 @@ impl State {
                             } else {
                                 (true, String::default())
                             },
-                            Emulator::Pj64V3 | Emulator::Pj64V4 => if let Some(pj64_install_path) = env::var_os("ProgramFiles(x86)").or_else(|| env::var_os("ProgramFiles")).map(|program_files| PathBuf::from(program_files).join("Project64 3.0")) {
-                                let exists = pj64_install_path.exists();
-                                let Ok(pj64_install_path) = pj64_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
-                                (!exists, pj64_install_path)
-                            } else {
-                                (true, String::default())
+                            Emulator::Pj64V3 | Emulator::Pj64V4 => if_chain! {
+                                if let Some(user_dirs) = UserDirs::new();
+                                let pj64_install_path = user_dirs.home_dir().join("scoop").join("apps").join("project64").join("current");
+                                if pj64_install_path.exists();
+                                then {
+                                    let Ok(pj64_install_path) = pj64_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
+                                    (true, pj64_install_path)
+                                } else {
+                                    if_chain! {
+                                        if let Some(user_dirs) = UserDirs::new();
+                                        let pj64_install_path = user_dirs.home_dir().join("scoop").join("apps").join("project64-dev").join("current");
+                                        if pj64_install_path.exists();
+                                        then {
+                                            let Ok(pj64_install_path) = pj64_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
+                                            (true, pj64_install_path)
+                                        } else {
+                                            if let Some(pj64_install_path) = env::var_os("ProgramFiles(x86)").or_else(|| env::var_os("ProgramFiles")).map(|program_files| PathBuf::from(program_files).join("Project64 3.0")) {
+                                                let exists = pj64_install_path.exists();
+                                                let Ok(pj64_install_path) = pj64_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
+                                                (!exists, pj64_install_path)
+                                            } else {
+                                                (true, String::default())
+                                            }
+                                        }
+                                    }
+                                }
                             },
                         },
                     };

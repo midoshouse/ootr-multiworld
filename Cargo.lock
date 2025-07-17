@@ -5644,6 +5644,7 @@ dependencies = [
  "enum-iterator",
  "futures",
  "iced",
+ "if_chain",
  "image 0.24.9",
  "is_elevated",
  "itertools 0.14.0",
