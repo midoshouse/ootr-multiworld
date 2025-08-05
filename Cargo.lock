@@ -6374,6 +6374,7 @@ dependencies = [
  "either",
  "futures",
  "git2",
+ "if_chain",
  "itermore",
  "lazy-regex",
  "log-lock",

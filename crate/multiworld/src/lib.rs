@@ -24,6 +24,7 @@ use {
         prelude::*,
     },
     derivative::Derivative,
+    if_chain::if_chain,
     itertools::Itertools as _,
     log_lock::{
         Mutex,
@@ -62,12 +63,16 @@ use {
                 OwnedWriteHalf,
             },
         },
+        process::Command,
         sync::{
             broadcast,
             oneshot,
         },
     },
-    wheel::traits::IsNetworkError,
+    wheel::traits::{
+        IoResultExt as _,
+        IsNetworkError,
+    },
     crate::ws::{
         ServerError,
         latest,
@@ -512,11 +517,12 @@ pub enum RoomAuth {
         salt: [u8; CREDENTIAL_LEN],
     },
     Invitational(Vec<u64>),
+    EndOfSeason,
 }
 
 impl RoomAuth {
-    pub fn availability(&self, logged_in_as_admin: bool, midos_house_user_id: Option<u64>) -> RoomAvailability {
-        if logged_in_as_admin {
+    pub async fn availability(&self, logged_in_as_admin: bool, midos_house_user_id: Option<u64>) -> wheel::Result<RoomAvailability> {
+        Ok(if logged_in_as_admin {
             RoomAvailability::Open
         } else {
             match self {
@@ -526,15 +532,33 @@ impl RoomAuth {
                 } else {
                     RoomAvailability::Invisible
                 },
+                Self::EndOfSeason => if_chain! {
+                    if let Some(midos_house_user_id) = midos_house_user_id;
+                    if {
+                        let mut cmd = Command::new("/usr/local/share/midos-house/bin/midos-house");
+                        cmd.arg("check-eosmw-access");
+                        cmd.arg(midos_house_user_id.to_string());
+                        cmd.status().await.at_command("midos-house check-eosmw-access")?.success()
+                    };
+                    then {
+                        RoomAvailability::Open
+                    } else {
+                        RoomAvailability::Invisible
+                    }
+                },
             }
-        }
+        })
     }
 
     pub fn same_namespace(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Password { .. }, Self::Password { .. }) => true,
             (Self::Invitational(invitees1), Self::Invitational(invitees2)) => invitees1.iter().any(|invitee1| invitees2.iter().any(|invitee2| invitee1 == invitee2)),
-            (Self::Password { .. }, Self::Invitational(_)) | (Self::Invitational(_), Self::Password { .. }) => false
+            (Self::EndOfSeason, Self::EndOfSeason) => true,
+            | (Self::Password { .. }, Self::Invitational(_) | Self::EndOfSeason)
+            | (Self::Invitational(_), Self::Password { .. } | Self::EndOfSeason)
+            | (Self::EndOfSeason, Self::Password { .. } | Self::Invitational(_))
+                => false
         }
     }
 }
@@ -549,6 +573,7 @@ impl fmt::Debug for RoomAuth {
             Self::Invitational(users) => f.debug_tuple("Invitational")
                 .field(users)
                 .finish(),
+            Self::EndOfSeason => f.write_str("EndOfSeason"),
         }
     }
 }
@@ -1187,6 +1212,7 @@ impl<C: ClientKind> Room<C> {
                 invites.write_sync(&mut buf).expect("failed to write invites to buffer");
                 (None, None, buf)
             },
+            RoomAuth::EndOfSeason => (None, None, Vec::default()),
         };
         sqlx::query!("INSERT INTO mw_rooms (
             id,

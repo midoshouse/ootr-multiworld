@@ -32,6 +32,7 @@ use {
             TryStreamExt as _,
         },
     },
+    if_chain::if_chain,
     itermore::IterArrayCombinations as _,
     log_lock::{
         ArcRwLock,
@@ -74,6 +75,7 @@ use {
     },
     wheel::traits::{
         AsyncCommandOutputExt as _,
+        IoResultExt as _,
         IsNetworkError,
         ReqwestResponseExt as _,
     },
@@ -258,16 +260,16 @@ async fn lobby_session<C: ClientKind>(
         let logged_in_as_admin = *logged_in_as_admin;
         let midos_house_user_id = *midos_house_user_id;
         lock!(writer = writer; writer.write(ServerMessage::EnterLobby {
-            rooms: stream::iter(rooms.list.iter()).filter_map(|(id, room)| async move {
-                lock!(@read room = room; {
-                    let password_required = match room.auth.availability(logged_in_as_admin, midos_house_user_id) {
+            rooms: stream::iter(rooms.list.iter()).map(Ok::<_, SessionError>).try_filter_map(|(id, room)| async move {
+                Ok(lock!(@read room = room; 'avail: {
+                    let password_required = match room.auth.availability(logged_in_as_admin, midos_house_user_id).await? {
                         RoomAvailability::Open => false,
                         RoomAvailability::PasswordRequired => true,
-                        RoomAvailability::Invisible => return None,
+                        RoomAvailability::Invisible => break 'avail None,
                     };
                     Some((*id, (room.name.clone(), password_required)))
-                })
-            }).collect().await,
+                }))
+            }).try_collect().await?,
         }).await)?;
         stream
     });
@@ -283,7 +285,7 @@ async fn lobby_session<C: ClientKind>(
             room_list_change = room_stream.recv() => {
                 match room_list_change {
                     Ok(RoomListChange::New(room)) => lock!(@read room = room; {
-                        let password_required = match room.auth.availability(*logged_in_as_admin, *midos_house_user_id) {
+                        let password_required = match room.auth.availability(*logged_in_as_admin, *midos_house_user_id).await? {
                             RoomAvailability::Open => Some(false),
                             RoomAvailability::PasswordRequired => Some(true),
                             RoomAvailability::Invisible => None, // don't announce the room to the client
@@ -297,7 +299,7 @@ async fn lobby_session<C: ClientKind>(
                         }
                     }),
                     Ok(RoomListChange::Delete { id, auth }) => {
-                        let visible = match auth.availability(*logged_in_as_admin, *midos_house_user_id) {
+                        let visible = match auth.availability(*logged_in_as_admin, *midos_house_user_id).await? {
                             RoomAvailability::Open | RoomAvailability::PasswordRequired => true,
                             RoomAvailability::Invisible => false,
                         };
@@ -340,6 +342,20 @@ async fn lobby_session<C: ClientKind>(
                                     hash,
                                 ).is_ok()),
                                 RoomAuth::Invitational(users) => midos_house_user_id.map_or(false, |user| users.contains(&user)),
+                                RoomAuth::EndOfSeason => if_chain! {
+                                    if let Some(midos_house_user_id) = midos_house_user_id;
+                                    if {
+                                        let mut cmd = Command::new("/usr/local/share/midos-house/bin/midos-house");
+                                        cmd.arg("check-eosmw-access");
+                                        cmd.arg(midos_house_user_id.to_string());
+                                        cmd.status().await.at_command("midos-house check-eosmw-access")?.success()
+                                    };
+                                    then {
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                },
                             };
                             if authorized {
                                 if room.clients.len() >= usize::from(u8::MAX) { error!("this room is full") }
@@ -559,8 +575,8 @@ async fn update_room_list<C: ClientKind>(rooms: Rooms<C>, writer: Arc<Mutex<C::W
     if was_admin == is_admin && old_mhid == new_mhid { return Ok(()) }
     lock!(rooms = rooms.0; for (id, room) in &rooms.list {
         lock!(@read room = room; {
-            let new_availability = room.auth.availability(is_admin, new_mhid);
-            if new_availability != room.auth.availability(was_admin, old_mhid) {
+            let new_availability = room.auth.availability(is_admin, new_mhid).await?;
+            if new_availability != room.auth.availability(was_admin, old_mhid).await? {
                 let password_required = match new_availability {
                     RoomAvailability::Open => Some(false),
                     RoomAvailability::PasswordRequired => Some(true),
@@ -1015,10 +1031,11 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 match rooms.add(ArcRwLock::new(Room {
                     id: row.id as u64,
                     name: row.name.clone(),
-                    auth: match (row.password_hash, row.password_salt) {
-                        (Some(hash), Some(salt)) => RoomAuth::Password { hash, salt },
-                        (None, None) => RoomAuth::Invitational(Vec::read_sync(&mut &*row.invites)?),
-                        (_, _) => unimplemented!(), //TODO add constraint to table
+                    auth: match (row.password_hash, row.password_salt, row.invites.is_empty()) {
+                        (Some(hash), Some(salt), _) => RoomAuth::Password { hash, salt },
+                        (None, None, false) => RoomAuth::Invitational(Vec::read_sync(&mut &*row.invites)?),
+                        (None, None, true) => RoomAuth::EndOfSeason,
+                        (_, _, _) => unimplemented!(), //TODO add constraint to table
                     },
                     clients: HashMap::default(),
                     file_hash: None, //TODO store in database

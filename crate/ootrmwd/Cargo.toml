@@ -14,6 +14,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 clap = { version = "4", features = ["derive"] }
 derivative = "2"
 futures = "0.3"
+if_chain = "1"
 itermore = { version = "0.7.1", features = ["array_combinations"] }
 lazy-regex = "3.4.1"
 log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
