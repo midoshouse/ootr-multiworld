@@ -992,7 +992,7 @@ impl Task<Result<(), Error>> for BuildServer {
             }).await,
             Self::Replace => gres::transpose(async move {
                 //TODO this sometimes hangs, reduce reliance on ssh somehow?
-                Command::new("ssh").arg("midos.house").arg("sudo chown mido:www-data bin/ootrmwd-next && sudo chmod +x bin/ootrmwd-next && sudo mv bin/ootrmwd-next /usr/local/share/midos-house/bin/ootrmwd").check("ssh midos.house chown && chmod && mv").await?;
+                Command::new("ssh").arg("midos.house").arg("sudo mv ~mido/bin/ootrmwd-next /usr/local/share/midos-house/bin/ootrmwd").check("ssh midos.house mv").await?;
                 Ok(Err(Self::Start))
             }).await,
             Self::Start => gres::transpose(async move {
