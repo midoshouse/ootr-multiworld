@@ -1214,32 +1214,32 @@ impl<C: ClientKind> Room<C> {
             },
             RoomAuth::EndOfSeason => (None, None, Vec::default()),
         };
-        sqlx::query!("INSERT INTO mw_rooms (
-            id,
-            name,
+        sqlx::query!("UPDATE mw_rooms SET
+            name = $1,
+            password_hash = $2,
+            password_salt = $3,
+            invites = $4,
+            base_queue = $5,
+            player_queues = $6,
+            created = $7,
+            last_saved = $8,
+            autodelete_delta = $9,
+            allow_send_all = $10,
+            metadata = $11
+        WHERE id = $12",
+            &self.name,
             password_hash,
             password_salt,
             invites,
             base_queue,
             player_queues,
-            created,
-            last_saved,
-            autodelete_delta,
-            allow_send_all,
-            metadata
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (id) DO UPDATE SET
-            name = EXCLUDED.name,
-            password_hash = EXCLUDED.password_hash,
-            password_salt = EXCLUDED.password_salt,
-            invites = EXCLUDED.invites,
-            base_queue = EXCLUDED.base_queue,
-            player_queues = EXCLUDED.player_queues,
-            created = EXCLUDED.created,
-            last_saved = EXCLUDED.last_saved,
-            autodelete_delta = EXCLUDED.autodelete_delta,
-            allow_send_all = EXCLUDED.allow_send_all,
-            metadata = EXCLUDED.metadata
-        ", self.id as i64, &self.name, password_hash, password_salt, invites, base_queue, player_queues, self.created, self.last_saved, self.autodelete_delta as _, self.allow_send_all, Json(&self.metadata) as _).execute(&self.db_pool).await?;
+            self.created,
+            self.last_saved,
+            self.autodelete_delta as _,
+            self.allow_send_all,
+            Json(&self.metadata) as _,
+            self.id as i64,
+        ).execute(&self.db_pool).await?;
         Ok(())
     }
 

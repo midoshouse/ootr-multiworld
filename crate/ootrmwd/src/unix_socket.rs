@@ -16,11 +16,11 @@ use {
         TimeDelta,
     },
     either::Either,
-    futures::future,
-    log_lock::{
-        ArcRwLock,
-        lock,
+    futures::future::{
+        self,
+        TryFutureExt as _,
     },
+    log_lock::lock,
     ootr_utils::spoiler::HashIcon,
     rand::{
         prelude::*,
@@ -179,7 +179,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                             };
                             let world_count = players.len().try_into().ok().and_then(NonZero::new);
                             let now = Utc::now();
-                            let room = ArcRwLock::new(Room {
+                            let room = Room {
                                 auth: RoomAuth::Invitational(players),
                                 clients: HashMap::default(),
                                 file_hash: Some(Some([hash1, hash2, hash3, hash4, hash5])),
@@ -195,17 +195,18 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                 tracker_state: None,
                                 metadata: RoomMetadata::default(),
                                 id, name,
-                            });
-                            (rooms.add(room.clone()).await.is_ok()
-                            && if let Some(tracker_room_name) = tracker_room_name {
-                                if let Some(world_count) = world_count {
-                                    lock!(@write room = room; room.init_tracker(tracker_room_name, world_count).await).is_ok()
+                            };
+                            rooms.add(room, true).and_then(|room| async move {
+                                Ok(if let Some(tracker_room_name) = tracker_room_name {
+                                    if let Some(world_count) = world_count {
+                                        lock!(@write room = room; room.init_tracker(tracker_room_name, world_count).await).is_ok()
+                                    } else {
+                                        false
+                                    }
                                 } else {
-                                    false
-                                }
-                            } else {
-                                true
-                            }).write(&mut sock).await.expect("error writing to UNIX socket");
+                                    true
+                                })
+                            }).await.unwrap_or_default().write(&mut sock).await.expect("error writing to UNIX socket");
                         }
                         ClientMessage::PrepareRestart { async_proto: _ } => {
                             let mut deadline = Utc::now() + TimeDelta::try_days(1).expect("1-day timedelta out of bounds");

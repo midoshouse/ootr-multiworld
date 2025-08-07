@@ -360,7 +360,7 @@ async fn lobby_session<C: ClientKind>(
                             if authorized {
                                 if room.clients.len() >= usize::from(u8::MAX) { error!("this room is full") }
                                 let (end_tx, end_rx) = oneshot::channel();
-                                room.add_client(version, socket_id, Arc::clone(&writer), end_tx).await?;
+                                room.add_client(version.clone(), socket_id, Arc::clone(&writer), end_tx).await?;
                                 let mut players = Vec::<Player>::default();
                                 let mut num_unassigned_clients = 0;
                                 for client in room.clients.values() {
@@ -405,6 +405,7 @@ async fn lobby_session<C: ClientKind>(
                         let mut clients = HashMap::default();
                         let (end_tx, end_rx) = oneshot::channel();
                         clients.insert(socket_id, multiworld::Client {
+                            version: version.clone(),
                             player: None,
                             pending_world: None,
                             pending_name: None,
@@ -413,7 +414,7 @@ async fn lobby_session<C: ClientKind>(
                             writer: Arc::clone(&writer),
                             tracker_state: Default::default(),
                             adjusted_save: Default::default(),
-                            version, end_tx,
+                            end_tx,
                         });
                         let autodelete_delta = Duration::from_secs(60 * 60 * 24 * 7);
                         let id = loop {
@@ -421,7 +422,7 @@ async fn lobby_session<C: ClientKind>(
                             if !sqlx::query_scalar!(r#"SELECT EXISTS (SELECT 1 FROM mw_rooms WHERE id = $1) AS "exists!""#, id as i64).fetch_one(&db_pool).await? { break id } //TODO save room to database in same transaction
                         };
                         let now = Utc::now();
-                        let room = ArcRwLock::new(Room {
+                        let room = Room {
                             name: name.clone(),
                             auth: RoomAuth::Password {
                                 hash: password_hash,
@@ -439,20 +440,21 @@ async fn lobby_session<C: ClientKind>(
                             tracker_state: None,
                             metadata: RoomMetadata::default(),
                             id, clients, autodelete_delta,
-                        });
-                        match rooms.add(room.clone()).await {
-                            Ok(()) => {}
+                        };
+                        match rooms.add(room, true).await {
+                            Ok(room) => {
+                                lock!(writer = writer; writer.write(ServerMessage::EnterRoom {
+                                    room_id: id,
+                                    players: Vec::default(),
+                                    num_unassigned_clients: 1,
+                                    allow_send_all: true,
+                                    autodelete_delta,
+                                }).await)?;
+                                break (reader, room, end_rx)
+                            }
                             Err(e @ (AddRoomError::Sql(_) | AddRoomError::DuplicateId { .. })) => return Err(e.into()),
                             Err(AddRoomError::NameConflict { .. }) => lock!(writer = writer; writer.write(ServerMessage::StructuredError(ServerError::RoomExists)).await)?,
                         }
-                        lock!(writer = writer; writer.write(ServerMessage::EnterRoom {
-                            room_id: id,
-                            players: Vec::default(),
-                            num_unassigned_clients: 1,
-                            allow_send_all: true,
-                            autodelete_delta,
-                        }).await)?;
-                        break (reader, room, end_rx)
                     }
                     ClientMessage::LoginApiKey { api_key } => if let Some(row) = sqlx::query!("SELECT user_id, mw_admin FROM api_keys WHERE key = $1", api_key).fetch_optional(&db_pool).await? {
                         lock!(writer = writer; writer.write(ServerMessage::LoginSuccess).await)?;
@@ -784,26 +786,68 @@ impl<C: ClientKind> Rooms<C> {
         lock!(rooms = self.0; rooms.list.get(&room_id).cloned())
     }
 
-    async fn add(&self, room: ArcRwLock<Room<C>>) -> Result<(), AddRoomError> {
-        let (id, name, auth) = lock!(@read room = room; (room.id, room.name.clone(), room.auth.clone()));
-        lock!(rooms = self.0; {
+    async fn add(&self, room: Room<C>, save: bool) -> Result<ArcRwLock<Room<C>>, AddRoomError> {
+        Ok(lock!(rooms = self.0; {
             for existing_room in rooms.list.values() {
-                lock!(@read existing_room = existing_room; if existing_room.name == name && auth.same_namespace(&existing_room.auth) {
+                lock!(@read existing_room = existing_room; if existing_room.name == room.name && existing_room.auth.same_namespace(&room.auth) {
                     return Err(AddRoomError::NameConflict {
                         existing_id: existing_room.id,
-                        conflicting_id: id,
+                        conflicting_id: room.id,
                     })
                 });
             }
-            let entry = match rooms.list.entry(id) {
-                hash_map::Entry::Occupied(_) => return Err(AddRoomError::DuplicateId { id }),
+            let entry = match rooms.list.entry(room.id) {
+                hash_map::Entry::Occupied(_) => return Err(AddRoomError::DuplicateId { id: room.id }),
                 hash_map::Entry::Vacant(entry) => entry,
             };
+            if save {
+                // ensure new room is saved to database while room list is still locked, to avoid double-clicks creating multiple rooms with the same name
+                let mut base_queue = Vec::default();
+                room.base_queue.write_sync(&mut base_queue).expect("failed to write base queue to buffer");
+                let mut player_queues = Vec::default();
+                room.player_queues.write_sync(&mut player_queues).expect("failed to write player queues to buffer");
+                let (password_hash, password_salt, invites) = match room.auth {
+                    RoomAuth::Password { ref hash, ref salt } => (Some(&hash[..]), Some(&salt[..]), Vec::default()),
+                    RoomAuth::Invitational(ref invites) => {
+                        let mut buf = Vec::default();
+                        invites.write_sync(&mut buf).expect("failed to write invites to buffer");
+                        (None, None, buf)
+                    },
+                    RoomAuth::EndOfSeason => (None, None, Vec::default()),
+                };
+                sqlx::query!("INSERT INTO mw_rooms (
+                    id,
+                    name,
+                    password_hash,
+                    password_salt,
+                    invites,
+                    base_queue,
+                    player_queues,
+                    created,
+                    last_saved,
+                    autodelete_delta,
+                    allow_send_all,
+                    metadata
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+                    room.id as i64,
+                    &room.name,
+                    password_hash,
+                    password_salt,
+                    invites,
+                    base_queue,
+                    player_queues,
+                    room.created,
+                    room.last_saved,
+                    room.autodelete_delta as _,
+                    room.allow_send_all,
+                    Json(&room.metadata) as _,
+                ).execute(&room.db_pool).await?;
+            }
+            let room = ArcRwLock::new(room);
             entry.insert(room.clone());
             let _ = rooms.change_tx.send(RoomListChange::New(room.clone()));
-            lock!(@write room = room; room.save(false).await)?; // ensure new room is saved to database while room list is still locked, to avoid double-clicks creating multiple rooms with the same name
-        });
-        Ok(())
+            room
+        }))
     }
 
     async fn remove(&self, id: u64) {
@@ -1028,7 +1072,7 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                 metadata AS "metadata: Json<RoomMetadata>"
             FROM mw_rooms"#).fetch(&db_pool);
             while let Some(row) = query.try_next().await? {
-                match rooms.add(ArcRwLock::new(Room {
+                match rooms.add(Room {
                     id: row.id as u64,
                     name: row.name.clone(),
                     auth: match (row.password_hash, row.password_salt, row.invites.is_empty()) {
@@ -1050,8 +1094,8 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                     db_pool: db_pool.clone(),
                     tracker_state: None,
                     metadata: row.metadata.0,
-                })).await {
-                    Ok(()) => {}
+                }, false).await {
+                    Ok(_) => {}
                     Err(AddRoomError::Sql(e)) => return Err(e.into()),
                     Err(e @ (AddRoomError::DuplicateId { .. } | AddRoomError::NameConflict { .. })) => {
                         eprintln!("deleting duplicate room {:?}: {e} ({e:?})", row.name);
