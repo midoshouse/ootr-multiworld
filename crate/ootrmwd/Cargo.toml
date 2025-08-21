@@ -9,13 +9,13 @@ repository.workspace = true
 require-user-agent-salt = ["multiworld/require-user-agent-salt"]
 
 [dependencies]
-async-proto = { version = "0.25", features = ["chrono"] }
+async-proto = { version = "0.26", features = ["chrono"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
 derivative = "2"
 futures = "0.3"
 if_chain = "1"
-itermore = { version = "0.7.1", features = ["array_combinations"] }
+itermore = { version = "0.8", features = ["array_combinations"] }
 lazy-regex = "3.4.1"
 log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
 multiworld = { path = "../multiworld", features = ["sqlx"] }

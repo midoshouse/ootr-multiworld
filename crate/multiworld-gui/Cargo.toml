@@ -22,7 +22,7 @@ winresource = "0.1"
 
 [dependencies]
 arrayref = "0.3.7"
-async-proto = "0.25"
+async-proto = "0.26"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
 enum-iterator = "2"
@@ -47,7 +47,7 @@ rocket-util = { git = "https://github.com/fenhl/rocket-util", branch = "main" }
 semver = "1"
 serde_json = { package = "serde_json_path_to_error", version = "0.1" }
 serenity = { version = "0.12", default-features = false, features = ["utils"] }
-sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "net", "parking_lot", "sync", "time"] }
 tokio-io-timeout = "1.2.0"
@@ -58,7 +58,7 @@ url = "2"
 wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["gui", "reqwest", "tungstenite024"] }
 
 [target.'cfg(unix)'.dependencies]
-xdg = "2"
+xdg = "3"
 
 [target.'cfg(windows)'.dependencies]
 directories = "6"

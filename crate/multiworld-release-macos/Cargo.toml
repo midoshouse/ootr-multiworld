@@ -8,9 +8,9 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-async-proto = "0.25"
+async-proto = "0.26"
 clap = { version = "4.5.21", features = ["derive"] }
-dir-lock = "0.4"
+dir-lock = "0.5"
 directories = "6"
 git2 = "0.20"
 multiworld = { path = "../multiworld", features = ["require-user-agent-salt"] }

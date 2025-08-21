@@ -36,7 +36,6 @@ pub(crate) enum Error {
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
-    #[cfg(unix)] #[error(transparent)] Xdg(#[from] xdg::BaseDirectoriesError),
     #[cfg(windows)]
     #[error("failed to find project folder")]
     ProjectDirs,
@@ -46,7 +45,7 @@ impl PersistentState {
     pub(crate) fn blocking_load() -> Result<Self, Error> {
         let path = {
             #[cfg(unix)] {
-                BaseDirectories::new()?.find_data_file("midos-house/multiworld-state.asyncproto")
+                BaseDirectories::new().find_data_file("midos-house/multiworld-state.asyncproto")
             }
             #[cfg(windows)] {
                 Some(ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::ProjectDirs)?.data_local_dir().join("state.asyncproto"))
@@ -69,7 +68,7 @@ impl PersistentState {
         let output = lock!(@write state = self.0; f(&mut *state));
         let path = {
             #[cfg(unix)] {
-                BaseDirectories::new()?.place_data_file("midos-house/multiworld-state.asyncproto")?
+                BaseDirectories::new().place_data_file("midos-house/multiworld-state.asyncproto")?
             }
             #[cfg(windows)] {
                 let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::ProjectDirs)?;

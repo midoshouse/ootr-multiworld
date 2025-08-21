@@ -36,7 +36,6 @@ pub enum Error {
     #[error(transparent)] Io(#[from] std::io::Error),
     #[error(transparent)] Json(#[from] serde_json::Error),
     #[error(transparent)] Wheel(#[from] wheel::Error),
-    #[cfg(unix)] #[error(transparent)] Xdg(#[from] xdg::BaseDirectoriesError),
     #[cfg(windows)]
     #[error("failed to find project folder")]
     ProjectDirs,
@@ -46,7 +45,7 @@ impl Config {
     pub fn blocking_load() -> Result<Self, Error> {
         let path = {
             #[cfg(unix)] {
-                BaseDirectories::new()?.find_config_file("midos-house/multiworld.json")
+                BaseDirectories::new().find_config_file("midos-house/multiworld.json")
             }
             #[cfg(windows)] {
                 Some(ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::ProjectDirs)?.config_dir().join("config.json"))
@@ -66,7 +65,7 @@ impl Config {
     pub async fn load() -> Result<Self, Error> {
         let path = {
             #[cfg(unix)] {
-                BaseDirectories::new()?.find_config_file("midos-house/multiworld.json")
+                BaseDirectories::new().find_config_file("midos-house/multiworld.json")
             }
             #[cfg(windows)] {
                 Some(ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::ProjectDirs)?.config_dir().join("config.json"))
@@ -86,7 +85,7 @@ impl Config {
     pub async fn save(&self) -> Result<(), Error> {
         let path = {
             #[cfg(unix)] {
-                BaseDirectories::new()?.place_config_file("midos-house/multiworld.json")?
+                BaseDirectories::new().place_config_file("midos-house/multiworld.json")?
             }
             #[cfg(windows)] {
                 let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::ProjectDirs)?;

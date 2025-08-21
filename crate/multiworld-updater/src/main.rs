@@ -643,7 +643,7 @@ fn main(args: Args) -> Result<(), MainError> {
             if Config::blocking_load()?.log {
                 let path = {
                     #[cfg(unix)] {
-                        BaseDirectories::new().expect("failed to determine XDG base directories").place_data_file("midos-house/multiworld-updater.log").expect("failed to create log dir")
+                        BaseDirectories::new().place_data_file("midos-house/multiworld-updater.log").expect("failed to create log dir")
                     }
                     #[cfg(windows)] {
                         let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(MainError::MissingHomeDir)?;

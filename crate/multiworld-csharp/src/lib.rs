@@ -71,7 +71,7 @@ static CONFIG: Lazy<Config> = Lazy::new(|| {
 static LOG: Lazy<File> = Lazy::new(|| {
     let path = {
         #[cfg(unix)] {
-            BaseDirectories::new().expect("failed to determine XDG base directories").place_data_file("midos-house/multiworld-ffi.log").expect("failed to create log dir")
+            BaseDirectories::new().place_data_file("midos-house/multiworld-ffi.log").expect("failed to create log dir")
         }
         #[cfg(windows)] {
             let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
@@ -215,7 +215,6 @@ pub enum Error {
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[cfg(windows)] #[error(transparent)] Winver(#[from] winver::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
-    #[cfg(unix)] #[error(transparent)] Xdg(#[from] xdg::BaseDirectoriesError),
     #[error("current executable at filesystem root")]
     CurrentExeAtRoot,
     #[error("{0}")]
@@ -312,7 +311,7 @@ impl Client {
         tcp_listener.set_nonblocking(true).at_unknown()?;
         let gui_path = {
             #[cfg(unix)] {
-                BaseDirectories::new()?.place_cache_file("midos-house/multiworld-gui").at_unknown()?
+                BaseDirectories::new().place_cache_file("midos-house/multiworld-gui").at_unknown()?
             }
             #[cfg(windows)] {
                 let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");

@@ -12,7 +12,7 @@ workspace = true
 require-user-agent-salt = []
 
 [dependencies]
-async-proto = { version = "0.25", features = ["chrono", "semver"] }
+async-proto = { version = "0.26", features = ["chrono", "semver"] }
 async-trait = "0.1"
 bitflags = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
@@ -25,7 +25,7 @@ if_chain = "1"
 itertools = "0.14"
 log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
 multiworld-derive = { path = "../multiworld-derive" }
-nonempty-collections = "0.3.0"
+nonempty-collections = "1"
 oauth2 = "4"
 ootr = { git = "https://github.com/fenhl/oottracker", branch = "mw" }
 ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils", branch = "main" }
@@ -47,7 +47,7 @@ url = { version = "2", features = ["serde"] }
 wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["async-proto", "chrono", "reqwest", "serde_json", "tungstenite021"] } # tungstenite feature required to correctly classify network errors
 
 [target.'cfg(unix)'.dependencies]
-xdg = "2"
+xdg = "3"
 
 [target.'cfg(windows)'.dependencies]
 directories = "6"

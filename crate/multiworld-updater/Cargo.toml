@@ -21,7 +21,7 @@ require-user-agent-salt = ["multiworld/require-user-agent-salt"]
 winresource = "0.1"
 
 [dependencies]
-async_zip = { version = "0.0.17", features = ["full"] }
+async_zip = { version = "0.0.18", features = ["full"] }
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
@@ -35,7 +35,7 @@ reqwest = { version = "0.12", default-features = false, features = ["charset", "
 runas = "1.2"
 semver = "1"
 serenity = { version = "0.12", default-features = false, features = ["utils"] }
-sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "parking_lot", "time"] }
@@ -44,11 +44,11 @@ url = "2"
 wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["gui", "reqwest"] }
 
 [target.'cfg(unix)'.dependencies]
-xdg = "2"
+xdg = "3"
 
 [target.'cfg(windows)'.dependencies]
 directories = "6"
-windows = { version = "0.60", features = ["Win32_Storage_FileSystem"] }
+windows = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }

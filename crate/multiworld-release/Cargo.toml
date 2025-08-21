@@ -9,13 +9,13 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-async-proto = "0.25"
+async-proto = "0.26"
 async-trait = "0.1"
-async_zip = { version = "0.0.17", features = ["full"] }
+async_zip = { version = "0.0.18", features = ["full"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
-crossterm = "0.28"
-dir-lock = "0.4"
+crossterm = "0.29"
+dir-lock = "0.5"
 futures = "0.3"
 github-app-auth = { git = "https://github.com/fenhl/github-app-auth", branch = "deps" }
 graphql_client = "0.14"

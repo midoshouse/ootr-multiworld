@@ -22,7 +22,7 @@ warnings = "deny"
 require-user-agent-salt = ["multiworld/require-user-agent-salt"]
 
 [dependencies]
-async-proto = "0.25"
+async-proto = "0.26"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 itertools = "0.14"
 libc = "0.2"
@@ -35,10 +35,10 @@ thiserror = "2"
 wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }
 
 [target.'cfg(unix)'.dependencies]
-xdg = "2"
+xdg = "3"
 
 [target.'cfg(windows)'.dependencies]
 directories = "6"
 semver = "1"
-windows = { version = "0.60", features = ["Win32_Storage_FileSystem"] }
+windows = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 winver = { git = "https://github.com/fenhl/winver", branch = "main" }

@@ -143,7 +143,7 @@ mod subscriptions;
 static LOG: Lazy<Mutex<std::fs::File>> = Lazy::new(|| {
     let path = {
         #[cfg(unix)] {
-            BaseDirectories::new().expect("failed to determine XDG base directories").place_data_file("midos-house/multiworld-gui.log").expect("failed to create log dir")
+            BaseDirectories::new().place_data_file("midos-house/multiworld-gui.log").expect("failed to create log dir")
         }
         #[cfg(windows)] {
             let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").expect("failed to determine project directories");
@@ -294,7 +294,6 @@ enum Error {
     #[error(transparent)] WebSocket(#[from] tungstenite::Error),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
-    #[cfg(unix)] #[error(transparent)] Xdg(#[from] xdg::BaseDirectoriesError),
     #[cfg(windows)]
     #[error("user folder not found")]
     MissingHomeDir,
@@ -321,7 +320,6 @@ impl IsNetworkError for Error {
             Self::WebSocket(e) => e.is_network_error(),
             Self::Wheel(e) => e.is_network_error(),
             Self::Write(e) => e.is_network_error(),
-            #[cfg(unix)] Self::Xdg(_) => false,
             #[cfg(windows)] Self::MissingHomeDir => false,
         }
     }
@@ -725,7 +723,7 @@ impl State {
                             #[cfg(any(target_os = "linux", target_os = "windows"))] {
                                 let updater_path = {
                                     #[cfg(unix)] {
-                                        BaseDirectories::new()?.place_cache_file("midos-house/multiworld-updater")?
+                                        BaseDirectories::new().place_cache_file("midos-house/multiworld-updater")?
                                     }
                                     #[cfg(windows)] {
                                         let project_dirs = ProjectDirs::from("net", "Fenhl", "OoTR Multiworld").ok_or(Error::MissingHomeDir)?;

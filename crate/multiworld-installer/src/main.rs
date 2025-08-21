@@ -99,7 +99,7 @@ enum Error {
     #[error(transparent)] Url(#[from] url::ParseError),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[cfg(target_os = "windows")] #[error(transparent)] Winver(#[from] winver::Error),
-    #[cfg(target_os = "linux")] #[error(transparent)] Xdg(#[from] xdg::BaseDirectoriesError),
+
     #[error(transparent)] Zip(#[from] async_zip::error::ZipError),
     #[cfg(target_os = "windows")]
     #[error("The installer requires an older version of BizHawk. Install manually at your own risk, or ask Fenhl to release a new version.")]
@@ -478,7 +478,7 @@ impl State {
                                 fs::create_dir_all(&bizhawk_dir).await?;
                                 #[cfg(target_os = "linux")] {
                                     if which("apt").is_ok() && which("zenity").is_ok() {
-                                        let password_prompt = BaseDirectories::new()?.place_cache_file("midos-house/password-prompt.sh")?;
+                                        let password_prompt = BaseDirectories::new().place_cache_file("midos-house/password-prompt.sh")?;
                                         fs::write(&password_prompt, include_bytes!("../../../assets/password-prompt.sh")).await?;
                                         let mut perms = fs::metadata(&password_prompt).await?.permissions();
                                         perms.set_mode(0o755);
