@@ -387,6 +387,7 @@ impl State {
                         #[cfg(target_os = "linux")] Emulator::Pj64V3 | Emulator::Pj64V4 => unreachable!(),
                         #[cfg(target_os = "windows")] Emulator::Pj64V3 | Emulator::Pj64V4 if !is_elevated() => {
                             // Project64 installation and plugin installation both require admin permissions (UAC)
+                            //TODO may be skippable depending on where Project64 is installed, only elevate if necessary
                             self.page = Page::Elevated;
                             return cmd(async move {
                                 let arg = match emulator {
@@ -984,7 +985,7 @@ impl State {
                     for iter_emulator in all().filter(Emulator::is_supported) {
                         col = col.push(Radio::new(iter_emulator.to_string(), iter_emulator, emulator, Message::SetEmulator));
                     }
-                    col = col.push(Text::new("Looking for a different console or emulator? "));
+                    col = col.push(Text::new("Looking for a different console or emulator?"));
                     col = col.push(Button::new(Text::new("See platform support status")).on_press(Message::PlatformSupport));
                     col.spacing(8).into()
                 },

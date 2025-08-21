@@ -1780,7 +1780,7 @@ pub fn format_room_state(players: &[Player], num_unassigned_clients: u8, my_worl
             (players.iter()
                 .map(|player| (player.world, if player.name == Filename::default() {
                     if my_world == Some(player.world) {
-                        format!("{}. [create save file 1 to set name]", player.world)
+                        format!("{}. [create file 1 in game to set name]", player.world)
                     } else {
                         format!("{}. [unnamed]", player.world)
                     }
