@@ -1841,6 +1841,7 @@ impl State {
                     .spacing(8),
                 SessionState::Room { conflicting_item_kinds: false, wrong_file_hash: None, world_taken: Some(world), .. } => Column::new()
                     .push(Text::new(format!("World {world} is already taken.")))
+                    //TODO short explanation about needing to generate with the desired world count and patch with different player IDs, with link to longer explanation? (see #setup-support conversation on 2025-03-17)
                     .push(Row::new()
                         .push(Button::new("Kick").on_press(Message::Kick(world)))
                         .push(Button::new("Leave").on_press(Message::Leave))

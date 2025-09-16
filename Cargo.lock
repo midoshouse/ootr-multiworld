@@ -5521,7 +5521,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld"
-version = "17.0.2"
+version = "17.0.3"
 dependencies = [
  "async-proto",
  "async-trait",
@@ -5562,7 +5562,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-admin-cli"
-version = "17.0.2"
+version = "17.0.3"
 dependencies = [
  "async-proto",
  "chrono",
@@ -5583,7 +5583,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-bizhawk"
-version = "17.0.2"
+version = "17.0.3"
 dependencies = [
  "lazy-regex",
  "semver",
@@ -5595,7 +5595,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-csharp"
-version = "17.0.2"
+version = "17.0.3"
 dependencies = [
  "async-proto",
  "chrono",
@@ -5617,7 +5617,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-derive"
-version = "17.0.2"
+version = "17.0.3"
 dependencies = [
  "itertools 0.14.0",
  "lazy-regex",
@@ -5629,7 +5629,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-gui"
-version = "17.0.2"
+version = "17.0.3"
 dependencies = [
  "arrayref",
  "async-proto",
@@ -5673,7 +5673,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-installer"
-version = "17.0.2"
+version = "17.0.3"
 dependencies = [
  "async-compression",
  "async_zip",
@@ -5714,7 +5714,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-post-release-macos"
-version = "17.0.2"
+version = "17.0.3"
 dependencies = [
  "clap",
  "futures",
@@ -5729,7 +5729,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-release"
-version = "17.0.2"
+version = "17.0.3"
 dependencies = [
  "async-proto",
  "async-trait",
@@ -5759,7 +5759,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-release-macos"
-version = "17.0.2"
+version = "17.0.3"
 dependencies = [
  "async-proto",
  "clap",
@@ -5774,7 +5774,7 @@ dependencies = [
 
 [[package]]
 name = "multiworld-updater"
-version = "17.0.2"
+version = "17.0.3"
 dependencies = [
  "async-compression",
  "async_zip",
@@ -6437,7 +6437,7 @@ dependencies = [
 
 [[package]]
 name = "ootrmwd"
-version = "17.0.2"
+version = "17.0.3"
 dependencies = [
  "async-proto",
  "chrono",

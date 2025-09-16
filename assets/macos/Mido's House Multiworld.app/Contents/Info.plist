@@ -18,6 +18,8 @@
     <string>multiworld-gui</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon.icns</string>
+    <key>CFBundleIconName</key>
+    <string>mhmw-macos</string>
     <key>CFBundleIdentifier</key>
     <string>house.midos.mw</string>
     <key>CFBundleInfoDictionaryVersion</key>
