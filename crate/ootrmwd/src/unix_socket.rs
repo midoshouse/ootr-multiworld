@@ -77,6 +77,18 @@ pub(crate) enum ClientMessage {
         #[clap(long)]
         async_proto: bool,
     },
+    CreateEndOfSeasonRoom {
+        name: String,
+        hash1: HashIcon,
+        hash2: HashIcon,
+        hash3: HashIcon,
+        hash4: HashIcon,
+        hash5: HashIcon,
+        #[clap(short = 'n', long)]
+        world_count: Option<NonZero<u8>>,
+        #[clap(long)]
+        tracker_room_name: Option<String>,
+    },
 }
 
 pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Rooms<C>, mut shutdown: rocket::Shutdown, maintenance: Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>) -> wheel::Result<()> {
@@ -203,6 +215,44 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                                     } else {
                                         false
                                     }
+                                } else {
+                                    true
+                                })
+                            }).await.unwrap_or_default().write(&mut sock).await.expect("error writing to UNIX socket");
+                        }
+                        ClientMessage::CreateEndOfSeasonRoom { name, hash1, hash2, hash3, hash4, hash5, world_count, tracker_room_name } => {
+                            let id = loop {
+                                let id = rng().random::<u64>();
+                                match sqlx::query_scalar!(r#"SELECT EXISTS (SELECT 1 FROM mw_rooms WHERE id = $1) AS "exists!""#, id as i64).fetch_one(&db_pool).await {
+                                    Ok(true) => {}
+                                    Ok(false) => break id, //TODO save room to database in same transaction
+                                    Err(_) => {
+                                        false.write(&mut sock).await.expect("error writing to UNIX socket");
+                                        return
+                                    }
+                                }
+                            };
+                            let now = Utc::now();
+                            let room = Room {
+                                auth: RoomAuth::EndOfSeason,
+                                clients: HashMap::default(),
+                                file_hash: Some(Some([hash1, hash2, hash3, hash4, hash5])),
+                                base_queue: Vec::default(),
+                                player_queues: HashMap::default(),
+                                last_saved: now,
+                                deleted: false,
+                                created: Some(now),
+                                allow_send_all: false,
+                                autodelete_delta: Duration::from_secs(60 * 60 * 24 * 7),
+                                autodelete_tx: lock!(rooms = rooms.0; rooms.autodelete_tx.clone()),
+                                db_pool: db_pool.clone(),
+                                tracker_state: None,
+                                metadata: RoomMetadata::default(),
+                                id, name,
+                            };
+                            rooms.add(room, true).and_then(|room| async move {
+                                Ok(if let (Some(world_count), Some(tracker_room_name)) = (world_count, tracker_room_name) {
+                                    lock!(@write room = room; room.init_tracker(tracker_room_name, world_count).await).is_ok()
                                 } else {
                                     true
                                 })

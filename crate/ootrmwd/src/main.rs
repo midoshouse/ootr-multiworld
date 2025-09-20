@@ -960,8 +960,8 @@ enum Error {
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
     #[cfg(unix)]
-    #[error("error while creating tournament room")]
-    CreateTournamentRoom,
+    #[error("error while creating room")]
+    CreateRoom,
     #[cfg(unix)]
     #[error("error while waiting until inactive")]
     WaitUntilInactive,
@@ -1032,8 +1032,8 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
                         }
                     }
                 }
-                Subcommand::CreateTournamentRoom { .. } => if !bool::read(&mut sock).await? {
-                    return Err(Error::CreateTournamentRoom)
+                Subcommand::CreateTournamentRoom { .. } | Subcommand::CreateEndOfSeasonRoom { .. } => if !bool::read(&mut sock).await? {
+                    return Err(Error::CreateRoom)
                 },
             }
             return Ok(())
