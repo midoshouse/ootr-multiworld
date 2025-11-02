@@ -42,7 +42,7 @@ pub enum Error {
 }
 
 impl Config {
-    pub fn blocking_load() -> Result<Self, Error> {
+    pub fn blocking_load() -> Result<Self, Error> { //TODO update callers of this function to handle broken config files interactively (delete/edit/retry)
         let path = {
             #[cfg(unix)] {
                 BaseDirectories::new().find_config_file("midos-house/multiworld.json")
@@ -62,7 +62,7 @@ impl Config {
         })
     }
 
-    pub async fn load() -> Result<Self, Error> {
+    pub async fn load() -> Result<Self, Error> { //TODO update callers of this function to handle broken config files interactively (delete/edit/retry)
         let path = {
             #[cfg(unix)] {
                 BaseDirectories::new().find_config_file("midos-house/multiworld.json")
