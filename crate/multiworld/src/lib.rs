@@ -36,6 +36,8 @@ use {
         NEVec,
         NonEmptyIterator as _,
     },
+    num_derive::FromPrimitive,
+    num_traits as _, // required for num_derive::FromPrimitive
     ootr::model::{
         DungeonReward,
         DungeonRewardLocation,
@@ -214,6 +216,94 @@ pub struct RoomFormatter {
 impl fmt::Display for RoomFormatter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.name.fmt(f)
+    }
+}
+
+#[derive(Debug, FromPrimitive)]
+#[repr(u8)]
+pub enum OptHintArea {
+    Unknown,
+    Root,
+    HyruleField,
+    LonLonRanch,
+    Market,
+    TempleOfTime,
+    HyruleCastle,
+    OutsideGanonsCastle,
+    InsideGanonsCastle,
+    KokiriForest,
+    DekuTree,
+    LostWoods,
+    SacredForestMeadow,
+    ForestTemple,
+    DeathMountainTrail,
+    DodongosCavern,
+    GoronCity,
+    DeathMountainCrater,
+    FireTemple,
+    ZoraRiver,
+    ZorasDomain,
+    ZorasFountain,
+    JabuJabusBelly,
+    IceCavern,
+    LakeHylia,
+    WaterTemple,
+    KakarikoVillage,
+    BottomOfTheWell,
+    Graveyard,
+    ShadowTemple,
+    GerudoValley,
+    GerudoFortress,
+    ThievesHideout,
+    GerudoTrainingGround,
+    HauntedWasteland,
+    DesertColossus,
+    SpiritTemple,
+}
+
+impl TryFrom<OptHintArea> for HintArea {
+    type Error = ();
+
+    fn try_from(a: OptHintArea) -> Result<Self, ()> {
+        match a {
+            OptHintArea::Unknown => Err(()),
+            OptHintArea::Root => Ok(Self::Root),
+            OptHintArea::HyruleField => Ok(Self::HyruleField),
+            OptHintArea::LonLonRanch => Ok(Self::LonLonRanch),
+            OptHintArea::Market => Ok(Self::Market),
+            OptHintArea::TempleOfTime => Ok(Self::TempleOfTime),
+            OptHintArea::HyruleCastle => Ok(Self::HyruleCastle),
+            OptHintArea::OutsideGanonsCastle => Ok(Self::OutsideGanonsCastle),
+            OptHintArea::InsideGanonsCastle => Ok(Self::InsideGanonsCastle),
+            OptHintArea::KokiriForest => Ok(Self::KokiriForest),
+            OptHintArea::DekuTree => Ok(Self::DekuTree),
+            OptHintArea::LostWoods => Ok(Self::LostWoods),
+            OptHintArea::SacredForestMeadow => Ok(Self::SacredForestMeadow),
+            OptHintArea::ForestTemple => Ok(Self::ForestTemple),
+            OptHintArea::DeathMountainTrail => Ok(Self::DeathMountainTrail),
+            OptHintArea::DodongosCavern => Ok(Self::DodongosCavern),
+            OptHintArea::GoronCity => Ok(Self::GoronCity),
+            OptHintArea::DeathMountainCrater => Ok(Self::DeathMountainCrater),
+            OptHintArea::FireTemple => Ok(Self::FireTemple),
+            OptHintArea::ZoraRiver => Ok(Self::ZoraRiver),
+            OptHintArea::ZorasDomain => Ok(Self::ZorasDomain),
+            OptHintArea::ZorasFountain => Ok(Self::ZorasFountain),
+            OptHintArea::JabuJabusBelly => Ok(Self::JabuJabusBelly),
+            OptHintArea::IceCavern => Ok(Self::IceCavern),
+            OptHintArea::LakeHylia => Ok(Self::LakeHylia),
+            OptHintArea::WaterTemple => Ok(Self::WaterTemple),
+            OptHintArea::KakarikoVillage => Ok(Self::KakarikoVillage),
+            OptHintArea::BottomOfTheWell => Ok(Self::BottomOfTheWell),
+            OptHintArea::Graveyard => Ok(Self::Graveyard),
+            OptHintArea::ShadowTemple => Ok(Self::ShadowTemple),
+            OptHintArea::GerudoValley => Ok(Self::GerudoValley),
+            OptHintArea::GerudoFortress => Ok(Self::GerudoFortress),
+            OptHintArea::ThievesHideout => Ok(Self::ThievesHideout),
+            OptHintArea::GerudoTrainingGround => Ok(Self::GerudoTrainingGround),
+            OptHintArea::HauntedWasteland => Ok(Self::HauntedWasteland),
+            OptHintArea::DesertColossus => Ok(Self::DesertColossus),
+            OptHintArea::SpiritTemple => Ok(Self::SpiritTemple),
+        }
     }
 }
 

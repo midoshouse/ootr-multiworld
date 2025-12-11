@@ -18,20 +18,20 @@ if (-not $?)
     throw 'Native Failure'
 }
 
-wsl rustup update stable
+wsl -d ubuntu-m2 /home/fenhl/.cargo/bin/rustup update stable
 if (-not $?)
 {
     throw 'Native Failure'
 }
 
 # copy the tree to the WSL file system to improve compile times
-wsl rsync --delete -av /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/ /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/ --exclude .cargo/config.toml --exclude target --exclude crate/multiworld-bizhawk/OotrMultiworld/BizHawk --exclude crate/multiworld-bizhawk/OotrMultiworld/src/bin --exclude crate/multiworld-bizhawk/OotrMultiworld/src/obj --exclude crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll
+wsl -d ubuntu-m2 rsync --mkpath --delete -av /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/ /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/ --exclude .cargo/config.toml --exclude target --exclude crate/multiworld-bizhawk/OotrMultiworld/BizHawk --exclude crate/multiworld-bizhawk/OotrMultiworld/src/bin --exclude crate/multiworld-bizhawk/OotrMultiworld/src/obj --exclude crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll
 if (-not $?)
 {
     throw 'Native Failure'
 }
 
-wsl env -C /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld cargo check --workspace --exclude=multiworld-release
+wsl -d ubuntu-m2 env -C /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld /home/fenhl/.cargo/bin/cargo check --workspace --exclude=multiworld-release
 if (-not $?)
 {
     throw 'Native Failure'

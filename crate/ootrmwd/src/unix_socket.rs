@@ -259,7 +259,7 @@ pub(crate) async fn listen<C: ClientKind + 'static>(db_pool: PgPool, rooms: Room
                             }).await.unwrap_or_default().write(&mut sock).await.expect("error writing to UNIX socket");
                         }
                         ClientMessage::PrepareRestart { async_proto: _ } => {
-                            let mut deadline = Utc::now() + TimeDelta::try_days(1).expect("1-day timedelta out of bounds");
+                            let mut deadline = Utc::now() + TimeDelta::try_days(1).expect("1-day timedelta out of bounds"); //TODO allow explicitly specifying the deadline (e.g. in case a shorter-notice but not immediate restart is needed)
                             loop {
                                 match sqlx::query_scalar!(r#"SELECT start AS "start!" FROM races WHERE series = 'mw' AND start > $1::TIMESTAMPTZ - INTERVAL '24:00:00' AND start <= $1::TIMESTAMPTZ + INTERVAL '00:15:00' ORDER BY start DESC LIMIT 1"#, deadline).fetch_optional(&db_pool).await {
                                     Ok(Some(start)) => {

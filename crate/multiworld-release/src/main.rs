@@ -457,21 +457,21 @@ impl Task<Result<(), Error>> for BuildGuiLinux {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
             Self::Sync(client, repo, release_rx, gui_tx) => gres::transpose(async move {
-                Command::new("wsl").arg("rsync").arg("--delete").arg("-av").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/").arg("--exclude").arg(".cargo/config.toml").arg("--exclude").arg("target").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/BizHawk").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/bin").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/obj").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll").check("wsl rsync").await?;
+                Command::new("wsl").arg("-d").arg("ubuntu-m2").arg("rsync").arg("--mkpath").arg("--delete").arg("-av").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/").arg("--exclude").arg(".cargo/config.toml").arg("--exclude").arg("target").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/BizHawk").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/bin").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/obj").arg("--exclude").arg("crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll").check("wsl rsync").await?;
                 Ok(Err(Self::Updater(client, repo, release_rx, gui_tx)))
             }).await,
             Self::Updater(client, repo, release_rx, gui_tx) => gres::transpose(async move {
-                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-updater").arg("--features=require-user-agent-salt").check("wsl cargo build --package=multiworld-updater").await?;
+                Command::new("wsl").arg("-d").arg("ubuntu-m2").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("/home/fenhl/.cargo/bin/cargo").arg("build").arg("--release").arg("--package=multiworld-updater").arg("--features=require-user-agent-salt").check("wsl cargo build --package=multiworld-updater").await?;
                 Ok(Err(Self::Gui(client, repo, release_rx, gui_tx)))
             }).await,
             Self::Gui(client, repo, release_rx, gui_tx) => gres::transpose(async move {
-                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-gui").arg("--features=require-user-agent-salt").check("wsl cargo build --package=multiworld-gui").await?;
+                Command::new("wsl").arg("-d").arg("ubuntu-m2").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("/home/fenhl/.cargo/bin/cargo").arg("build").arg("--release").arg("--package=multiworld-gui").arg("--features=require-user-agent-salt").check("wsl cargo build --package=multiworld-gui").await?;
                 let _ = gui_tx.send(LinuxGuiNotification);
                 Ok(Err(Self::Copy(client, repo, release_rx)))
             }).await,
             Self::Copy(client, repo, release_rx) => gres::transpose(async move {
                 fs::create_dir_all("target/wsl/release").await?;
-                Command::new("wsl").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/multiworld-gui").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/multiworld-gui").check("wsl cp").await?;
+                Command::new("wsl").arg("-d").arg("ubuntu-m2").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/multiworld-gui").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/multiworld-gui").check("wsl cp").await?;
                 Ok(Err(Self::Read(client, repo, release_rx)))
             }).await,
             Self::Read(client, repo, release_rx) => gres::transpose(async move {
@@ -643,18 +643,18 @@ impl Task<Result<(), Error>> for BuildBizHawkLinux {
                 Ok(Err(Self::CSharp(client, repo, release_rx, version, bizhawk_tx)))
             }).await,
             Self::CSharp(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
-                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-csharp").arg("--features=require-user-agent-salt").check("wsl cargo build --package=multiworld-csharp").await?;
+                Command::new("wsl").arg("-d").arg("ubuntu-m2").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("/home/fenhl/.cargo/bin/cargo").arg("build").arg("--release").arg("--package=multiworld-csharp").arg("--features=require-user-agent-salt").check("wsl cargo build --package=multiworld-csharp").await?;
                 Ok(Err(Self::BizHawk(client, repo, release_rx, version, bizhawk_tx)))
             }).await,
             Self::BizHawk(client, repo, release_rx, version, bizhawk_tx) => gres::transpose(async move {
-                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-bizhawk").arg("--features=require-user-agent-salt").check("wsl cargo build --package=multiworld-bizhawk").await?;
+                Command::new("wsl").arg("-d").arg("ubuntu-m2").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("/home/fenhl/.cargo/bin/cargo").arg("build").arg("--release").arg("--package=multiworld-bizhawk").arg("--features=require-user-agent-salt").check("wsl cargo build --package=multiworld-bizhawk").await?;
                 let _ = bizhawk_tx.send(LinuxBizHawkNotification);
                 Ok(Err(Self::Copy(client, repo, release_rx, version)))
             }).await,
             Self::Copy(client, repo, release_rx, version) => gres::transpose(async move {
                 fs::create_dir_all("target/wsl/release").await?;
-                Command::new("wsl").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/BizHawk/dll/libmultiworld.so").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/libmultiworld.so").check("wsl cp").await?;
-                Command::new("wsl").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/OotrMultiworld.dll").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/OotrMultiworld.dll").check("wsl cp").await?;
+                Command::new("wsl").arg("-d").arg("ubuntu-m2").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/BizHawk/dll/libmultiworld.so").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/libmultiworld.so").check("wsl cp").await?;
+                Command::new("wsl").arg("-d").arg("ubuntu-m2").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/BizHawk/ExternalTools/OotrMultiworld.dll").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/OotrMultiworld.dll").check("wsl cp").await?;
                 Ok(Err(Self::Zip(client, repo, release_rx, version)))
             }).await,
             Self::Zip(client, repo, release_rx, version) => gres::transpose(async move {
@@ -862,12 +862,12 @@ impl Task<Result<(), Error>> for BuildInstallerLinux {
                 Ok(Err(Self::Glow(client, repo, release_rx)))
             }).await,
             Self::Glow(client, repo, release_rx) => gres::transpose(async move {
-                Command::new("wsl").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-installer").arg("--features=require-user-agent-salt").check("wsl cargo build --package=multiworld-installer").await?;
+                Command::new("wsl").arg("-d").arg("ubuntu-m2").arg("env").arg("-C").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld").arg("/home/fenhl/.cargo/bin/cargo").arg("build").arg("--release").arg("--package=multiworld-installer").arg("--features=require-user-agent-salt").check("wsl cargo build --package=multiworld-installer").await?;
                 Ok(Err(Self::Copy(client, repo, release_rx)))
             }).await,
             Self::Copy(client, repo, release_rx) => gres::transpose(async move {
                 fs::create_dir_all("target/wsl/release").await?;
-                Command::new("wsl").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/multiworld-installer").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/multiworld-installer").check("wsl cp").await?;
+                Command::new("wsl").arg("-d").arg("ubuntu-m2").arg("cp").arg("/home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/multiworld-installer").arg("/mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/multiworld-installer").check("wsl cp").await?;
                 Ok(Err(Self::Read(client, repo, release_rx)))
             }).await,
             Self::Read(client, repo, release_rx) => gres::transpose(async move {

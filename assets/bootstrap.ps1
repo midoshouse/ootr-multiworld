@@ -49,36 +49,36 @@ ThrowOnNativeFailure
 
 # Linux
 "installing prerequisite packages on Linux"
-wsl sudo apt-get install -y cmake dotnet-sdk-6.0 libfontconfig1-dev libfreetype6-dev libssl-dev pkg-config python3 rsync
+wsl -d ubuntu-m2 sudo apt-get install -y cmake dotnet-sdk-8.0 libfontconfig1-dev libfreetype6-dev libssl-dev pkg-config python3 rsync
 ThrowOnNativeFailure
 "creating target dir on Linux"
-wsl mkdir -p /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/debug
+wsl -d ubuntu-m2 mkdir -p /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/debug
 ThrowOnNativeFailure
 "syncing repo to Linux"
-wsl rsync --delete -av /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/ /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/ --exclude .cargo/config.toml --exclude target --exclude crate/multiworld-bizhawk/OotrMultiworld/BizHawk --exclude crate/multiworld-bizhawk/OotrMultiworld/src/bin --exclude crate/multiworld-bizhawk/OotrMultiworld/src/obj --exclude crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll
+wsl -d ubuntu-m2 rsync --delete -av /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/ /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/ --exclude .cargo/config.toml --exclude target --exclude crate/multiworld-bizhawk/OotrMultiworld/BizHawk --exclude crate/multiworld-bizhawk/OotrMultiworld/src/bin --exclude crate/multiworld-bizhawk/OotrMultiworld/src/obj --exclude crate/multiworld-bizhawk/OotrMultiworld/src/multiworld.dll
 ThrowOnNativeFailure
 "running bootstrap-linux.sh on Linux"
-wsl env -C /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld assets/bootstrap-linux.sh
+wsl -d ubuntu-m2 env -C /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld assets/bootstrap-linux.sh
 ThrowOnNativeFailure
 
 #TODO move to release script
 "creating WSL target dirs"
-wsl mkdir -p /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/debug
+wsl -d ubuntu-m2 mkdir -p /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/debug
 ThrowOnNativeFailure
-wsl mkdir -p /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release
+wsl -d ubuntu-m2 mkdir -p /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release
 ThrowOnNativeFailure
 "copying Linux artifacts to Windows file system"
-wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/debug/multiworld-gui /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/debug/multiworld-gui
+wsl -d ubuntu-m2 cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/debug/multiworld-gui /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/debug/multiworld-gui
 ThrowOnNativeFailure
-wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/multiworld-gui /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/multiworld-gui
+wsl -d ubuntu-m2 cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/multiworld-gui /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/multiworld-gui
 ThrowOnNativeFailure
-wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/debug/libmultiworld.so /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/debug/libmultiworld.so
+wsl -d ubuntu-m2 cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/debug/libmultiworld.so /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/debug/libmultiworld.so
 ThrowOnNativeFailure
-wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/libmultiworld.so /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/libmultiworld.so
+wsl -d ubuntu-m2 cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/target/release/libmultiworld.so /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/libmultiworld.so
 ThrowOnNativeFailure
-wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/src/bin/Debug/net48/OotrMultiworld.dll /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/debug/OotrMultiworld.dll
+wsl -d ubuntu-m2 cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/src/bin/Debug/net48/OotrMultiworld.dll /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/debug/OotrMultiworld.dll
 ThrowOnNativeFailure
-wsl cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/src/bin/Release/net48/OotrMultiworld.dll /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/OotrMultiworld.dll
+wsl -d ubuntu-m2 cp /home/fenhl/wslgit/github.com/midoshouse/ootr-multiworld/crate/multiworld-bizhawk/OotrMultiworld/src/bin/Release/net48/OotrMultiworld.dll /mnt/c/Users/fenhl/git/github.com/midoshouse/ootr-multiworld/stage/target/wsl/release/OotrMultiworld.dll
 ThrowOnNativeFailure
 
 "bootstrap done"

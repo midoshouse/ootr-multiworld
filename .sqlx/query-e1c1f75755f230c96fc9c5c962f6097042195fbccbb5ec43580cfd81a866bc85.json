@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM mw_config",
+  "query": "SELECT verbose_logging, regional_vc FROM mw_config",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "a11178ed4eae1ce11fa05b3887eacee9db4af58f001b607d4716e3988a8bbe78"
+  "hash": "e1c1f75755f230c96fc9c5c962f6097042195fbccbb5ec43580cfd81a866bc85"
 }

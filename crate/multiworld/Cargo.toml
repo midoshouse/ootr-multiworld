@@ -26,6 +26,8 @@ itertools = "0.14"
 log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
 multiworld-derive = { path = "../multiworld-derive" }
 nonempty-collections = "1"
+num-derive = "0.4.2"
+num-traits = { version = "0.2.19", default-features = false }
 oauth2 = "4"
 ootr = { git = "https://github.com/fenhl/oottracker", branch = "mw" }
 ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils", branch = "main" }

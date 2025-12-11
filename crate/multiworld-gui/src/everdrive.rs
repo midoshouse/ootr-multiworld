@@ -33,6 +33,7 @@ use {
         Recipe,
     },
     log_lock::lock,
+    num_traits::FromPrimitive as _,
     ootr_utils::spoiler::HashIcon,
     tokio::{
         io::{
@@ -51,7 +52,11 @@ use {
         SerialPortBuilderExt as _,
         SerialStream,
     },
-    multiworld::Filename,
+    multiworld::{
+        Filename,
+        HintArea,
+        OptHintArea,
+    },
     crate::{
         FrontendWriter,
         Message,
@@ -329,7 +334,7 @@ impl Recipe for Subscription {
                             (Vec::default(), SubscriptionState::Connected { session, read, writer, rx, player_data, queue })
                         }
                         res = &mut read => match res {
-                            Ok((reader, buf)) => (
+                            Ok((mut reader, buf)) => (
                                 match buf[0] {
                                     0x00 => Vec::default(), // Ping
                                     0x01 => { // State: File Select
@@ -361,6 +366,23 @@ impl Recipe for Subscription {
                                             }
                                         }
                                         Vec::default()
+                                    }
+                                    0x05 => { // Dungeon Reward Locations
+                                        let mut rest = [0; 3];
+                                        reader.read_exact(&mut rest).await?;
+                                        let [_, emerald_world, emerald_area, ruby_world, ruby_area, sapphire_world, sapphire_area, light_world, light_area, forest_world, forest_area, fire_world, fire_area, water_world, water_area, shadow_world] = buf;
+                                        let [shadow_area, spirit_world, spirit_area] = rest;
+                                        vec![Message::Plugin(Box::new(frontend::ClientMessage::DungeonRewardInfo {
+                                            emerald: if let (Some(world), Some(area)) = (NonZeroU8::new(emerald_world), OptHintArea::from_u8(emerald_area).and_then(|area| HintArea::try_from(area).ok())) { Some((world, area)) } else { None },
+                                            ruby: if let (Some(world), Some(area)) = (NonZeroU8::new(ruby_world), OptHintArea::from_u8(ruby_area).and_then(|area| HintArea::try_from(area).ok())) { Some((world, area)) } else { None },
+                                            sapphire: if let (Some(world), Some(area)) = (NonZeroU8::new(sapphire_world), OptHintArea::from_u8(sapphire_area).and_then(|area| HintArea::try_from(area).ok())) { Some((world, area)) } else { None },
+                                            light: if let (Some(world), Some(area)) = (NonZeroU8::new(light_world), OptHintArea::from_u8(light_area).and_then(|area| HintArea::try_from(area).ok())) { Some((world, area)) } else { None },
+                                            forest: if let (Some(world), Some(area)) = (NonZeroU8::new(forest_world), OptHintArea::from_u8(forest_area).and_then(|area| HintArea::try_from(area).ok())) { Some((world, area)) } else { None },
+                                            fire: if let (Some(world), Some(area)) = (NonZeroU8::new(fire_world), OptHintArea::from_u8(fire_area).and_then(|area| HintArea::try_from(area).ok())) { Some((world, area)) } else { None },
+                                            water: if let (Some(world), Some(area)) = (NonZeroU8::new(water_world), OptHintArea::from_u8(water_area).and_then(|area| HintArea::try_from(area).ok())) { Some((world, area)) } else { None },
+                                            shadow: if let (Some(world), Some(area)) = (NonZeroU8::new(shadow_world), OptHintArea::from_u8(shadow_area).and_then(|area| HintArea::try_from(area).ok())) { Some((world, area)) } else { None },
+                                            spirit: if let (Some(world), Some(area)) = (NonZeroU8::new(spirit_world), OptHintArea::from_u8(spirit_area).and_then(|area| HintArea::try_from(area).ok())) { Some((world, area)) } else { None },
+                                        }))]
                                     }
                                     cmd => return Err(Error::UnknownCommand(cmd)),
                                 },
