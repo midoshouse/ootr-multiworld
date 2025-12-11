@@ -169,7 +169,7 @@ unsupported_version!("/v11", v11);
 unsupported_version!("/v12", v12);
 unsupported_version!("/v13", v13);
 unsupported_version!("/v14", v14);
-supported_version!("/v15", v15, V15, 15);
+unsupported_version!("/v15", v15);
 supported_version!("/v16", v16, V16, 16);
 supported_version!("/v17", v17, V17, 17);
 
