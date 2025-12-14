@@ -1841,10 +1841,17 @@ impl State {
                     .spacing(8),
                 SessionState::Room { conflicting_item_kinds: false, wrong_file_hash: None, world_taken: Some(world), .. } => Column::new()
                     .push(Text::new(format!("World {world} is already taken.")))
-                    //TODO short explanation about needing to generate with the desired world count and patch with different player IDs, with link to longer explanation? (see #setup-support conversation on 2025-03-17)
                     .push(Row::new()
                         .push(Button::new("Kick").on_press(Message::Kick(world)))
                         .push(Button::new("Leave").on_press(Message::Leave))
+                        .spacing(8)
+                    )
+                    .push(Text::new("Support").size(24))
+                    .push("Please double-check to make sure your seed was generated with the Player Count setting set to the total number of players and each player patched with a different value for the Player ID setting.")
+                    .push("If you you still need help, ask in #setup-support on the OoT Randomizer Discord. Please provide the link to your seed page if you generated online, or your patch file archive (.zpfz file) if you used a downloaded version of the randomizer.")
+                    .push(Row::new()
+                        .push(Button::new("invite link").on_press(Message::DiscordInvite))
+                        .push(Button::new("direct channel link").on_press(Message::DiscordChannel))
                         .spacing(8)
                     )
                     .spacing(8),
