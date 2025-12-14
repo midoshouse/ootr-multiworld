@@ -17,14 +17,14 @@ futures = "0.3"
 if_chain = "1"
 itermore = { version = "0.8", features = ["array_combinations"] }
 lazy-regex = "3.4.1"
-log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
+log-lock = { git = "https://github.com/fenhl/log-lock" }
 multiworld = { path = "../multiworld", features = ["sqlx"] }
 multiworld-derive = { path = "../multiworld-derive" }
 rand = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["charset", "hickory-dns", "http2", "macos-system-configuration", "rustls-tls"] }
 ring = { version = "0.17", features = ["std"] }
 rocket = "0.5"
-rocket-util = { git = "https://github.com/fenhl/rocket-util", branch = "main" }
+rocket-util = { git = "https://github.com/fenhl/rocket-util" }
 rocket_ws = "0.1"
 semver = "1.0.22"
 serde = { version = "1", features = ["derive"] }
@@ -33,11 +33,11 @@ sqlx = { version = "0.8", default-features = false, features = ["chrono", "json"
 thiserror = "2"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "parking_lot", "process", "rt-multi-thread", "sync", "time"] }
 tokio-tungstenite = "0.21" # waiting for https://github.com/rwf2/Rocket/pull/2823
-wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["reqwest", "rocket", "serde_json"] }
+wheel = { git = "https://github.com/fenhl/wheel", features = ["reqwest", "rocket", "serde_json"] }
 
 [target.'cfg(unix)'.dependencies]
 either = "1"
-ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils", branch = "main" }
+ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils" }
 
 [build-dependencies]
 git2 = "0.20"

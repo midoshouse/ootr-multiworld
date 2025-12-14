@@ -13,7 +13,7 @@ require-user-agent-salt = ["multiworld/require-user-agent-salt"]
 
 [build-dependencies]
 thiserror = "2"
-wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["reqwest"] }
+wheel = { git = "https://github.com/fenhl/wheel", features = ["reqwest"] }
 winresource = "0.1"
 
 [target.'cfg(windows)'.build-dependencies]
@@ -46,7 +46,7 @@ serenity = { version = "0.12", default-features = false, features = ["utils"] }
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "parking_lot", "process", "rt-multi-thread"] }
 url = { version = "2", features = ["serde"] }
-wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["gui"] }
+wheel = { git = "https://github.com/fenhl/wheel", features = ["gui"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
@@ -61,4 +61,4 @@ mslnk = "0.1"
 runas = "1.2"
 tempfile = "3"
 tokio-util = { version = "0.7", features = ["io"] }
-winver = { git = "https://github.com/fenhl/winver", branch = "main" }
+winver = { git = "https://github.com/fenhl/winver" }

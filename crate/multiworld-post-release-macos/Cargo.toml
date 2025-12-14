@@ -16,4 +16,4 @@ semver = "1.0.23"
 sha2 = "0.10.8"
 tokio = { version = "1.41.1", features = ["io-util", "process"] }
 tokio-util = { version = "0.7.12", features = ["compat"] }
-wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }
+wheel = { git = "https://github.com/fenhl/wheel" }

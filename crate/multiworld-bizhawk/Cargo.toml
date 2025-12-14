@@ -15,10 +15,10 @@ require-user-agent-salt = []
 lazy-regex = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["parking_lot", "process"] }
-wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }
+wheel = { git = "https://github.com/fenhl/wheel" }
 
 [dependencies]
 semver = "1"
 
 [target.'cfg(windows)'.dependencies]
-winver = { git = "https://github.com/fenhl/winver", branch = "main" }
+winver = { git = "https://github.com/fenhl/winver" }

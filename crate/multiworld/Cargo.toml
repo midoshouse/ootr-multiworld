@@ -23,14 +23,14 @@ futures = "0.3"
 github-app-auth = { git = "https://github.com/fenhl/github-app-auth", branch = "deps", optional = true }
 if_chain = "1"
 itertools = "0.14"
-log-lock = { git = "https://github.com/fenhl/log-lock", branch = "main" }
+log-lock = { git = "https://github.com/fenhl/log-lock" }
 multiworld-derive = { path = "../multiworld-derive" }
 nonempty-collections = "1"
 num-derive = "0.4.2"
 num-traits = { version = "0.2.19", default-features = false }
 oauth2 = "4"
 ootr = { git = "https://github.com/fenhl/oottracker", branch = "mw" }
-ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils", branch = "main" }
+ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils" }
 oottracker = { git = "https://github.com/fenhl/oottracker", branch = "mw" }
 rand = "0.9"
 rand_xoshiro = "0.7"
@@ -46,7 +46,7 @@ thiserror = "2"
 tokio = { version = "1", features = ["net", "parking_lot", "process", "sync", "time"] }
 tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"] } # waiting for https://github.com/rwf2/Rocket/pull/2823
 url = { version = "2", features = ["serde"] }
-wheel = { git = "https://github.com/fenhl/wheel", branch = "main", features = ["async-proto", "chrono", "reqwest", "serde_json", "tungstenite021"] } # tungstenite feature required to correctly classify network errors
+wheel = { git = "https://github.com/fenhl/wheel", features = ["async-proto", "chrono", "reqwest", "serde_json", "tungstenite021"] } # tungstenite feature required to correctly classify network errors
 
 [target.'cfg(unix)'.dependencies]
 xdg = "3"

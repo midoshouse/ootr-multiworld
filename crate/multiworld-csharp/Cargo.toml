@@ -29,10 +29,10 @@ libc = "0.2"
 multiworld = { path = "../multiworld" }
 multiworld-derive = { path = "../multiworld-derive" }
 once_cell = "1"
-ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils", branch = "main" }
+ootr-utils = { git = "https://github.com/midoshouse/rust-ootr-utils" }
 oottracker = { git = "https://github.com/fenhl/oottracker", branch = "mw" }
 thiserror = "2"
-wheel = { git = "https://github.com/fenhl/wheel", branch = "main" }
+wheel = { git = "https://github.com/fenhl/wheel" }
 
 [target.'cfg(unix)'.dependencies]
 xdg = "3"
@@ -41,4 +41,4 @@ xdg = "3"
 directories = "6"
 semver = "1"
 windows = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
-winver = { git = "https://github.com/fenhl/winver", branch = "main" }
+winver = { git = "https://github.com/fenhl/winver" }
