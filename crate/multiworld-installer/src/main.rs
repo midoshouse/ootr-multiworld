@@ -407,25 +407,31 @@ impl State {
                         (_, _) => match emulator {
                             Emulator::Dummy | Emulator::EverDrive => unreachable!(),
                             Emulator::BizHawk => if let Some(user_dirs) = UserDirs::new() {
-                                // check for existing BizHawk install in ~/bin (where this installer places it by default) and the Downloads folder (where the bizhawk-co-op install script places it)
-                                let bizhawk_install_path = user_dirs.home_dir().join("bin").join("BizHawk");
+                                // check for existing BizHawk install in ~/scoop, ~/bin (where this installer places it by default), and the Downloads folder (where the bizhawk-co-op install script places it)
+                                let bizhawk_install_path = user_dirs.home_dir().join("scoop").join("apps").join("bizhawk").join("current");
                                 if bizhawk_install_path.exists() {
                                     let Ok(bizhawk_install_path) = bizhawk_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
                                     (false, bizhawk_install_path)
-                                } else if let Some(default_bizhawk_dir) = user_dirs.download_dir()
-                                    .and_then(|downloads| downloads.read_dir().ok())
-                                    .into_iter()
-                                    .flatten()
-                                    .filter_map(|entry| entry.ok())
-                                    .filter(|entry| entry.file_name().to_str().map_or(false, |filename| regex_is_match!(r"^BizHawk-[0-9]+(\.[0-9]+){2,3}$", filename)))
-                                    .max_by_key(|entry| entry.file_name())
-                                    .map(|entry| entry.path())
-                                {
-                                    let Ok(default_bizhawk_dir) = default_bizhawk_dir.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
-                                    (false, default_bizhawk_dir)
                                 } else {
-                                    let Ok(bizhawk_install_path) = bizhawk_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
-                                    (true, bizhawk_install_path)
+                                    let bizhawk_install_path = user_dirs.home_dir().join("bin").join("BizHawk");
+                                    if bizhawk_install_path.exists() {
+                                        let Ok(bizhawk_install_path) = bizhawk_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
+                                        (false, bizhawk_install_path)
+                                    } else if let Some(default_bizhawk_dir) = user_dirs.download_dir()
+                                        .and_then(|downloads| downloads.read_dir().ok())
+                                        .into_iter()
+                                        .flatten()
+                                        .filter_map(|entry| entry.ok())
+                                        .filter(|entry| entry.file_name().to_str().map_or(false, |filename| regex_is_match!(r"^BizHawk-[0-9]+(\.[0-9]+){2,3}$", filename)))
+                                        .max_by_key(|entry| entry.file_name())
+                                        .map(|entry| entry.path())
+                                    {
+                                        let Ok(default_bizhawk_dir) = default_bizhawk_dir.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
+                                        (false, default_bizhawk_dir)
+                                    } else {
+                                        let Ok(bizhawk_install_path) = bizhawk_install_path.into_os_string().into_string() else { return cmd(future::err(Error::NonUtf8Path)) };
+                                        (true, bizhawk_install_path)
+                                    }
                                 }
                             } else {
                                 (true, String::default())
