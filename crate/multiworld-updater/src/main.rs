@@ -161,10 +161,22 @@ impl Clone for Message {
         match self {
             Self::Error(e) => Self::Error(e.clone()),
             Self::CopyDebugInfo => Self::CopyDebugInfo,
+            Self::Exited => Self::Exited,
+            Self::MultiworldReleaseAssets(client, asset, script) => Self::MultiworldReleaseAssets(client.clone(), asset.clone(), script.clone()),
+            Self::AskBizHawkUpdate(client, version) => Self::AskBizHawkUpdate(client.clone(), version.clone()),
+            Self::UpdateBizHawk(client, version) => Self::UpdateBizHawk(client.clone(), version.clone()),
+            Self::BizHawkReleaseAsset(client, asset) => Self::BizHawkReleaseAsset(client.clone(), asset.clone()),
+            Self::BizHawkZip(response) => Self::BizHawkZip(response.clone()),
+            Self::Launch => Self::Launch,
+            Self::Done => Self::Done,
             Self::DiscordInvite => Self::DiscordInvite,
             Self::DiscordChannel => Self::DiscordChannel,
             Self::NewIssue => Self::NewIssue,
-            _ => Self::Cloned(format!("{self:?}")),
+            Self::Cloned(debug) => Self::Cloned(debug.clone()),
+            | Self::MultiworldResponse(_, _)
+            | Self::WaitDownload(_)
+            | Self::BizHawkResponse(_)
+                => Self::Cloned(format!("{self:?}")),
         }
     }
 }
