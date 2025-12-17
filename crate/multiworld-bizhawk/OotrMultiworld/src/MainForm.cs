@@ -650,8 +650,8 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
         }
     }
 
-    private OptHintArea HintAreaFromRewardInfo(uint trackerCtxAddr, byte i) {
-        var text = System.Text.Encoding.UTF8.GetString(APIs.Memory.ReadByteRange(trackerCtxAddr + 0x54 + 0x17 * i, 0x16, "System Bus").ToArray());
+    private OptHintArea HintAreaFromRewardInfoV4(uint trackerCtxAddr, byte i) {
+        var text = Encoding.UTF8.GetString(APIs.Memory.ReadByteRange(trackerCtxAddr + 0x54 + 0x17 * i, 0x16, "System Bus").ToArray());
         if (text == "Free                  ") return OptHintArea.Root;
         if (text == "Hyrule Field          ") return OptHintArea.HyruleField;
         if (text == "Lon Lon Ranch         ") return OptHintArea.LonLonRanch;
@@ -689,6 +689,10 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
         if (text == "Desert Colossus       ") return OptHintArea.DesertColossus;
         if (text == "Spirit Temple         ") return OptHintArea.SpiritTemple;
         return OptHintArea.Unknown;
+    }
+
+    private OptHintArea HintAreaFromRewardInfoV7(uint trackerCtxAddr, byte i) {
+        return (OptHintArea) APIs.Memory.ReadByte(trackerCtxAddr + 0x54 + i, "System Bus");
     }
 
     private void SendDungeonRewardLocationInfo(Client client, byte playerID, uint cosmeticsCtxAddr, uint trackerCtxAddr) {
@@ -880,7 +884,7 @@ public sealed class MainForm : ToolFormBase, IExternalToolForm {
                         }
                     }
                     if (display_area) {
-                        var area = HintAreaFromRewardInfo(trackerCtxAddr, i);
+                        var area = (trackerCtxVersion >= 7 /* 8.3.65 Fenhl-2 */) ? HintAreaFromRewardInfoV7(trackerCtxAddr, i) : HintAreaFromRewardInfoV4(trackerCtxAddr, i);
                         var world = playerID; //TODO add CFG_DUNGEON_INFO_REWARD_WORLDS_ENABLE and CFG_DUNGEON_REWARD_WORLDS to tracker context as part of dungeon reward shuffle PR
                         switch (reward) {
                             case 0: {

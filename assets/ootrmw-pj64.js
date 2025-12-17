@@ -182,7 +182,7 @@ function hint_area_from_dungeon_idx(i) {
     }
 }
 
-function hint_area_from_reward_info(trackerCtxAddr, i) {
+function hint_area_from_reward_info_v4(trackerCtxAddr, i) {
     var text = mem.getstring(trackerCtxAddr + 0x54 + 0x17 * i);
     if (text == "Free                  ") return OptHintArea.Root;
     if (text == "Hyrule Field          ") return OptHintArea.HyruleField;
@@ -221,6 +221,10 @@ function hint_area_from_reward_info(trackerCtxAddr, i) {
     if (text == "Desert Colossus       ") return OptHintArea.DesertColossus;
     if (text == "Spirit Temple         ") return OptHintArea.SpiritTemple;
     return OptHintArea.Unknown;
+}
+
+function hint_area_from_reward_info_v7(trackerCtxAddr, i) {
+    return mem.u8[trackerCtxAddr + 0x54 + i] - 1;
 }
 
 function write_dungeon_reward_info(emerald_world, emerald_area, ruby_world, ruby_area, sapphire_world, sapphire_area, light_world, light_area, forest_world, forest_area, fire_world, fire_area, water_world, water_area, shadow_world, shadow_area, spirit_world, spirit_area, write) {
@@ -512,7 +516,7 @@ function send_dungeon_reward_location_info(write, playerID, cosmeticsCtxAddr, tr
                     }
                 }
                 if (display_area) {
-                    var area = hint_area_from_reward_info(trackerCtxAddr, i);
+                    var area = (trackerCtxVersion >= 7 /* 8.3.65 Fenhl-2 */) ? hint_area_from_reward_info_v7(trackerCtxAddr, i) : hint_area_from_reward_info_v4(trackerCtxAddr, i);
                     var world = playerID; //TODO add CFG_DUNGEON_INFO_REWARD_WORLDS_ENABLE and CFG_DUNGEON_REWARD_WORLDS to tracker context as part of dungeon reward shuffle PR
                     switch (reward) {
                         case 0: {
