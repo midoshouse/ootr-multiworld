@@ -1,6 +1,7 @@
 use {
     std::{
         any::TypeId,
+        cmp::Ordering::*,
         collections::HashMap,
         hash::Hash as _,
         io::prelude::*,
@@ -75,15 +76,18 @@ const PROTOCOL_VERSION: u8 = 1;
 
 #[derive(Debug)]
 struct HandshakeResponse {
+    port: Pin<Box<TimeoutStream<SerialStream>>>,
+    version: ootr_utils::Version,
     player_id: NonZeroU8,
     file_hash: [HashIcon; 5],
-    port: Pin<Box<TimeoutStream<SerialStream>>>,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ConnectError {
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] SerialPort(#[from] tokio_serial::Error),
+    #[error("unknown branch identifier: 0x{0:02x}")]
+    Branch(u8),
     #[error("failed to decode hash icon")]
     HashIcon,
     #[error("connected to EverDrive main menu")]
@@ -128,7 +132,7 @@ async fn connect_to_port(port_info: &tokio_serial::SerialPortInfo, log: bool) ->
     let mut cmd = [0; 16];
     AsyncReadExt::read_exact(&mut port, &mut cmd).await?;
     match cmd {
-        [b'O', b'o', b'T', b'R', PROTOCOL_VERSION, _, _, _, _, _, player_id, hash1, hash2, hash3, hash4, hash5] => {
+        [b'O', b'o', b'T', b'R', PROTOCOL_VERSION, major, minor, patch, branch, supplementary, player_id, hash1, hash2, hash3, hash4, hash5] => {
             if log {
                 let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: port is in game", Utc::now().format("%Y-%m-%d %H:%M:%S")));
             }
@@ -142,6 +146,7 @@ async fn connect_to_port(port_info: &tokio_serial::SerialPortInfo, log: bool) ->
             buf[4] = 1; // enable MW_PROGRESSIVE_ITEMS_ENABLE
             AsyncWriteExt::write_all(&mut port, &buf).await?;
             Ok(HandshakeResponse {
+                version: ootr_utils::Version::from_bytes([major, minor, patch, branch, supplementary]).ok_or_else(|| ConnectError::Branch(branch))?,
                 player_id: NonZeroU8::new(player_id).ok_or(ConnectError::PlayerId)?,
                 file_hash: [
                     all().nth(hash1.into()).ok_or(ConnectError::HashIcon)?,
@@ -185,6 +190,8 @@ pub(crate) enum Error {
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] SerialPort(#[from] tokio_serial::Error),
     #[error(transparent)] Task(#[from] tokio::task::JoinError),
+    #[error("received save data segment with out-of-range index")]
+    SaveDataSegment(u8),
     #[error("received unknown message {0} from EverDrive")]
     UnknownCommand(u8),
     #[error("received item for world 0")]
@@ -212,7 +219,9 @@ impl Recipe for Subscription {
                 read: Pin<Box<dyn Future<Output = io::Result<(ReadHalf<Pin<Box<TimeoutStream<SerialStream>>>>, [u8; 16])>> + Send>>,
                 writer: WriteHalf<Pin<Box<TimeoutStream<SerialStream>>>>,
                 rx: mpsc::Receiver<frontend::ServerMessage>,
+                version: ootr_utils::Version,
                 player_data: HashMap<NonZeroU8, (Filename, u32)>,
+                save_data: [u8; oottracker::save::SIZE],
                 queue: Vec<u16>,
             },
         }
@@ -258,7 +267,7 @@ impl Recipe for Subscription {
                             }
                         }
                     }
-                    if let Some(HandshakeResponse { port, player_id, file_hash }) = response {
+                    if let Some(HandshakeResponse { port, version, player_id, file_hash }) = response {
                         let (reader, writer) = io::split(port);
                         let (tx, rx) = mpsc::channel(1_024);
                         (vec![
@@ -269,14 +278,15 @@ impl Recipe for Subscription {
                             session: SessionState::Handshake,
                             read: read_from_port(reader).boxed(),
                             player_data: HashMap::default(),
+                            save_data: [0; oottracker::save::SIZE],
                             queue: Vec::default(),
-                            writer, rx,
+                            writer, rx, version,
                         })
                     } else {
                         (vec![Message::EverDriveScanFailed(Arc::new(errors))], SubscriptionState::Init { is_retry: true })
                     }
                 }
-                SubscriptionState::Connected { mut session, mut read, mut writer, mut rx, mut player_data, mut queue } => {
+                SubscriptionState::Connected { mut session, mut read, mut writer, mut rx, version, mut player_data, mut save_data, mut queue } => {
                     async fn send_player_data(port: &mut WriteHalf<Pin<Box<TimeoutStream<SerialStream>>>>, world: NonZeroU8, name: Filename, progressive_items: u32) -> io::Result<()> {
                         let mut buf = [0; 16];
                         buf[0] = 0x01; // Player Data
@@ -331,7 +341,7 @@ impl Recipe for Subscription {
                                     send_player_data(&mut writer, world, *name, *progressive_items).await?;
                                 }
                             }
-                            (Vec::default(), SubscriptionState::Connected { session, read, writer, rx, player_data, queue })
+                            (Vec::default(), SubscriptionState::Connected { session, read, writer, rx, version, player_data, save_data, queue })
                         }
                         res = &mut read => match res {
                             Ok((mut reader, buf)) => (
@@ -342,16 +352,22 @@ impl Recipe for Subscription {
                                         vec![Message::Plugin(Box::new(frontend::ClientMessage::PlayerName(Filename(*array_ref![buf, 1, 8]))))]
                                     }
                                     0x02 => { // State: In Game
-                                        let mut internal_count = u16::from_be_bytes(*array_ref![buf, 1, 2]);
-                                        let item_pending = if let SessionState::InGame { item_pending, .. } = session {
-                                            item_pending
+                                        if version.branch() == ootr_utils::Branch::DevFenhl && version.base().cmp(&semver::Version::new(8, 3, 68)).then_with(|| version.supplementary().cmp(&Some(2))) == Less {
+                                            // older iteration of this packet without the full save data
+                                            let mut internal_count = u16::from_be_bytes(*array_ref![buf, 1, 2]);
+                                            let item_pending = if let SessionState::InGame { item_pending, .. } = session {
+                                                item_pending
+                                            } else {
+                                                for (world, (name, progressive_items)) in mem::take(&mut player_data) {
+                                                    send_player_data(&mut writer, world, name, progressive_items).await?;
+                                                }
+                                                get_item(&mut writer, &queue, &mut internal_count).await?
+                                            };
+                                            session = SessionState::InGame { internal_count, item_pending };
                                         } else {
-                                            for (world, (name, progressive_items)) in mem::take(&mut player_data) {
-                                                send_player_data(&mut writer, world, name, progressive_items).await?;
-                                            }
-                                            get_item(&mut writer, &queue, &mut internal_count).await?
-                                        };
-                                        session = SessionState::InGame { internal_count, item_pending };
+                                            *array_mut_ref![save_data, 0, 15] = *array_ref![buf, 1, 15];
+                                            reader.read_exact(array_mut_ref![save_data, 15, 200 - 15]).await?;
+                                        }
                                         Vec::default()
                                     }
                                     0x03 => vec![Message::Plugin(Box::new(frontend::ClientMessage::SendItem {
@@ -384,11 +400,30 @@ impl Recipe for Subscription {
                                             spirit: if let (Some(world), Some(area)) = (NonZeroU8::new(spirit_world), OptHintArea::from_u8(spirit_area).and_then(|area| HintArea::try_from(area).ok())) { Some((world, area)) } else { None },
                                         }))]
                                     }
+                                    0x06 => { // Save Data Segment
+                                        let segment_idx = buf[1];
+                                        if segment_idx >= 10 { return Err(Error::SaveDataSegment(segment_idx)) }
+                                        *array_mut_ref![save_data, 500 * usize::from(segment_idx) + 200, 14] = *array_ref![buf, 2, 14];
+                                        reader.read_exact(array_mut_ref![save_data, 500 * usize::from(segment_idx) + 214, 500 - 14]).await?;
+                                        if segment_idx == 9 {
+                                            let mut internal_count = u16::from_be_bytes(*array_ref![save_data, 0x90, 2]);
+                                            let item_pending = if let SessionState::InGame { item_pending, .. } = session {
+                                                item_pending
+                                            } else {
+                                                for (world, (name, progressive_items)) in mem::take(&mut player_data) {
+                                                    send_player_data(&mut writer, world, name, progressive_items).await?;
+                                                }
+                                                get_item(&mut writer, &queue, &mut internal_count).await?
+                                            };
+                                            session = SessionState::InGame { internal_count, item_pending };
+                                        }
+                                        vec![Message::Plugin(Box::new(frontend::ClientMessage::SaveData(save_data)))]
+                                    }
                                     cmd => return Err(Error::UnknownCommand(cmd)),
                                 },
                                 SubscriptionState::Connected {
                                     read: read_from_port(reader).boxed(),
-                                    session, writer, rx, player_data, queue,
+                                    session, writer, rx, version, player_data, save_data, queue,
                                 },
                             ),
                             Err(e) => match e.kind() {
