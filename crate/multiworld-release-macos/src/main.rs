@@ -5,11 +5,6 @@ use {
     chrono::prelude::*,
     dir_lock::DirLock,
     directories::UserDirs,
-    git2::{
-        BranchType,
-        Repository,
-        ResetType,
-    },
     serde::Deserialize,
     tokio::{
         io::{
@@ -55,7 +50,6 @@ struct Args {
 enum Error {
     #[error(transparent)] DirLock(#[from] dir_lock::Error),
     #[error(transparent)] Env(#[from] env::VarError),
-    #[error(transparent)] Git(#[from] git2::Error),
     #[error(transparent)] Io(#[from] io::Error),
     #[error(transparent)] Plist(#[from] plist::Error),
     #[error(transparent)] Toml(#[from] toml::de::Error),
@@ -111,12 +105,6 @@ async fn main(Args { human_readable_output }: Args) -> Result<(), Error> {
         sweep_cmd.env("PATH", format!("{}:{}", user_dirs.home_dir().join(".cargo").join("bin").display(), env::var("PATH")?));
     }
     sweep_cmd.check("cargo sweep").await?;
-
-    progress!("updating ootr-multiworld repo");
-    let repo = Repository::open("/opt/git/github.com/midoshouse/ootr-multiworld/main")?;
-    let mut origin = repo.find_remote("origin")?;
-    origin.fetch(&["main"], None, None)?;
-    repo.reset(&repo.find_branch("origin/main", BranchType::Remote)?.into_reference().peel_to_commit()?.into_object(), ResetType::Hard, None)?;
 
     progress!("building Mido's House Multiworld.app for x86_64");
     Command::new("cargo").arg("build").arg("--release").arg("--target=x86_64-apple-darwin").arg("--package=multiworld-gui").env("MACOSX_DEPLOYMENT_TARGET", "10.15" /* Rust supports 10.12+, Info.plist requires <key>NSRequiresAquaSystemAppearance</key><string>NO</string> below 10.14, this minimum is limited by Homebrew support */).current_dir("/opt/git/github.com/midoshouse/ootr-multiworld/main").check("cargo").await?;

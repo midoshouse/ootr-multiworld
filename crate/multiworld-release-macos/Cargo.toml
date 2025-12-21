@@ -14,7 +14,6 @@ chrono = { version = "0.4.42", default-features = false, features = ["clock", "s
 clap = { version = "4.5.21", features = ["derive"] }
 dir-lock = "0.5"
 directories = "6"
-git2 = "0.20"
 multiworld = { path = "../multiworld", features = ["require-user-agent-salt"] }
 semver = { version = "1.0.27", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }

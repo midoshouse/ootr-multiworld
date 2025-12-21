@@ -5826,7 +5826,6 @@ dependencies = [
  "clap",
  "dir-lock",
  "directories",
- "git2",
  "multiworld",
  "semver",
  "serde",
