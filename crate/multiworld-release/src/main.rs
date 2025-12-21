@@ -1004,6 +1004,8 @@ impl Task<Result<(), Error>> for BuildServer {
 }
 
 enum BuildMacOs {
+    Pull(reqwest::Client, Repo, broadcast::Receiver<Release>),
+    Build(reqwest::Client, Repo, broadcast::Receiver<Release>),
     Connect(reqwest::Client, Repo, broadcast::Receiver<Release>),
     Remote(String, reqwest::Client, Repo, broadcast::Receiver<Release>, Child, ChildStdout),
     Disconnect(reqwest::Client, Repo, broadcast::Receiver<Release>, Child),
@@ -1015,13 +1017,15 @@ enum BuildMacOs {
 
 impl BuildMacOs {
     fn new(client: reqwest::Client, repo: Repo, release_rx: broadcast::Receiver<Release>) -> Self {
-        Self::Connect(client, repo, release_rx)
+        Self::Pull(client, repo, release_rx)
     }
 }
 
 impl fmt::Display for BuildMacOs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Pull(..) => write!(f, "updating repo on Mac"),
+            Self::Build(..) => write!(f, "building release script on Mac"),
             Self::Connect(..) => write!(f, "connecting to Mac"),
             Self::Remote(msg, ..) => msg.fmt(f),
             Self::Disconnect(..) => write!(f, "disconnecting from Mac"),
@@ -1036,6 +1040,8 @@ impl fmt::Display for BuildMacOs {
 impl GetPriority for BuildMacOs {
     fn priority(&self) -> Priority {
         match self {
+            Self::Pull(..) => Priority::Active,
+            Self::Build(..) => Priority::Active,
             Self::Connect(..) => Priority::Active,
             Self::Remote(..) => Priority::Active,
             Self::Disconnect(..) => Priority::Active,
@@ -1051,6 +1057,14 @@ impl GetPriority for BuildMacOs {
 impl Task<Result<(), Error>> for BuildMacOs {
     async fn run(self) -> Result<Result<(), Error>, Self> {
         match self {
+            Self::Pull(client, repo, release_tx) => gres::transpose(async move {
+                Command::new("ssh").arg(MACOS_ADDR).arg("env").arg("-C").arg("/opt/git/github.com/midoshouse/ootr-multiworld/main").arg("git").arg("pull").check(format!("ssh {MACOS_ADDR} git pull")).await?;
+                Ok(Err(Self::Build(client, repo, release_tx)))
+            }).await,
+            Self::Build(client, repo, release_tx) => gres::transpose(async move {
+                Command::new("ssh").arg(MACOS_ADDR).arg("env").arg("-C").arg("/opt/git/github.com/midoshouse/ootr-multiworld/main").arg("cargo").arg("build").arg("--release").arg("--package=multiworld-release-macos").check(format!("ssh {MACOS_ADDR} git pull")).await?;
+                Ok(Err(Self::Connect(client, repo, release_tx)))
+            }).await,
             Self::Connect(client, repo, release_rx) => gres::transpose(async move {
                 let mut ssh = Command::new("ssh").arg(MACOS_ADDR).arg("/opt/git/github.com/midoshouse/ootr-multiworld/main/target/release/multiworld-release-macos").stdout(Stdio::piped()).spawn()?;
                 let stdout = ssh.stdout.take().expect("stdout was piped");
