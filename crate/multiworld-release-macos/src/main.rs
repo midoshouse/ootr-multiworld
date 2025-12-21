@@ -1,6 +1,8 @@
 use {
     std::env,
+    apple_bundle::prelude::*,
     async_proto::Protocol as _,
+    chrono::prelude::*,
     dir_lock::DirLock,
     directories::UserDirs,
     git2::{
@@ -8,6 +10,7 @@ use {
         Repository,
         ResetType,
     },
+    serde::Deserialize,
     tokio::{
         io::{
             self,
@@ -26,6 +29,21 @@ use {
     multiworld::MacReleaseMessage,
 };
 
+#[derive(Deserialize)]
+struct CargoManifest {
+    workspace: CargoWorkspace,
+}
+
+#[derive(Deserialize)]
+struct CargoWorkspace {
+    package: CargoPackage,
+}
+
+#[derive(Deserialize)]
+struct CargoPackage {
+    version: semver::Version,
+}
+
 #[derive(clap::Parser)]
 #[clap(version)]
 struct Args {
@@ -39,6 +57,8 @@ enum Error {
     #[error(transparent)] Env(#[from] env::VarError),
     #[error(transparent)] Git(#[from] git2::Error),
     #[error(transparent)] Io(#[from] io::Error),
+    #[error(transparent)] Plist(#[from] plist::Error),
+    #[error(transparent)] Toml(#[from] toml::de::Error),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
 }
@@ -99,7 +119,7 @@ async fn main(Args { human_readable_output }: Args) -> Result<(), Error> {
     repo.reset(&repo.find_branch("origin/main", BranchType::Remote)?.into_reference().peel_to_commit()?.into_object(), ResetType::Hard, None)?;
 
     progress!("building Mido's House Multiworld.app for x86_64");
-    Command::new("cargo").arg("build").arg("--release").arg("--target=x86_64-apple-darwin").arg("--package=multiworld-gui").env("MACOSX_DEPLOYMENT_TARGET", "10.9").current_dir("/opt/git/github.com/midoshouse/ootr-multiworld/main").check("cargo").await?;
+    Command::new("cargo").arg("build").arg("--release").arg("--target=x86_64-apple-darwin").arg("--package=multiworld-gui").env("MACOSX_DEPLOYMENT_TARGET", "10.15" /* Rust supports 10.12+, Info.plist requires <key>NSRequiresAquaSystemAppearance</key><string>NO</string> below 10.14, this minimum is limited by Homebrew support */).current_dir("/opt/git/github.com/midoshouse/ootr-multiworld/main").check("cargo").await?;
 
     progress!("building Mido's House Multiworld.app for aarch64");
     Command::new("cargo").arg("build").arg("--release").arg("--target=aarch64-apple-darwin").arg("--package=multiworld-gui").current_dir("/opt/git/github.com/midoshouse/ootr-multiworld/main").check("cargo").await?;
@@ -107,6 +127,50 @@ async fn main(Args { human_readable_output }: Args) -> Result<(), Error> {
     progress!("creating Universal macOS binary");
     fs::create_dir("/opt/git/github.com/midoshouse/ootr-multiworld/main/assets/macos/Mido's House Multiworld.app/Contents/MacOS").await.exist_ok()?;
     Command::new("lipo").arg("-create").arg("target/aarch64-apple-darwin/release/multiworld-gui").arg("target/x86_64-apple-darwin/release/multiworld-gui").arg("-output").arg("assets/macos/Mido's House Multiworld.app/Contents/MacOS/multiworld-gui").current_dir("/opt/git/github.com/midoshouse/ootr-multiworld/main").check("lipo").await?;
+
+    progress!("creating Info.plist");
+    let CargoManifest { workspace: CargoWorkspace { package: CargoPackage { version } } } = toml::from_slice(&fs::read("/opt/git/github.com/midoshouse/ootr-multiworld/main/Cargo.toml").await?)?;
+    plist::to_file_binary("/opt/git/github.com/midoshouse/ootr-multiworld/main/assets/macos/Mido's House Multiworld.app/Contents/Info.plist", &InfoPlist {
+        categorization: Categorization {
+            bundle_package_type: Some(format!("APPL")),
+            ..Categorization::default()
+        },
+        identification: Identification {
+            bundle_identifier: format!("house.midos.mw"),
+            ..Identification::default()
+        },
+        naming: Naming {
+            bundle_name: Some(format!("Multiworld")),
+            bundle_display_name: Some(format!("Mido's House Multiworld")),
+            ..Naming::default()
+        },
+        bundle_version: BundleVersion {
+            bundle_version: Some(version.to_string()),
+            bundle_short_version_string: Some(version.to_string()),
+            bundle_info_dictionary_version: Some(format!("6.0")),
+            human_readable_copyright: Some(Utc::now().format("© 2021–%Y Fenhl and contributors").to_string()),
+            ..BundleVersion::default()
+        },
+        localization: Localization {
+            bundle_development_region: Some(format!("en")),
+            ..Localization::default()
+        },
+        icons: Icons {
+            bundle_icon_file: Some(format!("AppIcon.icns")),
+            bundle_icon_name: Some(format!("mhmw-macos")),
+            ..Icons::default()
+        },
+        graphics: Graphics {
+            high_resolution_capable: Some(true),
+            supports_automatic_graphics_switching: Some(true),
+            ..Graphics::default()
+        },
+        launch: Launch {
+            bundle_executable: Some(format!("multiworld-gui")),
+            ..Launch::default()
+        },
+        ..InfoPlist::default()
+    })?;
 
     progress!("packing multiworld-gui.dmg");
     Command::new("hdiutil").arg("create").arg("assets/multiworld-gui.dmg").arg("-volname").arg("Mido's House Multiworld").arg("-srcfolder").arg("assets/macos").arg("-ov").current_dir("/opt/git/github.com/midoshouse/ootr-multiworld/main").check("hdiutil").await?;
