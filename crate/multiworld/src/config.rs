@@ -4,6 +4,7 @@ use {
         fs,
         path::PathBuf,
     },
+    chrono::prelude::*,
     if_chain::if_chain,
     serde::{
         Deserialize,
@@ -20,6 +21,7 @@ fn default_websocket_hostname() -> String { format!("mw.midos.house") }
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Config {
     pub default_frontend: Option<Frontend>,
+    pub dismiss_maintenance_notices_until: Option<DateTime<Utc>>,
     #[serde(default)]
     pub log: bool,
     #[serde(default)]
@@ -106,6 +108,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             default_frontend: None,
+            dismiss_maintenance_notices_until: None,
             log: false,
             login_tokens: BTreeMap::default(),
             refresh_tokens: BTreeMap::default(),

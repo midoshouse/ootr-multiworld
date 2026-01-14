@@ -336,6 +336,7 @@ enum Message {
     DiscordChannel,
     DiscordInvite,
     DismissConflictingItemKinds,
+    DismissMaintenanceNotice,
     DismissWrongPassword,
     EverDriveScanFailed(Arc<Vec<(tokio_serial::SerialPortInfo, everdrive::ConnectError)>>),
     EverDriveTimeout,
@@ -373,6 +374,7 @@ enum Message {
     SetExistingRoomSelection(RoomFormatter),
     SetFrontend(Frontend),
     SetLobbyView(LobbyView),
+    SetMaintenanceDontShowAgain(bool),
     SetNewRoomName(String),
     SetPassword(String),
     SetRoomFilter(String),
@@ -432,6 +434,8 @@ struct State {
     last_save: Option<oottracker::Save>,
     last_dungeon_reward_locations: HashMap<DungeonReward, (NonZeroU8, HintArea)>,
     update_state: UpdateState,
+    maintenance_notice: bool,
+    maintenance_dont_show_again: bool,
     send_all_path: String,
     send_all_world: String,
     show_room_filter: bool,
@@ -682,6 +686,9 @@ impl State {
             last_save: None,
             last_dungeon_reward_locations: HashMap::default(),
             update_state: UpdateState::Pending,
+            maintenance_notice: config.dismiss_maintenance_notices_until.is_none_or(|until| until < Utc.with_ymd_and_hms(2026, 5, 22, 0, 0, 0).single().expect("wrong hardcoded datetime"))
+                && (Utc.with_ymd_and_hms(2026, 4, 18, 0, 0, 0).single().expect("wrong hardcoded datetime")..Utc.with_ymd_and_hms(2026, 5, 22, 0, 0, 0).single().expect("wrong hardcoded datetime")).contains(&Utc::now()),
+            maintenance_dont_show_again: false,
             send_all_path: String::default(),
             send_all_world: String::default(),
             show_room_filter: false,
@@ -822,6 +829,17 @@ impl State {
             Message::DismissConflictingItemKinds => if let SessionState::Room { ref mut conflicting_item_kinds, .. } = self.server_connection {
                 *conflicting_item_kinds = false;
             },
+            Message::DismissMaintenanceNotice => {
+                self.maintenance_notice = false;
+                if self.maintenance_dont_show_again {
+                    return cmd(async move {
+                        let mut config = Config::load().await?;
+                        config.dismiss_maintenance_notices_until = Some(Utc.with_ymd_and_hms(2026, 5, 22, 0, 0, 0).single().expect("wrong hardcoded datetime"));
+                        config.save().await?;
+                        Ok(Message::Nop)
+                    })
+                }
+            }
             Message::DismissWrongPassword => if let SessionState::Lobby { ref mut wrong_password, .. } = self.server_connection {
                 *wrong_password = false;
             },
@@ -1417,6 +1435,7 @@ impl State {
                 self.show_room_filter = false;
             },
             Message::SetFrontend(new_frontend) => self.frontend.kind = new_frontend,
+            Message::SetMaintenanceDontShowAgain(dont_show_again) => self.maintenance_dont_show_again = dont_show_again,
             Message::SetNewRoomName(name) => if let SessionState::Lobby { ref mut new_room_name, .. } = self.server_connection { *new_room_name = name },
             Message::SetPassword(new_password) => if let SessionState::Lobby { ref mut password, .. } = self.server_connection { *password = new_password },
             Message::SetRoomFilter(new_room_filter) => self.room_filter = new_room_filter,
@@ -1477,6 +1496,20 @@ impl State {
             } else {
                 error_view(format!("An error occurred during communication with {}:", self.frontend.kind), e, false, self.debug_info_copied.contains(&false))
             }
+        } else if self.maintenance_notice {
+            Column::new()
+                .push(Text::new("Announcement").size(24))
+                .push(Text::new(format!(
+                    "Maintenance on the Mido's House server is scheduled from {} until {} (both times in your local timezone). Mido's House Multiworld may go offline for a while during that time.",
+                    Utc.with_ymd_and_hms(2026, 5, 18, 0, 0, 0).single().expect("wrong hardcoded datetime").with_timezone(&Local).format("%A, %B %-d, %H:%M"),
+                    Utc.with_ymd_and_hms(2026, 5, 22, 0, 0, 0).single().expect("wrong hardcoded datetime").with_timezone(&Local).format("%A, %B %-d, %H:%M"),
+                )))
+                .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
+                .push(Checkbox::new("Don't show again for this maintenance window", self.maintenance_dont_show_again).on_toggle(Message::SetMaintenanceDontShowAgain))
+                .push(Button::new("OK").on_press(Message::DismissMaintenanceNotice))
+                .spacing(8)
+                .padding(8)
+                .into()
         } else if let UpdateState::Pending = self.update_state {
             let mut col = Column::new();
             if let SessionState::Error { auto_retry: false, e: SessionStateError::Connection(ref e), maintenance } = self.server_connection {
@@ -1485,7 +1518,7 @@ impl State {
                         if let Some((start, duration)) = maintenance {
                             col = col.push(Text::new(format!(
                                 "Maintenance on the Mido's House server is scheduled for {} (time shown in your local timezone). Mido's House Multiworld is expected to go offline for approximately {}.",
-                                start.with_timezone(&Local).format("%A, %B %e, %H:%M"),
+                                start.with_timezone(&Local).format("%A, %B %-d, %H:%M"),
                                 DurationFormatter(duration),
                             )));
                         }
@@ -1569,7 +1602,7 @@ impl State {
                     if let Some((start, duration)) = maintenance {
                         col = col.push(Text::new(format!(
                             "Maintenance on the Mido's House server is scheduled for {} (time shown in your local timezone). Mido's House Multiworld is expected to go offline for approximately {}.",
-                            start.with_timezone(&Local).format("%A, %B %e, %H:%M"),
+                            start.with_timezone(&Local).format("%A, %B %-d, %H:%M"),
                             DurationFormatter(duration),
                         )));
                     }
@@ -1595,7 +1628,7 @@ impl State {
                     if let Some((start, duration)) = maintenance {
                         col = col.push(Text::new(format!(
                             "Maintenance on the Mido's House server is scheduled for {} (time shown in your local timezone). Mido's House Multiworld is expected to go offline for approximately {}.",
-                            start.with_timezone(&Local).format("%A, %B %e, %H:%M"),
+                            start.with_timezone(&Local).format("%A, %B %-d, %H:%M"),
                             DurationFormatter(duration),
                         )));
                     }
@@ -1700,7 +1733,7 @@ impl State {
                     if let Some((start, duration)) = maintenance {
                         col = col.push(Text::new(format!(
                             "Maintenance on the Mido's House server is scheduled for {} (time shown in your local timezone). Mido's House Multiworld is expected to go offline for approximately {}.",
-                            start.with_timezone(&Local).format("%A, %B %e, %H:%M"),
+                            start.with_timezone(&Local).format("%A, %B %-d, %H:%M"),
                             DurationFormatter(duration),
                         )));
                     }
@@ -1914,7 +1947,7 @@ impl State {
                     if let Some((start, duration)) = maintenance {
                         col = col.push(Text::new(format!(
                             "Maintenance on the Mido's House server is scheduled for {} (time shown in your local timezone). Mido's House Multiworld is expected to go offline for approximately {}.",
-                            start.with_timezone(&Local).format("%A, %B %e, %H:%M"),
+                            start.with_timezone(&Local).format("%A, %B %-d, %H:%M"),
                             DurationFormatter(duration),
                         )));
                     }
@@ -1947,7 +1980,7 @@ impl State {
                     if let Some((start, duration)) = maintenance {
                         col = col.push(Text::new(format!(
                             "Maintenance on the Mido's House server is scheduled for {} (time shown in your local timezone). Mido's House Multiworld is expected to go offline for approximately {}.",
-                            start.with_timezone(&Local).format("%A, %B %e, %H:%M"),
+                            start.with_timezone(&Local).format("%A, %B %-d, %H:%M"),
                             DurationFormatter(duration),
                         )));
                     }
