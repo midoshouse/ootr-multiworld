@@ -1329,6 +1329,7 @@ async fn cli_main(cli: &Cli, args: Args) -> Result<(), Error> {
 
 #[wheel::main(custom_exit)]
 async fn main(args: CliArgs) -> Result<(), Error> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::new()?;
     let res = cli_main(&cli, Args::from(args)).await;
     drop(cli);

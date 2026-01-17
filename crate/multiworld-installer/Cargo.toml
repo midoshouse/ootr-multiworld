@@ -22,7 +22,8 @@ multiworld-bizhawk = { path = "../multiworld-bizhawk" }
 [target.'cfg(unix)'.build-dependencies]
 itertools = "0.14"
 multiworld = { path = "../multiworld" }
-reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "macos-system-configuration", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["charset", "gzip", "hickory-dns", "http2", "rustls-no-provider", "system-proxy", "zstd"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 [dependencies]
 async_zip = { version = "0.0.18", features = ["full"] }
@@ -30,15 +31,16 @@ clap = { version = "4", features = ["derive"] }
 directories = "6"
 enum-iterator = "2"
 futures = "0.3"
-iced = { version = "0.13", default-features = false, features = ["image", "tiny-skia", "tokio"] }
+iced = { version = "0.14", default-features = false, features = ["image", "tiny-skia", "tokio"] }
 if_chain = "1.0.2"
-image = { version = "0.24", default-features = false, features = ["ico"] } # transitive dependency of iced
+image = { version = "0.25", default-features = false, features = ["ico"] }
 itertools = "0.14"
 lazy-regex = "3"
 multiworld = { path = "../multiworld" }
 open = "5"
-reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "json", "macos-system-configuration", "rustls-tls", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["charset", "gzip", "http2", "json", "rustls-no-provider", "stream", "system-proxy", "zstd"] }
 rfd = "0.15"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_ini = "0.2"
@@ -50,7 +52,7 @@ wheel = { git = "https://github.com/fenhl/wheel", features = ["gui"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
-tokio-tar = "0.3"
+astral-tokio-tar = "0.5.6"
 which = "8"
 xdg = "3"
 

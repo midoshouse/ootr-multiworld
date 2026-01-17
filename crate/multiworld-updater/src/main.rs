@@ -2,6 +2,7 @@
 
 use {
     std::{
+        cell::RefCell,
         cmp::Ordering::*,
         convert::Infallible as Never,
         env,
@@ -485,7 +486,7 @@ impl App {
                 EmuArgs::BizHawk { .. } => Column::new()
                     .push("An update for Mido's House Multiworld for BizHawk is available.")
                     .push("Please close BizHawk to start the update.")
-                    .push(Space::with_height(Length::Fill))
+                    .push(Space::default().height(Length::Fill))
                     .push(Text::new(format!("old version: {}{}", env!("CARGO_PKG_VERSION"), {
                         #[cfg(debug_assertions)] { " (debug)" }
                         #[cfg(not(debug_assertions))] { "" }
@@ -496,7 +497,7 @@ impl App {
                 EmuArgs::EverDrive { .. } | EmuArgs::Pj64 { .. } => Column::new()
                     .push("An update for Mido's House Multiworld is available.")
                     .push("Waiting to make sure the old version has exited…")
-                    .push(Space::with_height(Length::Fill))
+                    .push(Space::default().height(Length::Fill))
                     .push(Text::new(format!("old version: {}{}", env!("CARGO_PKG_VERSION"), {
                         #[cfg(debug_assertions)] { " (debug)" }
                         #[cfg(not(debug_assertions))] { "" }
@@ -552,7 +553,7 @@ impl App {
                     .spacing(8)
                     .padding(8)
                 )
-                .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
+                .push(Space::default().width(Length::Shrink)) // to avoid overlap with the scrollbar
                 .spacing(16)
             ).into(),
         }
@@ -618,24 +619,23 @@ enum MainError {
 
 #[wheel::main]
 fn main(args: Args) -> Result<(), MainError> {
+    fn theme(_: &App) -> Option<Theme> { wheel::gui::theme() }
+
+    let _ = rustls::crypto::ring::default_provider().install_default();
     match args {
         Args::Emu(args) => {
+            // RefCell as workaround for https://github.com/iced-rs/iced/issues/3080
             let (icon, icon_error) = match icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico)) {
-                Ok(icon) => (Some(icon), None),
-                Err(e) => (None, Some(e)),
+                Ok(icon) => (Some(icon), RefCell::new(None)),
+                Err(e) => (None, RefCell::new(Some(e))),
             };
-            iced::application(App::title, App::update, App::view)
-                .window(window::Settings {
-                    size: Size { width: 320.0, height: 240.0 },
-                    icon,
-                    ..window::Settings::default()
-                })
-                .theme(|_| wheel::gui::theme())
-                .run_with(|| (
-                    App::new(icon_error, args.clone()),
+            iced::application(move || {
+                let cmd_args = args.clone();
+                (
+                    App::new(icon_error.borrow_mut().take(), args.clone()),
                     cmd(async move {
                         let mut system = sysinfo::System::default();
-                        match args {
+                        match cmd_args {
                             EmuArgs::BizHawk { mw_pid, bizhawk_pid, .. } => {
                                 while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[mw_pid, bizhawk_pid]), true, ProcessRefreshKind::default()) > 0 {
                                     sleep(Duration::from_secs(1)).await;
@@ -649,7 +649,16 @@ fn main(args: Args) -> Result<(), MainError> {
                         }
                         Ok(Message::Exited)
                     }),
-                ))?;
+                )
+            }, App::update, App::view)
+                .title(App::title)
+                .window(window::Settings {
+                    size: Size { width: 320.0, height: 240.0 },
+                    icon,
+                    ..window::Settings::default()
+                })
+                .theme(theme)
+                .run()?;
         }
         Args::Pj64Script { src, dst } => if let Err(e) = pj64script(&src, &dst) {
             if Config::blocking_load()?.log {

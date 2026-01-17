@@ -41,6 +41,7 @@ enum Error {
 #[wheel::main]
 async fn main() -> Result<(), Error> {
     println!("cargo::rerun-if-changed=nonexistent.foo"); // check a nonexistent file to make sure build script is always run (see https://github.com/rust-lang/cargo/issues/4213 and https://github.com/rust-lang/cargo/issues/5663)
+    #[cfg(unix)] let _ = rustls::crypto::ring::default_provider().install_default();
     if env::var_os("CARGO_CFG_WINDOWS").is_some() {
         WindowsResource::new()
             .set_icon("../../assets/icon.ico")

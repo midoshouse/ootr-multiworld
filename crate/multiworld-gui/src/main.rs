@@ -3,6 +3,7 @@
 use {
     std::{
         borrow::Cow,
+        cell::RefCell,
         collections::{
             BTreeMap,
             HashMap,
@@ -896,7 +897,7 @@ impl State {
             Message::ToggleRoomFilter => {
                 self.show_room_filter = !self.show_room_filter;
                 if self.show_room_filter {
-                    return text_input::focus("room-filter")
+                    return operation::focus("room-filter")
                 }
             }
             Message::JoinRoom => if let SessionState::Lobby { create_new_room, ref existing_room_selection, ref new_room_name, ref password, .. } = self.server_connection {
@@ -1504,8 +1505,8 @@ impl State {
                     Utc.with_ymd_and_hms(2026, 5, 18, 0, 0, 0).single().expect("wrong hardcoded datetime").with_timezone(&Local).format("%A, %B %-d, %H:%M"),
                     Utc.with_ymd_and_hms(2026, 5, 22, 0, 0, 0).single().expect("wrong hardcoded datetime").with_timezone(&Local).format("%A, %B %-d, %H:%M"),
                 )))
-                .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
-                .push(Checkbox::new("Don't show again for this maintenance window", self.maintenance_dont_show_again).on_toggle(Message::SetMaintenanceDontShowAgain))
+                .push({ suppress_scroll = true; Space::default().height(Length::Fill) })
+                .push(Checkbox::new(self.maintenance_dont_show_again).label("Don't show again for this maintenance window").on_toggle(Message::SetMaintenanceDontShowAgain))
                 .push(Button::new("OK").on_press(Message::DismissMaintenanceNotice))
                 .spacing(8)
                 .padding(8)
@@ -1635,7 +1636,7 @@ impl State {
                     col
                         .push("Connecting to server…")
                         .push("If this takes longer than 5 seconds, check your internet connection or contact @fenhl on Discord for support.")
-                        .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
+                        .push({ suppress_scroll = true; Space::default().height(Length::Fill) })
                         .push(Text::new(format!("version {}{}", env!("CARGO_PKG_VERSION"), {
                             #[cfg(debug_assertions)] { " (debug)" }
                             #[cfg(not(debug_assertions))] { "" }
@@ -1645,7 +1646,7 @@ impl State {
                 SessionState::InitAutoRejoin { .. } => Column::new()
                     .push("Reconnecting to room…")
                     .push("If this takes longer than 5 seconds, check your internet connection or contact @fenhl on Discord for support.")
-                    .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
+                    .push({ suppress_scroll = true; Space::default().height(Length::Fill) })
                     .push(Text::new(format!("version {}{}", env!("CARGO_PKG_VERSION"), {
                         #[cfg(debug_assertions)] { " (debug)" }
                         #[cfg(not(debug_assertions))] { "" }
@@ -1653,13 +1654,13 @@ impl State {
                     .spacing(8),
                 SessionState::Lobby { wrong_password: true, .. } => Column::new()
                     .push("wrong password")
-                    .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
+                    .push({ suppress_scroll = true; Space::default().height(Length::Fill) })
                     .push(Button::new("OK").on_press(Message::DismissWrongPassword))
                     .spacing(8),
                 SessionState::Lobby { view: LobbyView::SessionExpired { provider, error: None }, wrong_password: false, .. } => Column::new()
                     .push(Text::new(format!("Your Mido's House user session has expired.")))
                     .push(Button::new("Sign back in").on_press(Message::SetLobbyView(LobbyView::Login { provider, no_midos_house_account: false })))
-                    .push(Space::with_width(Length::Fill))
+                    .push(Space::default().width(Length::Fill))
                     .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Normal)))
                     .spacing(8),
                 SessionState::Lobby { view: LobbyView::SessionExpired { provider, error: Some(ref e) }, wrong_password: false, .. } => Column::new()
@@ -1673,14 +1674,14 @@ impl State {
                         .align_y(iced::Alignment::Center)
                         .spacing(8)
                     )
-                    .push(Space::with_width(Length::Fill))
+                    .push(Space::default().width(Length::Fill))
                     .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Normal)))
                     .spacing(8),
                 SessionState::Lobby { view: LobbyView::Settings, wrong_password: false, login_state, .. } => {
                     let mut col = Column::new()
                         .push(Row::new()
                             .push(Button::new("Back").on_press(Message::SetLobbyView(LobbyView::Normal)))
-                            .push(Space::with_width(Length::Fill))
+                            .push(Space::default().width(Length::Fill))
                             .push(Text::new(format!("version {}{}", env!("CARGO_PKG_VERSION"), {
                                 #[cfg(debug_assertions)] { " (debug)" }
                                 #[cfg(not(debug_assertions))] { "" }
@@ -1712,7 +1713,7 @@ impl State {
                         .align_y(iced::Alignment::Center)
                         .spacing(8)
                     )
-                    .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
+                    .push({ suppress_scroll = true; Space::default().height(Length::Fill) })
                     .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Settings)))
                     .spacing(8),
                 SessionState::Lobby { view: LobbyView::Login { provider, no_midos_house_account: false }, wrong_password: false, .. } => Column::new()
@@ -1725,7 +1726,7 @@ impl State {
                         }
                         btn
                     })
-                    .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
+                    .push({ suppress_scroll = true; Space::default().height(Length::Fill) })
                     .push(Button::new("Cancel").on_press(Message::SetLobbyView(LobbyView::Settings)))
                     .spacing(8),
                 SessionState::Lobby { view: LobbyView::Normal, wrong_password: false, ref rooms, create_new_room, ref existing_room_selection, ref new_room_name, ref password, maintenance, .. } => {
@@ -1765,7 +1766,7 @@ impl State {
                     if existing_room_selection.as_ref().map_or(true, |existing_room_selection| existing_room_selection.password_required) {
                         col = col.push(TextInput::new("Password", password).secure(true).on_input(Message::SetPassword).on_paste(Message::SetPassword).on_submit(Message::JoinRoom).padding(5));
                     }
-                    col = col.push({ suppress_scroll = true; Space::with_height(Length::Fill) });
+                    col = col.push({ suppress_scroll = true; Space::default().height(Length::Fill) });
                     if create_new_room {
                         if new_room_name.chars().count() > 64 {
                             col = col.push("room name too long (maximum 64 characters)");
@@ -1797,7 +1798,7 @@ impl State {
                                 if enabled { btn = btn.on_press(Message::JoinRoom) }
                                 btn
                             })
-                            .push(Space::with_width(Length::Fill))
+                            .push(Space::default().width(Length::Fill))
                             .push(Button::new("Settings").on_press(Message::SetLobbyView(LobbyView::Settings)))
                         )
                         .spacing(8)
@@ -1805,7 +1806,7 @@ impl State {
                 SessionState::Room { view: RoomView::ConfirmDeletion, .. } => Column::new()
                     .push("Are you sure you want to delete this room? Items that have already been sent will be lost forever!")
                     .push(Button::new("Delete").on_press(Message::ConfirmRoomDeletion))
-                    .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
+                    .push({ suppress_scroll = true; Space::default().height(Length::Fill) })
                     .push(Button::new("Back").on_press(Message::SetRoomView(RoomView::Normal)))
                     .spacing(8),
                 SessionState::Room { conflicting_item_kinds: true, .. } => {
@@ -1827,7 +1828,7 @@ impl State {
                     }
                     col
                         .push(Button::new("More info").on_press(Message::ShowConflictingItemKindsIssue))
-                        .push({ suppress_scroll = true; Space::with_height(Length::Fill) })
+                        .push({ suppress_scroll = true; Space::default().height(Length::Fill) })
                         .push(Button::new("Dismiss").on_press(Message::DismissConflictingItemKinds))
                         .spacing(8)
                 }
@@ -1891,7 +1892,7 @@ impl State {
                 SessionState::Room { view: RoomView::Options, wrong_file_hash: None, autodelete_delta, allow_send_all, .. } => {
                     let mut col = Column::new()
                         .push(Button::new("Back").on_press(Message::SetRoomView(RoomView::Normal)))
-                        .push(Rule::horizontal(1))
+                        .push(rule::horizontal(1))
                         .push("Automatically delete this room if no items are sent for:")
                         .push({
                             let mut values = vec![
@@ -1906,7 +1907,7 @@ impl State {
                         });
                     if allow_send_all {
                         col = col
-                            .push(Rule::horizontal(1))
+                            .push(rule::horizontal(1))
                             .push(Row::new()
                                 .push("Send all items from world:")
                                 .push({
@@ -1995,14 +1996,14 @@ impl State {
         match self.update_state {
             UpdateState::Pending => {
                 col = col.push("Checking for updates…");
-                col = col.push(Rule::horizontal(1)); //TODO hide if main_view is empty
+                col = col.push(rule::horizontal(1)); //TODO hide if main_view is empty
             }
             UpdateState::UpToDate => {}
             #[cfg(target_os = "macos")] UpdateState::Available(ref new_ver) => {
                 col = col.push(Text::new(format!("An update is available ({} → {new_ver})", env!("CARGO_PKG_VERSION"))));
                 col = col.push("Please quit this app and run the following command in the Terminal app:");
                 col = col.push("brew update && brew upgrade"); //TODO automate
-                col = col.push(Rule::horizontal(1));
+                col = col.push(rule::horizontal(1));
             }
             UpdateState::Error { ref e, expanded } => {
                 let is_network_error = e.is_network_error();
@@ -2020,7 +2021,7 @@ impl State {
                         .push(Button::new(if expanded { "Hide Details" } else { "Show Details" }).on_press(Message::ToggleUpdateErrorDetails))
                         .spacing(8)
                 });
-                col = col.push(Rule::horizontal(1));
+                col = col.push(rule::horizontal(1));
             }
         }
         if suppress_scroll { // workaround for https://github.com/iced-rs/iced/issues/2217
@@ -2028,7 +2029,7 @@ impl State {
         } else {
             Scrollable::new(Row::new()
                 .push(col.push(main_view).spacing(8).padding(8))
-                .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
+                .push(Space::default().width(Length::Shrink)) // to avoid overlap with the scrollbar
                 .spacing(16)
             ).into()
         }
@@ -2093,7 +2094,7 @@ fn error_view<'a>(context: impl Into<Cow<'a, str>>, e: &impl ToString, update: b
         .spacing(8)
 }
 
-#[derive(clap::Subcommand)]
+#[derive(Clone, clap::Subcommand)]
 #[clap(rename_all = "lower")]
 enum FrontendArgs {
     #[clap(name = "dummy-frontend")]
@@ -2118,11 +2119,19 @@ struct CliArgs {
 
 #[wheel::main]
 fn main(CliArgs { frontend }: CliArgs) -> iced::Result {
+    fn theme(_: &State) -> Option<Theme> { wheel::gui::theme() }
+
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    // RefCell as workaround for https://github.com/iced-rs/iced/issues/3080
     let (icon, icon_error) = match icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico)) {
-        Ok(icon) => (Some(icon), None),
-        Err(e) => (None, Some(e)),
+        Ok(icon) => (Some(icon), RefCell::new(None)),
+        Err(e) => (None, RefCell::new(Some(e))),
     };
-    iced::application(State::title, State::update, State::view)
+    iced::application(move || (
+        State::new(icon_error.borrow_mut().take(), Config::blocking_load(), PersistentState::blocking_load(), frontend.clone()),
+        cmd(future::ok(Message::CheckForUpdates)),
+    ), State::update, State::view)
+        .title(State::title)
         .subscription(State::subscription)
         .window(window::Settings {
             size: Size { width: 360.0, height: 360.0 },
@@ -2130,9 +2139,6 @@ fn main(CliArgs { frontend }: CliArgs) -> iced::Result {
             icon,
             ..window::Settings::default()
         })
-        .theme(|_| wheel::gui::theme())
-        .run_with(|| (
-            State::new(icon_error, Config::blocking_load(), PersistentState::blocking_load(), frontend),
-            cmd(future::ok(Message::CheckForUpdates)),
-        ))
+        .theme(theme)
+        .run()
 }

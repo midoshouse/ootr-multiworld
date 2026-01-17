@@ -5,6 +5,7 @@
 use {
     std::{
         borrow::Cow,
+        cell::RefCell,
         collections::BTreeMap,
         env,
         path::{
@@ -1046,7 +1047,7 @@ impl State {
                         .spacing(8)
                     );
                     #[cfg(target_os = "windows")] if install_emulator && matches!(emulator, Emulator::Pj64V3 | Emulator::Pj64V4) {
-                        col = col.push(Checkbox::new("Create desktop shortcut", self.create_emulator_desktop_shortcut).on_toggle(Message::SetCreateEmulatorDesktopShortcut));
+                        col = col.push(Checkbox::new(self.create_emulator_desktop_shortcut).label("Create desktop shortcut").on_toggle(Message::SetCreateEmulatorDesktopShortcut));
                     }
                     col.spacing(8).into()
                 },
@@ -1112,7 +1113,7 @@ impl State {
                             .spacing(8)
                         );
                     #[cfg(target_os = "windows")] {
-                        col = col.push(Checkbox::new("Create desktop shortcut", self.create_multiworld_desktop_shortcut).on_toggle(Message::SetCreateMultiworldDesktopShortcut));
+                        col = col.push(Checkbox::new(self.create_multiworld_desktop_shortcut).label("Create desktop shortcut").on_toggle(Message::SetCreateMultiworldDesktopShortcut));
                     }
                     col.spacing(8).into()
                 },
@@ -1132,19 +1133,19 @@ impl State {
                     match emulator {
                         Emulator::Dummy => unreachable!(),
                         Emulator::EverDrive => {
-                            col = col.push(Checkbox::new("Open Multiworld now", self.open_emulator).on_toggle(Message::SetOpenEmulator));
+                            col = col.push(Checkbox::new(self.open_emulator).label("Open Multiworld now").on_toggle(Message::SetOpenEmulator));
                         }
                         Emulator::BizHawk => {
                             col = col.push(Text::new("To play multiworld, in BizHawk, select Tools → External Tool → Mido's House Multiworld."));
-                            col = col.push(Checkbox::new("Open BizHawk now", self.open_emulator).on_toggle(Message::SetOpenEmulator));
+                            col = col.push(Checkbox::new(self.open_emulator).label("Open BizHawk now").on_toggle(Message::SetOpenEmulator));
                         }
                         Emulator::Pj64V3 => {
                             col = col.push(Text::new("To play multiworld, open the “Mido's House Multiworld” app and follow its instructions."));
-                            col = col.push(Checkbox::new("Open Multiworld and Project64 now", self.open_emulator).on_toggle(Message::SetOpenEmulator));
+                            col = col.push(Checkbox::new(self.open_emulator).label("Open Multiworld and Project64 now").on_toggle(Message::SetOpenEmulator));
                         }
                         Emulator::Pj64V4 => {
                             col = col.push(Text::new("To play multiworld, in Project64, select Debugger → Scripts → ootrmw.js and click Run."));
-                            col = col.push(Checkbox::new("Open Project64 now", self.open_emulator).on_toggle(Message::SetOpenEmulator));
+                            col = col.push(Checkbox::new(self.open_emulator).label("Open Project64 now").on_toggle(Message::SetOpenEmulator));
                         }
                     }
                     col.spacing(8).into()
@@ -1157,7 +1158,7 @@ impl State {
             .push(Scrollable::new(
                 Row::new()
                     .push(top)
-                    .push(Space::with_width(Length::Shrink)) // to avoid overlap with the scrollbar
+                    .push(Space::default().width(Length::Shrink)) // to avoid overlap with the scrollbar
                     .spacing(16)
             ).height(Length::Fill))
             .push({
@@ -1170,7 +1171,7 @@ impl State {
                             #[cfg(not(debug_assertions))] { "" }
                         })).into()
                     })
-                    .push(Space::with_width(Length::Fill));
+                    .push(Space::default().width(Length::Fill));
                 if let Some((btn_content, enabled)) = next_btn {
                     let mut next_btn = Button::new(btn_content);
                     if enabled { next_btn = next_btn.on_press(Message::Continue) }
@@ -1193,20 +1194,27 @@ struct Args {
 
 #[wheel::main]
 fn main(Args { mut emulator }: Args) -> iced::Result {
+    fn theme(_: &State) -> Option<Theme> { wheel::gui::theme() }
+
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    // RefCell as workaround for https://github.com/iced-rs/iced/issues/3080
     let (icon, icon_error) = match icon::from_file_data(include_bytes!("../../../assets/icon.ico"), Some(ImageFormat::Ico)) {
-        Ok(icon) => (Some(icon), None),
-        Err(e) => (None, Some(e)),
+        Ok(icon) => (Some(icon), RefCell::new(None)),
+        Err(e) => (None, RefCell::new(Some(e))),
     };
     if let Ok(only_emulator) = all().filter(Emulator::is_supported).exactly_one() {
         emulator.get_or_insert(only_emulator);
     }
-    let task = if emulator.is_some() { cmd(future::ok(Message::Continue)) } else { Task::none() };
-    iced::application(State::title, State::update, State::view)
+    iced::application(move || {
+        let task = if emulator.is_some() { cmd(future::ok(Message::Continue)) } else { Task::none() };
+        (State::new(icon_error.borrow_mut().take(), emulator), task)
+    }, State::update, State::view)
+        .title(State::title)
         .window(window::Settings {
             size: Size { width: 400.0, height: 360.0 },
             icon,
             ..window::Settings::default()
         })
-        .theme(|_| wheel::gui::theme())
-        .run_with(move || (State::new(icon_error, emulator), task))
+        .theme(theme)
+        .run()
 }

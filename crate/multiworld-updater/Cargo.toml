@@ -26,13 +26,14 @@ bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
 futures = "0.3"
-iced = { version = "0.13", default-features = false, features = ["image", "tiny-skia", "tokio"] }
-image = { version = "0.24", default-features = false, features = ["ico"] } # recursive dependency of iced
+iced = { version = "0.14", default-features = false, features = ["image", "tiny-skia", "tokio"] }
+image = { version = "0.25", default-features = false, features = ["ico"] }
 itertools = "0.14"
 multiworld = { path = "../multiworld" }
 open = "5"
-reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "macos-system-configuration", "rustls-tls", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["charset", "gzip", "http2", "rustls-no-provider", "stream", "system-proxy", "zstd"] }
 runas = "1.2"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 semver = "1"
 serenity = { version = "0.12", default-features = false, features = ["utils"] }
 sysinfo = { version = "0.37", default-features = false, features = ["system"] }
@@ -52,4 +53,4 @@ windows = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
-tokio-tar = "0.3"
+astral-tokio-tar = "0.5.6"

@@ -25,7 +25,8 @@ lazy-regex = "3"
 log-lock = { git = "https://github.com/fenhl/log-lock" }
 multiworld = { path = "../multiworld", features = ["github-app-auth", "require-user-agent-salt"] }
 multiworld-bizhawk = { path = "../multiworld-bizhawk" }
-reqwest = { version = "0.12", default-features = false, features = ["charset", "http2", "macos-system-configuration", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["charset", "gzip", "hickory-dns", "http2", "rustls-no-provider", "system-proxy", "zstd"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 tempfile = "3"

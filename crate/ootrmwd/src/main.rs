@@ -969,6 +969,12 @@ enum Error {
 
 #[wheel::main(rocket)]
 async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
+    let default_panic_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = wheel::night_report_sync("/games/zelda/oot/mhmw/error", Some("thread panic"));
+        default_panic_hook(info)
+    }));
+    let _ = rustls::crypto::ring::default_provider().install_default();
     if let Some(subcommand) = subcommand {
         #[cfg(unix)] {
             let mut sock = UnixStream::connect(unix_socket::PATH).await?;
@@ -1040,11 +1046,6 @@ async fn main(Args { database, port, subcommand }: Args) -> Result<(), Error> {
         }
         #[cfg(not(unix))] match subcommand {}
     } else {
-        let default_panic_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            let _ = wheel::night_report_sync("/games/zelda/oot/mhmw/error", Some("thread panic"));
-            default_panic_hook(info)
-        }));
         let rng = Arc::new(SystemRandom::new());
         let http_client = reqwest::Client::builder()
             .user_agent(concat!("MidosHouseMultiworld/", env!("CARGO_PKG_VERSION")))
