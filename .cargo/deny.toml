@@ -1,0 +1,14 @@
+[graph]
+all-features = true
+
+[advisories]
+ignore = [
+    "RUSTSEC-2023-0071", # unclear if affects us (only use is in jsonwebtoken crate) and no fix available as of 2026-01-17
+]
+unmaintained = "none"
+
+[bans]
+multiple-versions = "allow"
+deny = [
+    { crate = "aws-lc-rs", reason = "fails to compile in release builds", use-instead = "ring" },
+]

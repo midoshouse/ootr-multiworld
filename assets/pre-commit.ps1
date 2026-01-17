@@ -12,6 +12,12 @@ if (-not $?)
     throw 'Native Failure'
 }
 
+cargo deny check advisories bans
+if (-not $?)
+{
+    throw 'Native Failure'
+}
+
 cargo sqlx prepare --workspace --check
 if (-not $?)
 {
