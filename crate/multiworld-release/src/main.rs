@@ -239,7 +239,7 @@ impl Task<Result<Release, Error>> for CreateRelease {
             Self::CreateNotesFile(repo, client, tx, args) => gres::transpose(async move {
                 let notes_file = tokio::task::spawn_blocking(|| {
                     tempfile::Builder::default()
-                        .prefix("ootrmw-release-notes")
+                        .prefix("ootrmw-release-notes-")
                         .suffix(".md")
                         .tempfile()
                 }).await??;

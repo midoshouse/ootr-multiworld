@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT verbose_logging, regional_vc FROM mw_config",
+  "query": "SELECT verbose_logging_reason IS NOT NULL AS \"verbose_logging!\", regional_vc FROM mw_config",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "verbose_logging",
+        "name": "verbose_logging!",
         "type_info": "Bool"
       },
       {
@@ -18,9 +18,9 @@
       "Left": []
     },
     "nullable": [
-      false,
+      null,
       false
     ]
   },
-  "hash": "e1c1f75755f230c96fc9c5c962f6097042195fbccbb5ec43580cfd81a866bc85"
+  "hash": "d44b3f8b55476c9c24ffc8ea5cec66c0dc72093575ef8b21b241e5865e122808"
 }

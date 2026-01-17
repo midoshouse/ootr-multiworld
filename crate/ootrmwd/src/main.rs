@@ -183,7 +183,7 @@ struct Config {
 }
 
 async fn client_session<C: ClientKind>(rng: &SystemRandom, db_pool: PgPool, http_client: reqwest::Client, rooms: Rooms<C>, socket_id: C::SessionId, version: Result<Version, &'static str>, reader: C::Reader, writer: Arc<Mutex<C::Writer>>, shutdown: rocket::Shutdown, maintenance: Arc<watch::Sender<Option<(DateTime<Utc>, Duration)>>>) -> Result<(), SessionError> {
-    let config = sqlx::query_as!(Config, "SELECT verbose_logging, regional_vc FROM mw_config").fetch_one(&db_pool).await?; //TODO verbose_logging_reason IS NOT NULL AS verbose_logging
+    let config = sqlx::query_as!(Config, r#"SELECT verbose_logging_reason IS NOT NULL AS "verbose_logging!", regional_vc FROM mw_config"#).fetch_one(&db_pool).await?;
     let mut maintenance = maintenance.subscribe();
     let ping_writer = Arc::clone(&writer);
     let ping_task = tokio::spawn(async move {
