@@ -137,6 +137,7 @@ use {
 #[cfg(target_os = "linux")] use std::os::unix::fs::PermissionsExt as _;
 
 mod everdrive;
+mod flashcart;
 mod login;
 mod persistent_state;
 mod subscriptions;
@@ -282,6 +283,7 @@ enum Error {
     #[error(transparent)] Config(#[from] multiworld::config::Error),
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] EverDrive(#[from] everdrive::Error),
+    #[error(transparent)] Flashcart(#[from] flashcart::Error),
     #[error(transparent)] Http(#[from] tungstenite::http::Error),
     #[error(transparent)] InvalidUri(#[from] tungstenite::http::uri::InvalidUri),
     #[error(transparent)] Io(#[from] io::Error),
@@ -313,7 +315,7 @@ impl IsNetworkError for Error {
     fn is_network_error(&self) -> bool {
         match self {
             Self::Elapsed(_) => true,
-            Self::Config(_) | Self::EverDrive(_) | Self::Http(_) | Self::InvalidUri(_) | Self::Json(_) | Self::MpscFrontendSend(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::InvalidPj64ScriptPath | Self::VersionMismatch { .. } => false,
+            Self::Config(_) | Self::EverDrive(_) | Self::Flashcart(_) | Self::Http(_) | Self::InvalidUri(_) | Self::Json(_) | Self::MpscFrontendSend(_) | Self::PersistentState(_) | Self::Semver(_) | Self::Url(_) | Self::InvalidPj64ScriptPath | Self::VersionMismatch { .. } => false,
             Self::Client(e) => e.is_network_error(),
             Self::Io(e) | Self::Pj64LaunchFailed(e) => e.is_network_error(),
             Self::Read(e) => e.is_network_error(),
@@ -612,6 +614,7 @@ impl FrontendState {
         match self.kind {
             Frontend::Dummy => "(no frontend)".into(),
             Frontend::EverDrive => "EverDrive".into(),
+            Frontend::Flashcart => "Flashcart".into(),
             #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if let Some(BizHawkState { ref version, .. }) = self.bizhawk {
                 format!("BizHawk {version}").into()
             } else {
@@ -626,6 +629,7 @@ impl FrontendState {
     fn is_locked(&self) -> bool {
         match self.kind {
             Frontend::Dummy | Frontend::EverDrive | Frontend::Pj64V3 => false,
+            Frontend::Flashcart => false,
             Frontend::Pj64V4 => false, //TODO pass port from PJ64, consider locked if present
             #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => self.bizhawk.is_some(),
             #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
@@ -753,7 +757,8 @@ impl State {
                                         cmd.arg("everdrive");
                                         cmd.arg(env::current_exe()?);
                                         cmd.arg(process::id().to_string());
-                                    }
+                                    },
+                                    Frontend::Flashcart => return Ok(Message::UpToDate),
                                     Frontend::BizHawk => if let Some(BizHawkState { path, pid, version, port: _ }) = frontend.bizhawk {
                                         cmd.arg("bizhawk");
                                         cmd.arg(process::id().to_string());
@@ -1564,6 +1569,9 @@ impl State {
                         .push("Connection to EverDrive lost")
                         .push("Retrying in 5 seconds…"),
                 },
+                Frontend::Flashcart => {
+                    col = col.push("Looking for supported flashcarts");
+                },
                 #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if self.frontend.bizhawk.is_some() {
                     col = col
                         .push("Waiting for BizHawk…")
@@ -1590,7 +1598,7 @@ impl State {
                 }
                 Frontend::Pj64V4 => {
                     col = col
-                        .push("Waiting for Project64…")
+                        .push("Waiting forFrontend::Dummy => {} Project64…")
                         .push("This should take less than 5 seconds.");
                 }
             }
@@ -2045,10 +2053,11 @@ impl State {
         if !matches!(self.update_state, UpdateState::Pending) {
             match self.frontend.kind {
                 Frontend::Dummy => {}
-                Frontend::EverDrive => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from EverDrive", inner: everdrive::Subscription { log: self.log } })),
+                Frontend::EverDrive => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: true, context: "from EverDrive", inner: everdrive::Subscription { log: self.log } })),
                 #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if let Some(BizHawkState { port, .. }) = self.frontend.bizhawk {
                     subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from BizHawk", inner: subscriptions::Connection { port, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } }));
                 },
+                Frontend::Flashcart => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Flashcart", inner: flashcart::Subscription { /*log: self.log */ } })),
                 #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
                 Frontend::Pj64V3 => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Listener { frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })),
                 Frontend::Pj64V4 => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })), //TODO allow Project64 to specify port via command-line arg

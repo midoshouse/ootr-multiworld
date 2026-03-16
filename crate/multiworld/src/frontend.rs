@@ -27,6 +27,7 @@ pub const PROTOCOL_VERSION: u8 = 8;
 pub enum Kind {
     Dummy,
     EverDrive,
+    Flashcart,
     BizHawk,
     Pj64V3,
     Pj64V4,
@@ -37,6 +38,7 @@ impl Kind {
         match self {
             Self::Dummy => false,
             Self::EverDrive => true,
+            Self::Flashcart => true,
             Self::BizHawk => cfg!(any(target_os = "linux", target_os = "windows")),
             Self::Pj64V3 => cfg!(target_os = "windows"),
             Self::Pj64V4 => false, // hide until Project64 version 4 is released
@@ -49,6 +51,7 @@ impl fmt::Display for Kind {
         match self {
             Self::Dummy => write!(f, "(no frontend)"),
             Self::EverDrive => write!(f, "EverDrive"),
+            Self::Flashcart => write!(f, "Flashcart"),
             Self::BizHawk => write!(f, "BizHawk"),
             Self::Pj64V3 | Self::Pj64V4 => write!(f, "Project64"),
         }
