@@ -7,20 +7,54 @@ use {
         EventStream,
         Recipe,
     }, n64flashcart, std::{
-        any::TypeId,
-        hash::Hash as _,
-        pin::Pin, sync::Arc,
-    }
+        any::TypeId, hash::Hash as _, pin::Pin, sync::Arc
+    }, tokio::time::sleep,
+    std::time::Duration,
 };
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
-    #[error("N64 reported as world 0")]
-    NotFound,
+    #[error("Flashcart disconnected")]
+    #[expect(dead_code)]
+    Disconnected,
 }
 
 pub(crate) struct Subscription {
 //    pub(crate) log: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum FlashcartState {
+    DISCONNECTED,
+    SEARCHING,
+    OPENING(String),
+    CONNECTED(String)
+}
+
+const FIVE_SECONDS : Duration = Duration::new(5, 0);
+
+async fn read() -> Option<FlashcartState> {
+    //self.game_state = GameState::Unknown;
+    match n64flashcart::read() {
+        Ok((header, data)) => {
+            if header.datatype == n64flashcart::USBDataType::HANDSHAKE || header.datatype == n64flashcart::USBDataType::HEARTBEAT {
+                println!("Handshake request detected");
+            } else if header.datatype == n64flashcart::USBDataType::EMPTY {
+                println!("No data to read while waiting for handshake");
+                sleep(FIVE_SECONDS).await;
+            } else {
+                println!("Invalid handshake, {}, {}", header.datatype.value(), data.iter().map(|b| format!("{:02x}", b)).collect::<Vec<String>>().join(" "));
+                //sleep(FIVE_SECONDS).await;
+            }
+        }
+        Err(e) => {
+            println!("Read error while waiting for handshake, {}", e.value());
+            //sleep(FIVE_SECONDS).await;
+            return Some(FlashcartState::DISCONNECTED);
+        }
+    }
+
+    return None;
 }
 
 impl Recipe for Subscription {
@@ -31,22 +65,43 @@ impl Recipe for Subscription {
     }
 
     fn stream(self: Box<Self>, _: EventStream) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
-        println!("Flashcart stream");
+        stream::try_unfold(FlashcartState::SEARCHING, |state| async move {
+            let new_state = match &state {
+                FlashcartState::DISCONNECTED => {
+                    let _ = sleep(FIVE_SECONDS).await;
+                    Some(FlashcartState::SEARCHING)
+                },
+                FlashcartState::SEARCHING => {
+                    let status = n64flashcart::find();
+                    if status == n64flashcart::DeviceError::CARTFINDFAIL {
+                        n64flashcart::initialize();
+                        Some(FlashcartState::DISCONNECTED)
+                    } else if status != n64flashcart::DeviceError::OK {
+                        Some(FlashcartState::DISCONNECTED)
+                    } else {
+                        let cart_name = n64flashcart::cart_type_to_str(n64flashcart::get_cart());
+                        Some(FlashcartState::OPENING(cart_name.to_string()))
+                    }
+                },
+                FlashcartState::OPENING(name) => {
+                    let status = n64flashcart::open();
+                    if status != n64flashcart::DeviceError::OK {
+                        println!("Failed to open USB connection to flashcart, retrying, error code {}", status.value());
+                        Some(FlashcartState::DISCONNECTED)
+                    } else {
+                        println!("Flashcart USB connection opened");
+                        Some(FlashcartState::CONNECTED(name.clone()))
+                    }    
+                },
+                FlashcartState::CONNECTED(_name) => {
+                    read().await
+                }
+            };
 
-        stream::try_unfold(0, |_state| async move {
-            let status = n64flashcart::find();
-            if status == n64flashcart::DeviceError::CARTFINDFAIL {
-                println!("Flashcart disconnected, resetting");
-                n64flashcart::initialize();
-                return Err(Error::NotFound)
-            } else if status != n64flashcart::DeviceError::OK {
-                // Flashcart not found, wait and retry
-                // sleep(Duration(1));
-                println!("Flashcart not found");
-            } else {
-                println!("Flashcart found, {}", n64flashcart::cart_type_to_str(n64flashcart::get_cart()));
+            match new_state {
+                Some(value) => Ok(Some((Message::FlashcartStateChanged(value.clone()), value.clone()))),
+                None => Ok(Some((Message::Nop, state.clone())))
             }
-            return Ok(None)
         }).map(|res| res.unwrap_or_else(|e: Error | Message::FrontendSubscriptionError(Arc::new(e.into())))).boxed()
     }
 }

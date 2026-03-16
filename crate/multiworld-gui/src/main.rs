@@ -1,106 +1,30 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use {
-    std::{
-        borrow::Cow,
-        cell::RefCell,
-        collections::{
-            BTreeMap,
-            HashMap,
-            HashSet,
-        },
-        env,
-        fmt,
-        future::Future,
-        io::prelude::*,
-        mem,
-        num::NonZeroU8,
-        path::{
-            Path,
-            PathBuf,
-        },
-        process,
-        sync::Arc,
-        time::Duration,
-    },
-    async_proto::Protocol,
-    chrono::{
+    crate::{
+        flashcart::FlashcartState, persistent_state::PersistentState, subscriptions::{
+            LoggingSubscription,
+            WsSink,
+        }
+    }, async_proto::Protocol, chrono::{
         TimeDelta,
         prelude::*,
-    },
-    enum_iterator::all,
-    futures::{
+    }, enum_iterator::all, futures::{
         future::{
             self,
             FutureExt as _,
         },
         sink::SinkExt as _,
         stream::Stream,
-    },
-    iced::{
-        Element,
-        Length,
-        Task,
-        Size,
-        Subscription,
-        advanced::subscription,
-        clipboard,
-        widget::*,
-        window::{
+    }, iced::{
+        Element, Length, Size, Subscription, Task, advanced::subscription, clipboard, widget::*, window::{
             self,
             icon,
-        },
-    },
-    if_chain::if_chain,
-    ::image::ImageFormat,
-    itertools::Itertools as _,
-    log_lock::{
+        }
+    }, if_chain::if_chain, ::image::ImageFormat, itertools::Itertools as _, log_lock::{
         Mutex,
         lock,
-    },
-    oauth2::{
-        RefreshToken,
-        TokenResponse as _,
-        reqwest::async_http_client,
-    },
-    once_cell::sync::Lazy,
-    ootr::model::{
-        DungeonReward,
-        Medallion,
-        Stone,
-    },
-    ootr_utils::spoiler::HashIcon,
-    open::that as open,
-    rand::{
-        prelude::*,
-        rng,
-    },
-    rfd::AsyncFileDialog,
-    semver::Version,
-    serenity::utils::MessageBuilder,
-    sysinfo::Pid,
-    tokio::{
-        io::{
-            self,
-            AsyncWriteExt as _,
-        },
-        net::tcp::{
-            OwnedReadHalf,
-            OwnedWriteHalf,
-        },
-        sync::mpsc,
-        time::{
-            Instant,
-            sleep_until,
-        },
-    },
-    tokio_tungstenite::tungstenite,
-    url::Url,
-    wheel::{
-        fs,
-        traits::IsNetworkError,
-    },
-    multiworld::{
+    }, multiworld::{
         DurationFormatter,
         Filename,
         HintArea,
@@ -123,14 +47,56 @@ use {
                 ServerMessage,
             },
         },
-    },
-    crate::{
-        persistent_state::PersistentState,
-        subscriptions::{
-            LoggingSubscription,
-            WsSink,
+    }, oauth2::{
+        RefreshToken,
+        TokenResponse as _,
+        reqwest::async_http_client,
+    }, once_cell::sync::Lazy, ootr::model::{
+        DungeonReward,
+        Medallion,
+        Stone,
+    }, ootr_utils::spoiler::HashIcon, open::that as open, rand::{
+        prelude::*,
+        rng,
+    }, rfd::AsyncFileDialog, semver::Version, serenity::utils::MessageBuilder, std::{
+        borrow::Cow,
+        cell::RefCell,
+        collections::{
+            BTreeMap,
+            HashMap,
+            HashSet,
         },
-    },
+        env,
+        fmt,
+        future::Future,
+        io::prelude::*,
+        mem,
+        num::NonZeroU8,
+        path::{
+            Path,
+            PathBuf,
+        },
+        process,
+        sync::Arc,
+        time::Duration,
+    }, sysinfo::Pid, tokio::{
+        io::{
+            self,
+            AsyncWriteExt as _,
+        },
+        net::tcp::{
+            OwnedReadHalf,
+            OwnedWriteHalf,
+        },
+        sync::mpsc,
+        time::{
+            Instant,
+            sleep_until,
+        },
+    }, tokio_tungstenite::tungstenite, url::Url, wheel::{
+        fs,
+        traits::IsNetworkError,
+    }
 };
 #[cfg(unix)] use xdg::BaseDirectories;
 #[cfg(windows)] use directories::ProjectDirs;
@@ -343,6 +309,9 @@ enum Message {
     DismissWrongPassword,
     EverDriveScanFailed(Arc<Vec<(tokio_serial::SerialPortInfo, everdrive::ConnectError)>>),
     EverDriveTimeout,
+    FlashcartStateChanged(FlashcartState),
+    #[expect(dead_code)]
+    FlashcartMessage(String),
     Exit,
     FrontendConnected(FrontendWriter),
     FrontendSubscriptionError(Arc<Error>),
@@ -602,11 +571,17 @@ enum EverDriveState {
 }
 
 #[derive(Debug, Clone)]
+struct FrontendFlashcartState {
+    state: FlashcartState
+}
+
+#[derive(Debug, Clone)]
 struct FrontendState {
     kind: Frontend,
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     bizhawk: Option<BizHawkState>,
     everdrive: EverDriveState,
+    flashcart: FrontendFlashcartState,
 }
 
 impl FrontendState {
@@ -666,6 +641,9 @@ impl State {
                 None
             },
             everdrive: EverDriveState::default(),
+            flashcart: FrontendFlashcartState {
+                state: FlashcartState::DISCONNECTED
+            }
         };
         Self {
             debug_info_copied: HashSet::default(),
@@ -860,6 +838,13 @@ impl State {
                 if let Frontend::EverDrive = self.frontend.kind {
                     self.frontend_writer = None;
                 }
+            },
+            Message::FlashcartMessage(message) => {
+                println!("Message from flashcart: {}", message);
+            },
+            Message::FlashcartStateChanged(state) => {
+                println!("Flashcart state changed: {:?}", state);
+                self.frontend.flashcart.state = state;
             }
             Message::Exit => return iced::exit(),
             Message::FrontendConnected(inner) => {
@@ -1570,7 +1555,12 @@ impl State {
                         .push("Retrying in 5 seconds…"),
                 },
                 Frontend::Flashcart => {
-                    col = col.push("Looking for supported flashcarts");
+                    match &self.frontend.flashcart.state {
+                        FlashcartState::DISCONNECTED => col = col.push("Disconnected from flashcart, waiting 5 seconds..."),
+                        FlashcartState::SEARCHING => col = col.push("Looking for supported flashcarts"),
+                        FlashcartState::OPENING(name) => col = col.push(Text::new(format!("Opening flashcart {}", name))),
+                        FlashcartState::CONNECTED(name) => col = col.push(Text::new(format!("Connected to flashcart {}", name))),
+                    }
                 },
                 #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if self.frontend.bizhawk.is_some() {
                     col = col
