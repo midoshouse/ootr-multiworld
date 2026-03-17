@@ -34,7 +34,7 @@ sqlx = { version = "0.8", default-features = false, features = ["chrono", "json"
 thiserror = "2"
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "parking_lot", "process", "rt-multi-thread", "sync", "time"] }
 tokio-tungstenite = "0.21" # waiting for https://github.com/rwf2/Rocket/pull/2823
-wheel = { git = "https://github.com/fenhl/wheel", features = ["reqwest", "rocket", "serde_json"] }
+wheel = { git = "https://github.com/fenhl/wheel", features = ["night", "reqwest", "rocket", "serde_json"] }
 
 [target.'cfg(unix)'.dependencies]
 either = "1"

@@ -1,5 +1,11 @@
 #!/usr/bin/env pwsh
 
+cargo deny check advisories bans
+if (-not $?)
+{
+    throw 'Native Failure'
+}
+
 cargo check --package=multiworld # for checking without sqlx feature
 if (-not $?)
 {
@@ -7,12 +13,6 @@ if (-not $?)
 }
 
 cargo check --workspace
-if (-not $?)
-{
-    throw 'Native Failure'
-}
-
-cargo deny check advisories bans
 if (-not $?)
 {
     throw 'Native Failure'
