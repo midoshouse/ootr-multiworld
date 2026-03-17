@@ -1559,7 +1559,7 @@ impl State {
                         FlashcartState::DISCONNECTED => col = col.push("Disconnected from flashcart, waiting 5 seconds..."),
                         FlashcartState::SEARCHING => col = col.push("Looking for supported flashcarts"),
                         FlashcartState::OPENING(name) => col = col.push(Text::new(format!("Opening flashcart {}", name))),
-                        FlashcartState::CONNECTED(name) => col = col.push(Text::new(format!("Connected to flashcart {}", name))),
+                        FlashcartState::CONNECTED(name, _) => col = col.push(Text::new(format!("Connected to flashcart {}", name))),
                     }
                 },
                 #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if self.frontend.bizhawk.is_some() {

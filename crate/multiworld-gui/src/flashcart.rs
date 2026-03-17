@@ -24,27 +24,81 @@ pub(crate) struct Subscription {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) enum CommState {
+    WaitForGame,
+    Handshake,
+    Idle
+}
+
+#[derive(Debug, Clone)]
 pub enum FlashcartState {
     DISCONNECTED,
     SEARCHING,
     OPENING(String),
-    CONNECTED(String)
+    CONNECTED(String, CommState)
 }
+
 
 const FIVE_SECONDS : Duration = Duration::new(5, 0);
 
-async fn read() -> Option<FlashcartState> {
-    //self.game_state = GameState::Unknown;
+fn send_hanshake() {
+    let msg = "cmdt".as_bytes().to_vec();
+    let header = n64flashcart::Header { datatype: n64flashcart::USBDataType::TEXT, length: msg.len() };
+
+    let _ = n64flashcart::write(header, msg);                        
+}
+
+fn process_message(comm_state: &CommState, header: n64flashcart::Header, data: Vec<u8>) -> CommState {
+    match comm_state {
+        CommState::WaitForGame => {
+            println!("Wait For Game");
+            if header.datatype == n64flashcart::USBDataType::HANDSHAKE {
+                send_hanshake();
+                CommState::Handshake
+            } else {
+                CommState::WaitForGame
+            }
+        }
+        CommState::Handshake => {
+            if data.len() < 16 {
+                println!("Invalid handshake reply, restarting handshake");
+                CommState::WaitForGame
+            } else if data[0] != b'O' || data[1] != b'o' || data[2] != b'T' || data[3] != b'R' {
+                println!("Invalid handshake reply, restarting handshake");
+                CommState::WaitForGame
+            } else {
+                let protocol_version = data[4];
+                let mut msg = "MW".as_bytes().to_vec();
+                msg.push(protocol_version);
+                msg.push(0); // MW_SEND_OWN_ITEMS
+                msg.push(0); // MW_PROGRESSIVE_ITEMS_ENABLE
+                let header = n64flashcart::Header { datatype: n64flashcart::USBDataType::RAWBINARY, length: msg.len() };
+                println!("Handshake reply received. Repeating protocol version to finalize handshake");
+                let status = n64flashcart::write(header, msg);
+                if status == n64flashcart::DeviceError::OK {
+                    println!("Protocol version sent");
+                    CommState::Idle
+                } else {
+                    println!("Failed to send protocol version, restarting handshake");
+                    CommState::WaitForGame
+                }
+            }
+        },
+        CommState::Idle => { CommState::Idle }
+    }
+}
+
+async fn read(name: &String, comm_state: &CommState) -> Option<FlashcartState> {
+    //self.comm_state = CommState::Unknown;
     match n64flashcart::read() {
         Ok((header, data)) => {
-            if header.datatype == n64flashcart::USBDataType::HANDSHAKE || header.datatype == n64flashcart::USBDataType::HEARTBEAT {
-                println!("Handshake request detected");
-            } else if header.datatype == n64flashcart::USBDataType::EMPTY {
-                println!("No data to read while waiting for handshake");
-                sleep(FIVE_SECONDS).await;
-            } else {
-                println!("Invalid handshake, {}, {}", header.datatype.value(), data.iter().map(|b| format!("{:02x}", b)).collect::<Vec<String>>().join(" "));
-                //sleep(FIVE_SECONDS).await;
+            if header.datatype == n64flashcart::USBDataType::EMPTY {
+                // Do nothing, no data
+            }
+            else {
+                println!("Datatype: {:?}, Length: {}, data: {:?}", header.datatype, header.length, data);
+                let new_comm_state = process_message(comm_state, header, data);
+                return Some(FlashcartState::CONNECTED(name.to_owned(), new_comm_state));
             }
         }
         Err(e) => {
@@ -90,11 +144,11 @@ impl Recipe for Subscription {
                         Some(FlashcartState::DISCONNECTED)
                     } else {
                         println!("Flashcart USB connection opened");
-                        Some(FlashcartState::CONNECTED(name.clone()))
+                        Some(FlashcartState::CONNECTED(name.to_owned(), CommState::WaitForGame))
                     }    
                 },
-                FlashcartState::CONNECTED(_name) => {
-                    read().await
+                FlashcartState::CONNECTED(name, comm_state) => {
+                    read(name, comm_state).await
                 }
             };
 
