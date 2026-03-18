@@ -845,6 +845,12 @@ impl State {
             Message::FlashcartStateChanged(state) => {
                 println!("Flashcart state changed: {:?}", state);
                 self.frontend.flashcart.state = state;
+
+                if let Frontend::Flashcart = self.frontend.kind {
+                    if let FlashcartState::DISCONNECTED = self.frontend.flashcart.state {
+                        self.frontend_writer = None;
+                    }
+                }
             }
             Message::Exit => return iced::exit(),
             Message::FrontendConnected(inner) => {
@@ -1559,7 +1565,15 @@ impl State {
                         FlashcartState::DISCONNECTED => col = col.push("Disconnected from flashcart, waiting 5 seconds..."),
                         FlashcartState::SEARCHING => col = col.push("Looking for supported flashcarts"),
                         FlashcartState::OPENING(name) => col = col.push(Text::new(format!("Opening flashcart {}", name))),
-                        FlashcartState::CONNECTED(name, _) => col = col.push(Text::new(format!("Connected to flashcart {}", name))),
+                        FlashcartState::CONNECTED(name, comm_state) => {
+                            col = col.push(Text::new(format!("Connected to flashcart {}", name)));
+                            col = col.push(match comm_state {
+                                flashcart::CommState::SendHandshake => "Sending handshare",
+                                flashcart::CommState::WaitForGame => "Waiting for game...",
+                                flashcart::CommState::Handshake => "Waiting for handshake response",
+                                flashcart::CommState::Ready(_) => "Ready",
+                            })
+                        }
                     }
                 },
                 #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if self.frontend.bizhawk.is_some() {
