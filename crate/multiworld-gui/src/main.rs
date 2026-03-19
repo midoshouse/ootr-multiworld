@@ -310,8 +310,6 @@ enum Message {
     EverDriveScanFailed(Arc<Vec<(tokio_serial::SerialPortInfo, everdrive::ConnectError)>>),
     EverDriveTimeout,
     FlashcartStateChanged(FlashcartState),
-    #[expect(dead_code)]
-    FlashcartMessage(String),
     Exit,
     FrontendConnected(FrontendWriter),
     FrontendSubscriptionError(Arc<Error>),
@@ -839,11 +837,7 @@ impl State {
                     self.frontend_writer = None;
                 }
             },
-            Message::FlashcartMessage(message) => {
-                println!("Message from flashcart: {}", message);
-            },
             Message::FlashcartStateChanged(state) => {
-                println!("Flashcart state changed: {:?}", state);
                 self.frontend.flashcart.state = state;
 
                 if let Frontend::Flashcart = self.frontend.kind {
