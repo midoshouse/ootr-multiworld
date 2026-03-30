@@ -76,7 +76,7 @@ pub enum FlashcartState {
     CONNECTED(String, CommState)
 }
 
-const FIVE_SECONDS : Duration = Duration::new(5, 0);
+const FIVE_SECONDS : Duration = Duration::new(0, 1000000);
 
 fn send_handshake() {
     let msg = "cmdt".as_bytes().to_vec();
@@ -317,7 +317,7 @@ async fn read(name: &String, comm_state: &CommState) -> (Option<FlashcartState>,
             }
 
             select! {
-                n64_or_timeout = timeout(Duration::from_secs(5), n64_recv()) => {
+                n64_or_timeout = timeout(Duration::from_millis(10), n64_recv()) => {
                     match n64_or_timeout {
                         Ok(n64_result) => {
                             match n64_result {
@@ -403,7 +403,7 @@ impl Recipe for Subscription {
 
     fn stream(self: Box<Self>, _: EventStream) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
         stream::try_unfold(FlashcartState::SEARCHING, |state| async move {
-            let _ = sleep(Duration::from_millis(100)).await;
+            let _ = sleep(Duration::from_millis(1)).await;
             let mut messages: Vec<Message> = Vec::new();
 
             let new_state = match &state {
