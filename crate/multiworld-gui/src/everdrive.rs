@@ -52,6 +52,7 @@ use {
     tokio_serial::{
         SerialPortBuilderExt as _,
         SerialStream,
+        SerialPortType::UsbPort,
     },
     multiworld::{
         Filename,
@@ -251,19 +252,26 @@ impl Recipe for Subscription {
                         if log {
                             let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: attempting to connect to {port_info:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
                         }
-                        match connect_to_port(&port_info, log).await {
-                            Ok(resp) => {
-                                if log {
-                                    let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: connection successful: {resp:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
+                        // Filter serial adapters only to those known to be used by Everdrives.
+                        // This prevents the extension from locking the device for other plugins.
+                        if let UsbPort(ref usb_info) = port_info.port_type {
+                            if usb_info.vid == 0x0403 && usb_info.pid == 0x6001
+                            && usb_info.product.as_deref().is_some_and(|p| p.contains("FT245R USB FIFO")) {
+                                match connect_to_port(&port_info, log).await {
+                                    Ok(resp) => {
+                                        if log {
+                                            let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: connection successful: {resp:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
+                                        }
+                                        response = Some(resp);
+                                        break
+                                    }
+                                    Err(e) => {
+                                        if log {
+                                            let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: connection failed: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
+                                        }
+                                        errors.push((port_info, e));
+                                    }
                                 }
-                                response = Some(resp);
-                                break
-                            }
-                            Err(e) => {
-                                if log {
-                                    let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: connection failed: {e:?}", Utc::now().format("%Y-%m-%d %H:%M:%S")));
-                                }
-                                errors.push((port_info, e));
                             }
                         }
                     }
