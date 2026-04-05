@@ -329,11 +329,12 @@ impl State {
                 Page::InstallEmulator { .. } => unreachable!(),
                 Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => match emulator {
                     Emulator::Dummy => unreachable!(),
+                    Emulator::Flashcart => todo!(),
                     Emulator::EverDrive => Page::EmulatorWarning { emulator, install_emulator: Some(false), emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
                     Emulator::BizHawk | Emulator::Pj64V3 | Emulator::Pj64V4 => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone().expect("emulator path must be set for this emulator"), multiworld_path: Some(multiworld_path.clone()) },
                 },
                 Page::InstallMultiworld { emulator, ref emulator_path, ref multiworld_path, .. } | Page::AskLaunch { emulator, ref emulator_path, ref multiworld_path } => match emulator {
-                    Emulator::Dummy | Emulator::EverDrive => unreachable!(),
+                    Emulator::Dummy | Emulator::EverDrive | Emulator::Flashcart => unreachable!(),
                     Emulator::BizHawk | Emulator::Pj64V4 => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone().expect("emulator path must be set for BizHawk"), multiworld_path: multiworld_path.clone() },
                     Emulator::Pj64V3 => if let Some(multiworld_path) = multiworld_path.clone() {
                         Page::LocateMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path }
@@ -346,7 +347,7 @@ impl State {
                 let current_path = emulator_path.clone();
                 return cmd(async move {
                     Ok(if let Some(emulator_dir) = AsyncFileDialog::new().set_title(match (emulator, install_emulator) {
-                        (Emulator::Dummy | Emulator::EverDrive, _) => unreachable!(),
+                        (Emulator::Dummy | Emulator::EverDrive | Emulator::Flashcart, _) => unreachable!(),
                         (Emulator::BizHawk, false) => "Select BizHawk Folder",
                         (Emulator::BizHawk, true) => "Choose Location for BizHawk Installation",
                         (Emulator::Pj64V3 | Emulator::Pj64V4, false) => "Select Project64 Folder",
@@ -381,6 +382,7 @@ impl State {
                 Page::SelectEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => {
                     let emulator = emulator.expect("emulator must be selected to continue here");
                     match emulator {
+                        Emulator::Flashcart => todo!(),
                         Emulator::EverDrive => {
                             self.page = Page::EmulatorWarning { emulator, install_emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
                             return Task::none()
@@ -406,7 +408,7 @@ impl State {
                     let (install_emulator, emulator_path) = match (install_emulator, emulator_path) {
                         (Some(install_emulator), Some(emulator_path)) => (install_emulator, emulator_path),
                         (_, _) => match emulator {
-                            Emulator::Dummy | Emulator::EverDrive => unreachable!(),
+                            Emulator::Dummy | Emulator::EverDrive | Emulator::Flashcart => unreachable!(),
                             Emulator::BizHawk => if let Some(user_dirs) = UserDirs::new() {
                                 // check for existing BizHawk install in ~/scoop, ~/bin (where this installer places it by default), and the Downloads folder (where the bizhawk-co-op install script places it)
                                 let bizhawk_install_path = user_dirs.home_dir().join("scoop").join("apps").join("bizhawk").join("current");
@@ -470,13 +472,14 @@ impl State {
                 }
                 Page::EmulatorWarning { emulator, install_emulator, ref emulator_path, ref multiworld_path } => match emulator {
                     Emulator::EverDrive => return cmd(future::ok(Message::LocateMultiworld(None))),
+                    Emulator::Flashcart => todo!(),
                     _ => self.page = Page::LocateEmulator { emulator, install_emulator: install_emulator.expect("install_emulator should be evaludated for non-EverDrive"), emulator_path: emulator_path.clone().expect("emulator_path should be evaludated for non-EverDrive"), multiworld_path: multiworld_path.clone() },
                 },
                 Page::LocateEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => if install_emulator {
                     let emulator_path = emulator_path.clone();
                     self.page = Page::InstallEmulator { update: false, emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
                     match emulator {
-                        Emulator::Dummy | Emulator::EverDrive => unreachable!(),
+                        Emulator::Dummy | Emulator::EverDrive | Emulator::Flashcart => unreachable!(),
                         Emulator::BizHawk => {
                             //TODO indicate progress
                             let http_client = self.http_client.clone();
@@ -604,7 +607,7 @@ impl State {
                     }
                 } else {
                     let new_emulator = match emulator {
-                        Emulator::Dummy | Emulator::EverDrive => unreachable!(),
+                        Emulator::Dummy | Emulator::EverDrive | Emulator::Flashcart => unreachable!(),
                         #[cfg(target_os = "windows")] Emulator::BizHawk => {
                             let [major, minor, patch, _] = match winver::get_file_version_info(PathBuf::from(emulator_path).join("EmuHawk.exe")) {
                                 Ok(version) => version,
@@ -698,6 +701,7 @@ impl State {
                     if self.open_emulator {
                         match emulator {
                             Emulator::Dummy => unreachable!(),
+                            Emulator::Flashcart => todo!(),
                             Emulator::EverDrive => {
                                 let multiworld_path = multiworld_path.as_ref().expect("multiworld app path must be set for EverDrive");
                                 if let Err(e) = std::process::Command::new(multiworld_path).spawn() {
@@ -769,6 +773,7 @@ impl State {
                 self.page = Page::InstallMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone(), config_write_failed: false };
                 match emulator {
                     Emulator::Dummy => unreachable!(),
+                    Emulator::Flashcart => todo!(),
                     Emulator::EverDrive => {
                         let create_desktop_shortcut = self.create_multiworld_desktop_shortcut;
                         return cmd(async move {
@@ -889,7 +894,7 @@ impl State {
                 match emulator {
                     Emulator::Dummy => unreachable!(),
                     Emulator::BizHawk | Emulator::Pj64V4 => return cmd(future::ok(Message::InstallMultiworld)),
-                    Emulator::EverDrive | Emulator::Pj64V3 => {
+                    Emulator::EverDrive | Emulator::Flashcart | Emulator::Pj64V3 => {
                         let multiworld_path = if let Some(multiworld_path) = multiworld_path {
                             multiworld_path
                         } else {
@@ -1019,6 +1024,7 @@ impl State {
                         .push("• You will need an EverDrive with a USB port (EverDrive 3.0 or EverDrive X7) and a USB cable that supports data.")
                         .spacing(8)
                         .into(),
+                    Emulator::Flashcart => todo!(),
                     _ => unreachable!(),
                 },
                 true,
@@ -1034,7 +1040,7 @@ impl State {
                             Cow::Owned(format!("{emulator} target folder"))
                         } else {
                             match emulator {
-                                Emulator::Dummy | Emulator::EverDrive => unreachable!(),
+                                Emulator::Dummy | Emulator::EverDrive | Emulator::Flashcart => unreachable!(),
                                 Emulator::BizHawk => {
                                     #[cfg(target_os = "linux")] { Cow::Borrowed("The folder with EmuHawkMono.sh in it") }
                                     #[cfg(target_os = "windows")] { Cow::Borrowed("The folder with EmuHawk.exe in it") }
@@ -1132,6 +1138,7 @@ impl State {
                     col = col.push(Text::new("Multiworld has been installed."));
                     match emulator {
                         Emulator::Dummy => unreachable!(),
+                        Emulator::Flashcart => todo!(),
                         Emulator::EverDrive => {
                             col = col.push(Checkbox::new(self.open_emulator).label("Open Multiworld now").on_toggle(Message::SetOpenEmulator));
                         }
