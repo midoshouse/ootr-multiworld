@@ -249,7 +249,7 @@ enum Error {
     #[error(transparent)] Config(#[from] multiworld::config::Error),
     #[error(transparent)] Elapsed(#[from] tokio::time::error::Elapsed),
     #[error(transparent)] EverDrive(#[from] everdrive::Error),
-    #[error(transparent)] Flashcart(#[from] flashcart::Error),
+    #[error(transparent)] Flashcart(#[from] flashcart::ConnectError),
     #[error(transparent)] Http(#[from] tungstenite::http::Error),
     #[error(transparent)] InvalidUri(#[from] tungstenite::http::uri::InvalidUri),
     #[error(transparent)] Io(#[from] io::Error),
@@ -309,8 +309,11 @@ enum Message {
     DismissWrongPassword,
     EverDriveScanFailed(Arc<Vec<(tokio_serial::SerialPortInfo, everdrive::ConnectError)>>),
     EverDriveTimeout,
-    FlashcartStateChanged(FlashcartState),
     Exit,
+    FlashcartHandshakeFailed(Arc<Vec<(String, flashcart::ConnectError)>>),
+    FlashcartHandshakeSuccessful(),
+    FlashcartCommError(Arc<Vec<(String, flashcart::ConnectError)>>),
+    FlashcartStateChanged(FlashcartState),
     FrontendConnected(FrontendWriter),
     FrontendSubscriptionError(Arc<Error>),
     JoinRoom,
@@ -514,6 +517,20 @@ impl State {
                     }
                     builder.build()
                 }
+            } else if self.frontend_writer.is_none() && self.frontend.kind != Frontend::Dummy && matches!(self.frontend.kind, Frontend::Flashcart) && !self.frontend.flashcart.errors.is_empty() {
+                let errors = &self.frontend.flashcart.errors;
+                let mut builder = MessageBuilder::default();
+                builder.push(format!("error in Mido's House Multiworld version {}{} while talking to flashcart:", env!("CARGO_PKG_VERSION"), {
+                    #[cfg(debug_assertions)] { " (debug)" }
+                    #[cfg(not(debug_assertions))] { "" }
+                }));
+                for (name, error) in &**errors {
+                    builder.push_line("");
+                    builder.push_mono_safe(name);
+                    builder.push_line(':');
+                    builder.push_codeblock_safe(format!("{error:?}"), Some("rust"));
+                }
+                builder.build()
             } else {
                 match self.server_connection {
                     SessionState::Error { ref e, .. } => MessageBuilder::default()
@@ -570,7 +587,8 @@ enum EverDriveState {
 
 #[derive(Debug, Clone)]
 struct FrontendFlashcartState {
-    state: FlashcartState
+    state: FlashcartState,
+    errors: Arc<Vec<(String, flashcart::ConnectError)>>,
 }
 
 #[derive(Debug, Clone)]
@@ -640,7 +658,8 @@ impl State {
             },
             everdrive: EverDriveState::default(),
             flashcart: FrontendFlashcartState {
-                state: FlashcartState::DISCONNECTED
+                state: FlashcartState::DISCONNECTED,
+                errors: Arc::new(vec![]),
             }
         };
         Self {
@@ -836,6 +855,15 @@ impl State {
                 if let Frontend::EverDrive = self.frontend.kind {
                     self.frontend_writer = None;
                 }
+            },
+            Message::FlashcartCommError(errors) => {
+                self.frontend.flashcart.errors = errors;
+            },
+            Message::FlashcartHandshakeFailed(errors) => {
+                self.frontend.flashcart.errors = errors;
+            },
+            Message::FlashcartHandshakeSuccessful() => {
+                self.frontend.flashcart.errors = Arc::new(vec![]);
             },
             Message::FlashcartStateChanged(state) => {
                 self.frontend.flashcart.state = state;
@@ -1562,8 +1590,8 @@ impl State {
                         FlashcartState::CONNECTED(name, comm_state) => {
                             col = col.push(Text::new(format!("Connected to flashcart {}", name)));
                             col = col.push(match comm_state {
-                                flashcart::CommState::SendHandshake => "Sending handshare",
                                 flashcart::CommState::WaitForGame => "Waiting for game...",
+                                flashcart::CommState::SendHandshake => "Sending handshake",
                                 flashcart::CommState::Handshake => "Waiting for handshake response",
                                 flashcart::CommState::Ready(_) => "Ready",
                             })
@@ -2055,7 +2083,7 @@ impl State {
                 #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if let Some(BizHawkState { port, .. }) = self.frontend.bizhawk {
                     subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from BizHawk", inner: subscriptions::Connection { port, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } }));
                 },
-                Frontend::Flashcart => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Flashcart", inner: flashcart::Subscription { /*log: self.log */ } })),
+                Frontend::Flashcart => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Flashcart", inner: flashcart::Subscription { log: self.log } })),
                 #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
                 Frontend::Pj64V3 => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Listener { frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })),
                 Frontend::Pj64V4 => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })), //TODO allow Project64 to specify port via command-line arg
