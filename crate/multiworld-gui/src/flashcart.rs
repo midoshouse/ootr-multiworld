@@ -250,6 +250,19 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
             Ok((Some(InGameState::NotKnown), None))
         },
 
+        // Summercart menu responses are UNFloader-compatible.
+        // Everdrive gets filtered out by n64flashcart.
+        USBDataType::TEXT => {
+            if let Ok(text) = TryInto::<[u8 ; 6]>::try_into(data) {
+                match text {
+                    [b'j', b'o', b'y', b'b', b'u', b's'] => Ok((Some(InGameState::NotKnown), None)),
+                    _ => Err(DeviceError::SC64_FIRMWAREUNSUPPORTED),
+                }
+            } else {
+                Err(DeviceError::SC64_FIRMWAREUNSUPPORTED)
+            }
+        },
+
         USBDataType::SAVE_FILENAME => {
             if data.len() >= 8 {
                 let data_slice = data.into_boxed_slice();
