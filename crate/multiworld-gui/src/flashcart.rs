@@ -253,7 +253,9 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
         // Summercart menu responses are UNFloader-compatible.
         // Everdrive gets filtered out by n64flashcart.
         USBDataType::TEXT => {
-            if let Ok(text) = TryInto::<[u8 ; 6]>::try_into(data) {
+            if data.len() >= 6 {
+                let data_slice = data.into_boxed_slice();
+                let text = *array_ref![data_slice, 0, 6];
                 match text {
                     [b'j', b'o', b'y', b'b', b'u', b's'] => Ok((Some(InGameState::NotKnown), None)),
                     _ => Err(DeviceError::SC64_FIRMWAREUNSUPPORTED),
