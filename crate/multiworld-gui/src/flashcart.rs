@@ -358,6 +358,9 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
             }
         }
 
+        USBDataType::HEARTBEAT => Ok((None, None)),
+        USBDataType::EMPTY => Ok((None, None)),
+
         _ => {
             Err(DeviceError::SC64_FIRMWAREUNSUPPORTED)
         }
@@ -422,6 +425,7 @@ async fn read(name: &String, comm_state: &CommState) -> Result<(Option<Flashcart
                         USBDataType::HANDSHAKE | USBDataType::RESET => {
                             Some(FlashcartState::CONNECTED(name.to_owned(), CommState::SendHandshake))
                         },
+                        USBDataType::EMPTY => None,
                         _ => {
                             send_reset();
                             None
@@ -475,7 +479,7 @@ async fn read(name: &String, comm_state: &CommState) -> Result<(Option<Flashcart
 
                         Some(FlashcartState::CONNECTED(name.to_owned(), CommState::Ready(Arc::new(Mutex::new(struc)))))
                     } else if errors.is_empty() {
-                        Some(FlashcartState::CONNECTED(name.to_owned(), CommState::Handshake))
+                        None
                     } else {
                         messages.push(Message::FlashcartHandshakeFailed(Arc::new(errors)));
                         Some(FlashcartState::CONNECTED(name.to_owned(), CommState::WaitForGame))
