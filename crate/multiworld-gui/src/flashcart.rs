@@ -97,6 +97,8 @@ pub(crate) enum ConnectError {
     UnknownReplyLength(usize),
     #[error("failed to reply to handshake")]
     FailedReply,
+    #[error("no reply from the console")]
+    NoMessage,
     #[error("unhandled device error: {0:x?}")]
     DeviceError(DeviceError),
     #[error("received unknown message {0} from flashcart")]
@@ -363,6 +365,9 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
 }
 
 fn process_handshake(header: n64flashcart::Header, data: Vec<u8>) -> Result<HandshakeResponse, ConnectError> {
+    if header.datatype == USBDataType::EMPTY {
+        return Err(ConnectError::NoMessage);
+    }
     if header.datatype != USBDataType::HANDSHAKE {
         return Err(ConnectError::UnknownReplyHeader(header.datatype));
     }
@@ -443,7 +448,12 @@ async fn read(name: &String, comm_state: &CommState) -> Result<(Option<Flashcart
                             response = Some(resp);
                         }
                         Err(e) => {
-                            errors.push((name.to_owned(), e));
+                            match e {
+                                ConnectError::NoMessage => {}
+                                _ => {
+                                    errors.push((name.to_owned(), e));
+                                }
+                            }
                         }
                     }
                     if let Some(HandshakeResponse { version, player_id, file_hash }) = response {
@@ -464,6 +474,8 @@ async fn read(name: &String, comm_state: &CommState) -> Result<(Option<Flashcart
                         };
 
                         Some(FlashcartState::CONNECTED(name.to_owned(), CommState::Ready(Arc::new(Mutex::new(struc)))))
+                    } else if errors.is_empty() {
+                        Some(FlashcartState::CONNECTED(name.to_owned(), CommState::Handshake))
                     } else {
                         messages.push(Message::FlashcartHandshakeFailed(Arc::new(errors)));
                         Some(FlashcartState::CONNECTED(name.to_owned(), CommState::WaitForGame))
