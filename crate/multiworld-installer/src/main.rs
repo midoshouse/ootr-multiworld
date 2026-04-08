@@ -329,7 +329,7 @@ impl State {
                 Page::InstallEmulator { .. } => unreachable!(),
                 Page::LocateMultiworld { emulator, ref emulator_path, ref multiworld_path } => match emulator {
                     Emulator::Dummy => unreachable!(),
-                    Emulator::Flashcart => todo!(),
+                    Emulator::Flashcart => Page::EmulatorWarning { emulator, install_emulator: Some(false), emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
                     Emulator::EverDrive => Page::EmulatorWarning { emulator, install_emulator: Some(false), emulator_path: emulator_path.clone(), multiworld_path: Some(multiworld_path.clone()) },
                     Emulator::BizHawk | Emulator::Pj64V3 | Emulator::Pj64V4 => Page::LocateEmulator { emulator, install_emulator: false, emulator_path: emulator_path.clone().expect("emulator path must be set for this emulator"), multiworld_path: Some(multiworld_path.clone()) },
                 },
@@ -382,7 +382,10 @@ impl State {
                 Page::SelectEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => {
                     let emulator = emulator.expect("emulator must be selected to continue here");
                     match emulator {
-                        Emulator::Flashcart => todo!(),
+                        Emulator::Flashcart => {
+                            self.page = Page::EmulatorWarning { emulator, install_emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
+                            return Task::none()
+                        }
                         Emulator::EverDrive => {
                             self.page = Page::EmulatorWarning { emulator, install_emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone() };
                             return Task::none()
@@ -472,7 +475,7 @@ impl State {
                 }
                 Page::EmulatorWarning { emulator, install_emulator, ref emulator_path, ref multiworld_path } => match emulator {
                     Emulator::EverDrive => return cmd(future::ok(Message::LocateMultiworld(None))),
-                    Emulator::Flashcart => todo!(),
+                    Emulator::Flashcart => return cmd(future::ok(Message::LocateMultiworld(None))),
                     _ => self.page = Page::LocateEmulator { emulator, install_emulator: install_emulator.expect("install_emulator should be evaludated for non-EverDrive"), emulator_path: emulator_path.clone().expect("emulator_path should be evaludated for non-EverDrive"), multiworld_path: multiworld_path.clone() },
                 },
                 Page::LocateEmulator { emulator, install_emulator, ref emulator_path, ref multiworld_path } => if install_emulator {
@@ -701,7 +704,12 @@ impl State {
                     if self.open_emulator {
                         match emulator {
                             Emulator::Dummy => unreachable!(),
-                            Emulator::Flashcart => todo!(),
+                            Emulator::Flashcart => {
+                                let multiworld_path = multiworld_path.as_ref().expect("multiworld app path must be set for flashcarts");
+                                if let Err(e) = std::process::Command::new(multiworld_path).spawn() {
+                                    return cmd(future::ready(Err(e).at(multiworld_path).map_err(Error::from)))
+                                }
+                            }
                             Emulator::EverDrive => {
                                 let multiworld_path = multiworld_path.as_ref().expect("multiworld app path must be set for EverDrive");
                                 if let Err(e) = std::process::Command::new(multiworld_path).spawn() {
@@ -773,7 +781,35 @@ impl State {
                 self.page = Page::InstallMultiworld { emulator, emulator_path: emulator_path.clone(), multiworld_path: multiworld_path.clone(), config_write_failed: false };
                 match emulator {
                     Emulator::Dummy => unreachable!(),
-                    Emulator::Flashcart => todo!(),
+                    Emulator::Flashcart => {
+                        let create_desktop_shortcut = self.create_multiworld_desktop_shortcut;
+                        return cmd(async move {
+                            let mut new_mw_config = Config::load().await?;
+                            new_mw_config.default_frontend = Some(Emulator::EverDrive);
+                            new_mw_config.save().await?;
+                            let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Project64"));
+                            fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
+                            #[cfg(all(target_os = "linux", debug_assertions))] fs::write(&multiworld_path.join("multiworld-gui"), include_bytes!("../../../target/debug/multiworld-gui")).await?;
+                            #[cfg(all(target_os = "linux", debug_assertions))] fs::write(&multiworld_path.join("libflashcart.so"), include_bytes!("../../../target/debug/libflashcart.so")).await?;
+                            #[cfg(all(target_os = "linux", not(debug_assertions)))] fs::write(&multiworld_path.join("multiworld-gui"), include_bytes!("../../../target/release/multiworld-gui")).await?;
+                            #[cfg(all(target_os = "linux", not(debug_assertions)))] fs::write(&multiworld_path.join("libflashcart.so"), include_bytes!("../../../target/release/libflashcart.so")).await?;
+                            #[cfg(all(target_os = "windows", debug_assertions))] fs::write(&multiworld_path.join("multiworld-gui.exe"), include_bytes!("../../../target/debug/multiworld-gui.exe")).await?;
+                            #[cfg(all(target_os = "windows", debug_assertions))] fs::write(&multiworld_path.join("Flashcart_x64.dll"), include_bytes!("../../../target/debug/Flashcart_x64.dll")).await?;
+                            #[cfg(all(target_os = "windows", not(debug_assertions)))] fs::write(&multiworld_path.join("multiworld-gui.exe"), include_bytes!("../../../target/release/multiworld-gui.exe")).await?;
+                            #[cfg(all(target_os = "windows", not(debug_assertions)))] fs::write(&multiworld_path.join("Flashcart_x64.dll"), include_bytes!("../../../target/release/Flashcart_x64.dll")).await?;
+                            #[cfg(target_os = "windows")] {
+                                let base_dirs = BaseDirs::new().ok_or(Error::MissingHomeDir)?;
+                                ShellLink::new(&multiworld_path)?
+                                    .create_lnk(base_dirs.data_dir().join("Microsoft").join("Windows").join("Start Menu").join("Programs").join("Mido's House Multiworld.lnk"))?;
+                                if create_desktop_shortcut {
+                                    let user_dirs = UserDirs::new().ok_or(Error::MissingHomeDir)?;
+                                    ShellLink::new(multiworld_path)?
+                                        .create_lnk(user_dirs.desktop_dir().ok_or(Error::MissingDesktopDir)?.join("Mido's House Multiworld.lnk"))?;
+                                }
+                            }
+                            Ok(Message::MultiworldInstalled)
+                        })
+                    },
                     Emulator::EverDrive => {
                         let create_desktop_shortcut = self.create_multiworld_desktop_shortcut;
                         return cmd(async move {
@@ -1024,7 +1060,18 @@ impl State {
                         .push("• You will need an EverDrive with a USB port (EverDrive 3.0 or EverDrive X7) and a USB cable that supports data.")
                         .spacing(8)
                         .into(),
-                    Emulator::Flashcart => todo!(),
+                    Emulator::Flashcart => Column::new()
+                        .push(Text::new("Warnings").size(24))
+                        .push("• Console support is currently experimental and requires Fenhl's branch of the randomizer.")
+                        .push(Row::new()
+                            .push(Button::new("Generate Seed").on_press(Message::DevFenhlWeb))
+                            .push(Button::new("GitHub Source").on_press(Message::DevFenhlGitHub))
+                            .spacing(8)
+                        )
+                        .push("• For N64, you will need a Summercart64, 64Drive, or an EverDrive with a USB port (EverDrive 3.0 or EverDrive X7), as well as a USB cable that supports data.")
+                        .push("• For Wii, you will need two FTDI chipset USB-to-serial adapters (FT232R, FT232H, or FT230X) connected via a null modem adapter.")
+                        .spacing(8)
+                        .into(),
                     _ => unreachable!(),
                 },
                 true,
@@ -1138,7 +1185,9 @@ impl State {
                     col = col.push(Text::new("Multiworld has been installed."));
                     match emulator {
                         Emulator::Dummy => unreachable!(),
-                        Emulator::Flashcart => todo!(),
+                        Emulator::Flashcart => {
+                            col = col.push(Checkbox::new(self.open_emulator).label("Open Multiworld now").on_toggle(Message::SetOpenEmulator));
+                        }
                         Emulator::EverDrive => {
                             col = col.push(Checkbox::new(self.open_emulator).label("Open Multiworld now").on_toggle(Message::SetOpenEmulator));
                         }

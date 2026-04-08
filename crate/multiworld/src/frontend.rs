@@ -37,7 +37,7 @@ impl Kind {
     pub fn is_supported(&self) -> bool {
         match self {
             Self::Dummy => false,
-            Self::EverDrive => true,
+            Self::EverDrive => false,
             Self::Flashcart => true,
             Self::BizHawk => cfg!(any(target_os = "linux", target_os = "windows")),
             Self::Pj64V3 => cfg!(target_os = "windows"),
@@ -50,8 +50,8 @@ impl fmt::Display for Kind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Dummy => write!(f, "(no frontend)"),
-            Self::EverDrive => write!(f, "EverDrive"),
-            Self::Flashcart => write!(f, "Flashcart"),
+            Self::EverDrive => write!(f, "EverDrive (legacy)"),
+            Self::Flashcart => write!(f, "Console (Wii or N64)"),
             Self::BizHawk => write!(f, "BizHawk"),
             Self::Pj64V3 | Self::Pj64V4 => write!(f, "Project64"),
         }

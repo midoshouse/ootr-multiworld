@@ -239,7 +239,7 @@ impl App {
             Message::Exited => {
                 self.state = State::GetMultiworldRelease;
                 let (asset_name, script_name) = match self.args {
-                    EmuArgs::EverDrive { .. } => {
+                    EmuArgs::Flashcart { .. } | EmuArgs::EverDrive { .. } => {
                         #[cfg(target_os = "linux")] { ("multiworld-gui-linux", None) }
                         #[cfg(target_os = "windows")] { ("multiworld-pj64.exe", None) }
                     }
@@ -358,7 +358,7 @@ impl App {
                         }
                     })
                 }
-                EmuArgs::EverDrive { ref path, .. } | EmuArgs::Pj64 { ref path, .. } => {
+                EmuArgs::Flashcart { ref path, .. } | EmuArgs::EverDrive { ref path, .. } | EmuArgs::Pj64 { ref path, .. } => {
                     self.state = State::Replace;
                     let path = path.clone();
                     return cmd(async move {
@@ -444,7 +444,7 @@ impl App {
                         Ok(Message::Done)
                     })
                 }
-                EmuArgs::EverDrive { ref path, .. } | EmuArgs::Pj64 { ref path, .. } => {
+                EmuArgs::Flashcart { ref path, .. } | EmuArgs::EverDrive { ref path, .. } | EmuArgs::Pj64 { ref path, .. } => {
                     self.state = State::Launch;
                     let path = path.clone();
                     return cmd(async move {
@@ -494,7 +494,7 @@ impl App {
                     .spacing(8)
                     .padding(8)
                     .into(),
-                EmuArgs::EverDrive { .. } | EmuArgs::Pj64 { .. } => Column::new()
+                EmuArgs::Flashcart { .. } | EmuArgs::EverDrive { .. } | EmuArgs::Pj64 { .. } => Column::new()
                     .push("An update for Mido's House Multiworld is available.")
                     .push("Waiting to make sure the old version has exited…")
                     .push(Space::default().height(Length::Fill))
@@ -580,6 +580,10 @@ fn pj64script(src: &Path, dst: &Path) -> wheel::Result {
 #[derive(Clone, clap::Subcommand)]
 #[clap(rename_all = "lower")]
 enum EmuArgs {
+    Flashcart {
+        path: PathBuf,
+        pid: Pid,
+    },
     EverDrive {
         path: PathBuf,
         pid: Pid,
@@ -641,7 +645,7 @@ fn main(args: Args) -> Result<(), MainError> {
                                     sleep(Duration::from_secs(1)).await;
                                 }
                             }
-                            EmuArgs::EverDrive { pid, .. } | EmuArgs::Pj64 { pid, .. } => {
+                            EmuArgs::Flashcart { pid, .. } | EmuArgs::EverDrive { pid, .. } | EmuArgs::Pj64 { pid, .. } => {
                                 while system.refresh_processes_specifics(ProcessesToUpdate::Some(&[pid]), true, ProcessRefreshKind::default()) > 0 {
                                     sleep(Duration::from_secs(1)).await;
                                 }

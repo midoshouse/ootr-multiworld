@@ -1,7 +1,8 @@
 use {
     crate::{
         FrontendWriter,
-        Message
+        Message,
+        UsbSerialPort,
     },
     arrayref::{
         array_mut_ref,
@@ -56,6 +57,7 @@ use {
             Mutex,
             mpsc
         },
+        task::spawn_blocking,
         time::{
             sleep,
             timeout
@@ -97,8 +99,6 @@ pub(crate) enum ConnectError {
     UnknownReplyLength(usize),
     #[error("failed to reply to handshake")]
     FailedReply,
-    #[error("no reply from the console")]
-    NoMessage,
     #[error("unhandled device error: {0:x?}")]
     DeviceError(DeviceError),
     #[error("received unknown message {0} from flashcart")]
@@ -114,6 +114,7 @@ impl From<OsString> for ConnectError {
 
 pub(crate) struct Subscription {
     pub(crate) log: bool,
+    pub(crate) device: Option<UsbSerialPort>,
 }
 
 #[derive(Debug, Clone)]
@@ -138,6 +139,7 @@ pub(crate) struct InGameStruct {
 
 #[derive(Debug, Clone)]
 pub(crate) enum CommState {
+    Disconnect,
     SendHandshake,
     WaitForGame,
     Handshake,
@@ -146,10 +148,22 @@ pub(crate) enum CommState {
 
 #[derive(Debug, Clone)]
 pub enum FlashcartState {
+    INITIALIZE,
     DISCONNECTED,
     SEARCHING,
     OPENING(String),
-    CONNECTED(String, CommState)
+    CONNECTED(String, CommState, Arc<FlashcartGuard>)
+}
+
+#[derive(Debug)]
+pub struct FlashcartGuard;
+
+impl Drop for FlashcartGuard {
+    fn drop(&mut self) {
+        if n64flashcart::isopen() {
+            n64flashcart::close();
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -161,60 +175,62 @@ struct HandshakeResponse {
 
 async fn n64_recv() -> Result<(n64flashcart::Header, Vec<u8>), DeviceError> {
     loop {
-        match n64flashcart::read() {
-            Ok((header, data)) => {
-                if header.datatype != USBDataType::EMPTY {
-                    return Ok((header, data));
-                }
+        let res = spawn_blocking(|| n64flashcart::read()).await.expect("flashcart read panic");
+        match res {
+            Ok((header, data)) if header.datatype != USBDataType::EMPTY => {
+                return Ok((header, data));
+            }
+            Ok(_) => {
+                sleep(Duration::from_millis(1)).await;
             }
             Err(e) => return Err(e),
         };
     }
 }
 
-fn n64_send(datatype: USBDataType, msg: Vec<u8>) -> Result<(), DeviceError> {
+async fn n64_send(datatype: USBDataType, msg: Vec<u8>) -> Result<(), DeviceError> {
     let header = n64flashcart::Header { datatype: datatype, length: msg.len() };
-    let status = n64flashcart::write(header, msg);
+    let status = spawn_blocking(|| n64flashcart::write(header, msg)).await.expect("flashcart send panic");
     match status {
         DeviceError::OK => Ok(()),
         _ => Err(status)
     }
 }
 
-fn send_handshake() {
+async fn send_handshake() {
     let msg = "cmdt".as_bytes().to_vec();
 
-    let _ = n64_send(USBDataType::HANDSHAKE, msg);
+    let _ = n64_send(USBDataType::HANDSHAKE, msg).await;
 }
 
-fn send_handshake_response() -> Result<(), DeviceError> {
+async fn send_handshake_response() -> Result<(), DeviceError> {
     let mut msg = "MW".as_bytes().to_vec();
     msg.push(PROTOCOL_VERSION);
     msg.push(MW_SEND_OWN_ITEMS);
     msg.push(MW_PROGRESSIVE_ITEMS_ENABLE);
 
-    n64_send(USBDataType::HANDSHAKE, msg)
+    n64_send(USBDataType::HANDSHAKE, msg).await
 }
 
-fn send_reset() {
+async fn send_reset() {
     let msg = "cmdt".as_bytes().to_vec();
 
-    let _ = n64_send(USBDataType::RESET, msg);
+    let _ = n64_send(USBDataType::RESET, msg).await;
 }
 
-fn send_player_data(world: NonZeroU8, name: Filename, progressive_items: u32) -> Result<(), DeviceError> {
+async fn send_player_data(world: NonZeroU8, name: Filename, progressive_items: u32) -> Result<(), DeviceError> {
     let mut buf = [0; 16];
 
     buf[0] = world.get();
     *array_mut_ref![buf, 1, 8] = name.0;
     *array_mut_ref![buf, 9, 4] = progressive_items.to_be_bytes();
 
-    n64_send(USBDataType::PLAYER_NAMES, Vec::from(buf))
+    n64_send(USBDataType::PLAYER_NAMES, Vec::from(buf)).await
 }
 
 async fn get_item(queue: &[u16], internal_count: &mut u16) -> Result<bool, DeviceError> {
     if let Some(item) = queue.get(usize::from(*internal_count)) {
-        match send_item(*item) {
+        match send_item(*item).await {
             Ok(_) => {
                 *internal_count += 1;
                 Ok(true)
@@ -228,14 +244,14 @@ async fn get_item(queue: &[u16], internal_count: &mut u16) -> Result<bool, Devic
     }
 }
 
-fn send_item(item: u16) -> Result<(), DeviceError> {
+async fn send_item(item: u16) -> Result<(), DeviceError> {
     let mut msg: Vec<u8> = Vec::new();
 
     let [b1, b2] = item.to_be_bytes();
     msg.push(b1);
     msg.push(b2);
 
-    n64_send(USBDataType::SEND_ITEM, msg)
+    n64_send(USBDataType::SEND_ITEM, msg).await
 }
 
 async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: &mut InGameStruct) -> Result<(Option<InGameState>, Option<Vec<Message>>), DeviceError>
@@ -374,7 +390,6 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
         }
 
         USBDataType::HEARTBEAT => Ok((None, None)),
-        USBDataType::EMPTY => Ok((None, None)),
 
         _ => {
             Err(DeviceError::SC64_FIRMWAREUNSUPPORTED)
@@ -382,10 +397,7 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
     }
 }
 
-fn process_handshake(header: n64flashcart::Header, data: Vec<u8>) -> Result<HandshakeResponse, ConnectError> {
-    if header.datatype == USBDataType::EMPTY {
-        return Err(ConnectError::NoMessage);
-    }
+async fn process_handshake(header: n64flashcart::Header, data: Vec<u8>) -> Result<HandshakeResponse, ConnectError> {
     if header.datatype != USBDataType::HANDSHAKE {
         return Err(ConnectError::UnknownReplyHeader(header.datatype));
     }
@@ -395,7 +407,7 @@ fn process_handshake(header: n64flashcart::Header, data: Vec<u8>) -> Result<Hand
             match value {
                 [b'O', b'o', b'T', b'R', PROTOCOL_VERSION, major, minor, patch, branch, supplementary, player_id, hash1, hash2, hash3, hash4, hash5] => {
                     dbg_println!("Handshake reply received. Repeating protocol version to finalize handshake");
-                    match send_handshake_response() {
+                    match send_handshake_response().await {
                         Ok(_) => {
                             dbg_println!("Protocol version sent");
 
@@ -430,79 +442,86 @@ fn process_handshake(header: n64flashcart::Header, data: Vec<u8>) -> Result<Hand
     }
 }
 
-async fn read(name: &String, comm_state: &CommState) -> Result<(Option<FlashcartState>, Vec<Message>), DeviceError> {
+async fn read(comm_state: &CommState) -> Result<(Option<CommState>, Vec<Message>), DeviceError> {
     let mut messages = Vec::new();
     let next_state = match comm_state {
+        CommState::Disconnect => Some(CommState::Disconnect),
         CommState::WaitForGame => {
-            match n64flashcart::read() {
-                Ok((header, _data)) => {
-                    match header.datatype {
-                        USBDataType::HANDSHAKE | USBDataType::RESET => {
-                            Some(FlashcartState::CONNECTED(name.to_owned(), CommState::SendHandshake))
-                        },
-                        USBDataType::EMPTY => None,
-                        _ => {
-                            send_reset();
-                            None
+            match timeout(Duration::from_secs(10), n64_recv()).await {
+                Ok(read_result) => {
+                    match read_result {
+                        Ok((header, _data)) => {
+                            match header.datatype {
+                                USBDataType::HANDSHAKE | USBDataType::RESET => {
+                                    Some(CommState::SendHandshake)
+                                },
+                                _ => {
+                                    send_reset().await;
+                                    None
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            dbg_println!("Read error while waiting for handshake, {}", e.value());
+                            Some(CommState::Disconnect)
                         }
                     }
-                }
-                Err(e) => {
-                    dbg_println!("Read error while waiting for handshake, {}", e.value());
-                    Some(FlashcartState::DISCONNECTED)
+                },
+                Err(_) => {
+                    dbg_println!("No message from N64 in 10 seconds");
+                    Some(CommState::WaitForGame)
                 }
             }
         },
         CommState::SendHandshake => {
-            send_handshake();
-            Some(FlashcartState::CONNECTED(name.to_owned(), CommState::Handshake))
+            send_handshake().await;
+            Some(CommState::Handshake)
         },
         CommState::Handshake => {
-            match n64flashcart::read() {
-                Ok((header, data)) => {
-                    let mut response = None;
-                    let mut errors = Vec::default();
-                    match process_handshake(header, data) {
-                        Ok(resp) => {
-                            response = Some(resp);
-                        }
-                        Err(e) => {
-                            match e {
-                                ConnectError::NoMessage => {}
-                                _ => {
-                                    errors.push((name.to_owned(), e));
-                                }
+            match timeout(Duration::from_secs(10), n64_recv()).await {
+                Ok(read_result) => {
+                    match read_result {
+                        Ok((header, data)) => {
+                            let mut response = None;
+                            let mut errors = Vec::default();
+                            match process_handshake(header, data).await {
+                                Ok(resp) => response = Some(resp),
+                                Err(e) => errors.push(e),
+                            }
+                            if let Some(HandshakeResponse { version, player_id, file_hash }) = response {
+                                let (tx, rx) = mpsc::channel(1_024);
+
+                                messages.push(Message::FrontendConnected(FrontendWriter::Mpsc(tx)));
+                                messages.push(Message::Plugin(Box::new(ClientMessage::PlayerId(player_id))));
+                                messages.push(Message::Plugin(Box::new(ClientMessage::FileHash(Some(file_hash)))));
+                                messages.push(Message::FlashcartHandshakeSuccessful());
+
+                                let struc = InGameStruct {
+                                    _version: version,
+                                    rx: rx,
+                                    item_queue: Vec::default(),
+                                    ingame_state: InGameState::NotKnown,
+                                    filename: None,
+                                    player_data: HashMap::default()
+                                };
+
+                                Some(CommState::Ready(Arc::new(Mutex::new(struc))))
+                            } else if errors.is_empty() {
+                                None
+                            } else {
+                                messages.push(Message::FlashcartHandshakeFailed(Arc::new(errors)));
+                                Some(CommState::WaitForGame)
                             }
                         }
+                        Err(e) => {
+                            dbg_println!("Read error while finalizing for handshake, {}", e.value());
+                            Some(CommState::Disconnect)
+                        }
                     }
-                    if let Some(HandshakeResponse { version, player_id, file_hash }) = response {
-                        let (tx, rx) = mpsc::channel(1_024);
-
-                        messages.push(Message::FrontendConnected(FrontendWriter::Mpsc(tx)));
-                        messages.push(Message::Plugin(Box::new(ClientMessage::PlayerId(player_id))));
-                        messages.push(Message::Plugin(Box::new(ClientMessage::FileHash(Some(file_hash)))));
-                        messages.push(Message::FlashcartHandshakeSuccessful());
-
-                        let struc = InGameStruct {
-                            _version: version,
-                            rx: rx,
-                            item_queue: Vec::default(),
-                            ingame_state: InGameState::NotKnown,
-                            filename: None,
-                            player_data: HashMap::default()
-                        };
-
-                        Some(FlashcartState::CONNECTED(name.to_owned(), CommState::Ready(Arc::new(Mutex::new(struc)))))
-                    } else if errors.is_empty() {
-                        None
-                    } else {
-                        messages.push(Message::FlashcartHandshakeFailed(Arc::new(errors)));
-                        Some(FlashcartState::CONNECTED(name.to_owned(), CommState::WaitForGame))
-                    }
-                }
-                Err(e) => {
-                    dbg_println!("Read error while finalizing for handshake, {}", e.value());
-                    Some(FlashcartState::DISCONNECTED)
+                },
+                Err(_) => {
+                    dbg_println!("No message from N64 in 10 seconds");
+                    Some(CommState::Disconnect)
                 }
             }
         },
@@ -512,10 +531,10 @@ async fn read(name: &String, comm_state: &CommState) -> Result<(Option<Flashcart
             dbg_println!("InGameState: {:?}", struc.ingame_state);
 
             select! {
-                n64_or_timeout = timeout(Duration::from_secs(10), n64_recv()) => {
-                    match n64_or_timeout {
-                        Ok(n64_result) => {
-                            match n64_result {
+                read_or_timeout = timeout(Duration::from_secs(10), n64_recv()) => {
+                    match read_or_timeout {
+                        Ok(read_result) => {
+                            match read_result {
                                 Ok((header, data)) => {
                                     let datatype = header.datatype.value();
                                     match process_n64_packet(header, data, &mut struc).await {
@@ -524,7 +543,7 @@ async fn read(name: &String, comm_state: &CommState) -> Result<(Option<Flashcart
                                                 messages.extend(msg);
                                             }
                                             if let Some(InGameState::NotKnown) = state_ {
-                                                Some(FlashcartState::CONNECTED(name.to_owned(), CommState::WaitForGame))
+                                                Some(CommState::WaitForGame)
                                             } else if let Some(value) = state_ {
                                                 struc.ingame_state = value;
                                                 None
@@ -535,9 +554,9 @@ async fn read(name: &String, comm_state: &CommState) -> Result<(Option<Flashcart
                                         Err(e) => {
                                             let mut errors = Vec::default();
                                             if let DeviceError::SC64_FIRMWAREUNSUPPORTED = e {
-                                                errors.push((name.to_owned(), ConnectError::UnknownCommand(datatype)));
+                                                errors.push(ConnectError::UnknownCommand(datatype));
                                             } else {
-                                                errors.push((name.to_owned(), ConnectError::DeviceError(e)));
+                                                errors.push(ConnectError::DeviceError(e));
                                             }
                                             dbg_println!("Error processing data from N64, {:?}", e);
                                             messages.push(Message::FlashcartCommError(Arc::new(errors)));
@@ -547,15 +566,15 @@ async fn read(name: &String, comm_state: &CommState) -> Result<(Option<Flashcart
                                 },
                                 Err(e) => {
                                     dbg_println!("Error receiving from N64, {:?}", e);
-                                    let errors = vec![(name.to_owned(), ConnectError::DeviceError(e))];
+                                    let errors = vec![ConnectError::DeviceError(e)];
                                     messages.push(Message::FlashcartCommError(Arc::new(errors)));
-                                    Some(FlashcartState::DISCONNECTED)
+                                    Some(CommState::Disconnect)
                                 }
                             }
                         },
                         Err(_) => {
                             dbg_println!("No message from N64 in 10 seconds");
-                            Some(FlashcartState::DISCONNECTED)
+                            Some(CommState::Disconnect)
                         }
                     }
                 },
@@ -609,58 +628,86 @@ impl Recipe for Subscription {
 
     fn hash(&self, state: &mut iced::advanced::subscription::Hasher) {
         TypeId::of::<Self>().hash(state);
+
+        if let Some(device) = &self.device {
+            device.vid.hash(state);
+            device.pid.hash(state);
+            device.serial.hash(state); 
+        } else {
+            0.hash(state);
+        }
     }
 
     fn stream(self: Box<Self>, _: EventStream) -> Pin<Box<dyn Stream<Item = Message> + Send>> {
         let log = self.log || DEBUG_LOGGING;
-        stream::try_unfold(FlashcartState::SEARCHING, move |state| async move {
+        stream::try_unfold(FlashcartState::INITIALIZE, move |state| {
+            let device = self.device.clone();
+            async move {
             let _ = sleep(Duration::from_millis(1)).await;
             let mut messages: Vec<Message> = Vec::new();
 
             let new_state = match &state {
+                FlashcartState::INITIALIZE => {
+                    n64flashcart::initialize();
+                    n64flashcart::set_protocol(ProtocolVer::VERSION2);
+                    Some(FlashcartState::SEARCHING)
+                },
                 FlashcartState::DISCONNECTED => {
                     if log {
-                        let _ = lock!(log = crate::LOG; writeln!(&*log, "{} EverDrive: waiting 5 seconds before next scan", Utc::now().format("%Y-%m-%d %H:%M:%S")));
-                    }
-                    if n64flashcart::isopen() {
-                        n64flashcart::close();
+                        let _ = lock!(log = crate::LOG; writeln!(&*log, "{} Flashcart: waiting 5 seconds before next scan", Utc::now().format("%Y-%m-%d %H:%M:%S")));
                     }
                     let _ = sleep(Duration::from_secs(5)).await;
                     Some(FlashcartState::SEARCHING)
                 },
                 FlashcartState::SEARCHING => {
-                    let status = n64flashcart::find();
-                    if status == DeviceError::CARTFINDFAIL {
-                        n64flashcart::initialize();
-                        n64flashcart::set_protocol(ProtocolVer::VERSION2);
-                        Some(FlashcartState::DISCONNECTED)
-                    } else if status != DeviceError::OK {
-                        Some(FlashcartState::DISCONNECTED)
+                    if let Some(attached_device) = device {
+                        let status = n64flashcart::connect(attached_device.vid, attached_device.pid, &attached_device.serial);
+                        if status == DeviceError::CARTFINDFAIL {
+                            n64flashcart::initialize();
+                            n64flashcart::set_protocol(ProtocolVer::VERSION2);
+                            Some(FlashcartState::DISCONNECTED)
+                        } else if status != DeviceError::OK {
+                            Some(FlashcartState::DISCONNECTED)
+                        } else {
+                            let cart_name = n64flashcart::cart_type_to_str(n64flashcart::get_cart());
+                            Some(FlashcartState::OPENING(cart_name.to_string()))
+                        }
                     } else {
-                        let cart_name = n64flashcart::cart_type_to_str(n64flashcart::get_cart());
-                        Some(FlashcartState::OPENING(cart_name.to_string()))
+                        None
                     }
                 },
                 FlashcartState::OPENING(name) => {
-                    let status = n64flashcart::open();
-                    if status != DeviceError::OK {
-                        dbg_println!("Failed to open USB connection to flashcart, retrying, error code {}", status.value());
-                        Some(FlashcartState::DISCONNECTED)
+                    if let Some(_) = device {
+                        let status = n64flashcart::open();
+                        if status != DeviceError::OK {
+                            dbg_println!("Failed to open USB connection to flashcart, retrying, error code {}", status.value());
+                            Some(FlashcartState::DISCONNECTED)
+                        } else {
+                            dbg_println!("Flashcart USB connection opened");
+                            Some(FlashcartState::CONNECTED(name.to_owned(), CommState::WaitForGame, Arc::new(FlashcartGuard)))
+                        }
                     } else {
-                        dbg_println!("Flashcart USB connection opened");
-                        Some(FlashcartState::CONNECTED(name.to_owned(), CommState::WaitForGame))
+                        Some(FlashcartState::SEARCHING)
                     }
                 },
-                FlashcartState::CONNECTED(name, comm_state) => {
-                    match read(name, comm_state).await {
-                        Ok((next_state, m)) => {
-                            messages.extend(m);
-                            next_state
-                        },
-                        Err(e) => {
-                            messages.push(Message::FlashcartCommError(Arc::new(vec![(name.to_owned(), ConnectError::DeviceError(e))])));
-                            Some(FlashcartState::CONNECTED(name.to_owned(), comm_state.to_owned()))
+                FlashcartState::CONNECTED(name, comm_state, guard) => {
+                    if let Some(_) = device {
+                        match read(comm_state).await {
+                            Ok((next_state, m)) => {
+                                messages.extend(m);
+                                match next_state {
+                                    Some(CommState::Disconnect) => Some(FlashcartState::DISCONNECTED),
+                                    Some(new_state) => Some(FlashcartState::CONNECTED(name.to_owned(), new_state, guard.to_owned())),
+                                    None => None,
+                                }
+                            },
+                            Err(e) => {
+                                messages.push(Message::FlashcartCommError(Arc::new(vec![ConnectError::DeviceError(e)])));
+                                Some(FlashcartState::CONNECTED(name.to_owned(), comm_state.to_owned(), guard.to_owned()))
+                            }
                         }
+                    } else {
+                        Some(FlashcartState::SEARCHING)
                     }
                 }
             };
@@ -670,7 +717,7 @@ impl Recipe for Subscription {
             }
 
             Ok::<_, ConnectError>(Some((stream::iter(messages).map(Ok::<_, ConnectError>), new_state.unwrap_or(state))))
-        }).try_flatten().map(|res| {
+        }}).try_flatten().map(|res| {
             let mut print_debug = true;
 
             if let Ok(message) = &res {

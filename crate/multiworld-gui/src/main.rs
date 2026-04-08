@@ -17,7 +17,7 @@ use {
         sink::SinkExt as _,
         stream::Stream,
     }, iced::{
-        Element, Length, Size, Subscription, Task, advanced::subscription, clipboard, widget::*, window::{
+        Element, Length, Size, Padding, Subscription, Task, advanced::subscription, clipboard, widget::*, window::{
             self,
             icon,
         }
@@ -47,7 +47,8 @@ use {
                 ServerMessage,
             },
         },
-    }, oauth2::{
+    }, n64flashcart::UsbSerialPort,
+    oauth2::{
         RefreshToken,
         TokenResponse as _,
         reqwest::async_http_client,
@@ -96,7 +97,7 @@ use {
     }, tokio_tungstenite::tungstenite, url::Url, wheel::{
         fs,
         traits::IsNetworkError,
-    }
+    },
 };
 #[cfg(unix)] use xdg::BaseDirectories;
 #[cfg(windows)] use directories::ProjectDirs;
@@ -310,9 +311,9 @@ enum Message {
     EverDriveScanFailed(Arc<Vec<(tokio_serial::SerialPortInfo, everdrive::ConnectError)>>),
     EverDriveTimeout,
     Exit,
-    FlashcartHandshakeFailed(Arc<Vec<(String, flashcart::ConnectError)>>),
+    FlashcartHandshakeFailed(Arc<Vec<flashcart::ConnectError>>),
     FlashcartHandshakeSuccessful(),
-    FlashcartCommError(Arc<Vec<(String, flashcart::ConnectError)>>),
+    FlashcartCommError(Arc<Vec<flashcart::ConnectError>>),
     FlashcartStateChanged(FlashcartState),
     FrontendConnected(FrontendWriter),
     FrontendSubscriptionError(Arc<Error>),
@@ -345,6 +346,7 @@ enum Message {
     SetAutoDeleteDelta(DurationFormatter),
     SetCreateNewRoom(bool),
     SetExistingRoomSelection(RoomFormatter),
+    SetFlashcartDevice(UsbSerialPort),
     SetFrontend(Frontend),
     SetLobbyView(LobbyView),
     SetMaintenanceDontShowAgain(bool),
@@ -524,9 +526,8 @@ impl State {
                     #[cfg(debug_assertions)] { " (debug)" }
                     #[cfg(not(debug_assertions))] { "" }
                 }));
-                for (name, error) in &**errors {
+                for error in &**errors {
                     builder.push_line("");
-                    builder.push_mono_safe(name);
                     builder.push_line(':');
                     builder.push_codeblock_safe(format!("{error:?}"), Some("rust"));
                 }
@@ -588,7 +589,9 @@ enum EverDriveState {
 #[derive(Debug, Clone)]
 struct FrontendFlashcartState {
     state: FlashcartState,
-    errors: Arc<Vec<(String, flashcart::ConnectError)>>,
+    errors: Arc<Vec<flashcart::ConnectError>>,
+    device: Option<UsbSerialPort>,
+    device_list: Vec<UsbSerialPort>,
 }
 
 #[derive(Debug, Clone)]
@@ -605,7 +608,7 @@ impl FrontendState {
         match self.kind {
             Frontend::Dummy => "(no frontend)".into(),
             Frontend::EverDrive => "EverDrive".into(),
-            Frontend::Flashcart => "Flashcart".into(),
+            Frontend::Flashcart => "Console".into(),
             #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if let Some(BizHawkState { ref version, .. }) = self.bizhawk {
                 format!("BizHawk {version}").into()
             } else {
@@ -642,10 +645,11 @@ impl State {
             kind: match frontend {
                 None => config.default_frontend.unwrap_or({
                     #[cfg(windows)] { Frontend::Pj64V3 }
-                    #[cfg(not(windows))] { Frontend::EverDrive }
+                    #[cfg(not(windows))] { Frontend::Flashcart }
                 }),
                 Some(FrontendArgs::Dummy) => Frontend::Dummy,
                 Some(FrontendArgs::EverDrive) => Frontend::EverDrive,
+                Some(FrontendArgs::Flashcart) => Frontend::Flashcart,
                 Some(FrontendArgs::BizHawk { .. }) => Frontend::BizHawk,
                 Some(FrontendArgs::Pj64V3) => Frontend::Pj64V3,
                 Some(FrontendArgs::Pj64V4) => Frontend::Pj64V4,
@@ -660,6 +664,8 @@ impl State {
             flashcart: FrontendFlashcartState {
                 state: FlashcartState::DISCONNECTED,
                 errors: Arc::new(vec![]),
+                device: None,
+                device_list: n64flashcart::list(),
             }
         };
         Self {
@@ -753,7 +759,11 @@ impl State {
                                         cmd.arg(env::current_exe()?);
                                         cmd.arg(process::id().to_string());
                                     },
-                                    Frontend::Flashcart => return Ok(Message::UpToDate),
+                                    Frontend::Flashcart => {
+                                        cmd.arg("flashcart");
+                                        cmd.arg(env::current_exe()?);
+                                        cmd.arg(process::id().to_string());
+                                    },
                                     Frontend::BizHawk => if let Some(BizHawkState { path, pid, version, port: _ }) = frontend.bizhawk {
                                         cmd.arg("bizhawk");
                                         cmd.arg(process::id().to_string());
@@ -856,6 +866,7 @@ impl State {
                     self.frontend_writer = None;
                 }
             },
+            Message::Exit => return iced::exit(),
             Message::FlashcartCommError(errors) => {
                 self.frontend.flashcart.errors = errors;
             },
@@ -869,12 +880,12 @@ impl State {
                 self.frontend.flashcart.state = state;
 
                 if let Frontend::Flashcart = self.frontend.kind {
-                    if let FlashcartState::DISCONNECTED = self.frontend.flashcart.state {
-                        self.frontend_writer = None;
+                    match self.frontend.flashcart.state {
+                        FlashcartState::DISCONNECTED | FlashcartState::SEARCHING => self.frontend_writer = None,
+                        _ => {}
                     }
                 }
             }
-            Message::Exit => return iced::exit(),
             Message::FrontendConnected(inner) => {
                 if let Frontend::EverDrive = self.frontend.kind {
                     self.frontend.everdrive = EverDriveState::Connected;
@@ -1453,6 +1464,7 @@ impl State {
                 }
                 self.show_room_filter = false;
             },
+            Message::SetFlashcartDevice(new_device) => self.frontend.flashcart.device = Some(new_device),
             Message::SetFrontend(new_frontend) => self.frontend.kind = new_frontend,
             Message::SetMaintenanceDontShowAgain(dont_show_again) => self.maintenance_dont_show_again = dont_show_again,
             Message::SetNewRoomName(name) => if let SessionState::Lobby { ref mut new_room_name, .. } = self.server_connection { *new_room_name = name },
@@ -1583,13 +1595,19 @@ impl State {
                         .push("Retrying in 5 seconds…"),
                 },
                 Frontend::Flashcart => {
+                    col = col.push(PickList::new(
+                        self.frontend.flashcart.device_list.clone(),
+                        self.frontend.flashcart.device.clone(),
+                        Message::SetFlashcartDevice).padding(Padding {top: 5.0, right: 20.0, bottom: 30.0, left: 10.0}));
                     match &self.frontend.flashcart.state {
+                        FlashcartState::INITIALIZE => col = col.push("Starting flashcart connection"),
                         FlashcartState::DISCONNECTED => col = col.push("Disconnected from flashcart, waiting 5 seconds..."),
                         FlashcartState::SEARCHING => col = col.push("Looking for supported flashcarts"),
                         FlashcartState::OPENING(name) => col = col.push(Text::new(format!("Opening flashcart {}", name))),
-                        FlashcartState::CONNECTED(name, comm_state) => {
+                        FlashcartState::CONNECTED(name, comm_state, _) => {
                             col = col.push(Text::new(format!("Connected to flashcart {}", name)));
                             col = col.push(match comm_state {
+                                flashcart::CommState::Disconnect => "Lost connection",
                                 flashcart::CommState::WaitForGame => "Waiting for game...",
                                 flashcart::CommState::SendHandshake => "Sending handshake",
                                 flashcart::CommState::Handshake => "Waiting for handshake response",
@@ -2083,7 +2101,7 @@ impl State {
                 #[cfg(any(target_os = "linux", target_os = "windows"))] Frontend::BizHawk => if let Some(BizHawkState { port, .. }) = self.frontend.bizhawk {
                     subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from BizHawk", inner: subscriptions::Connection { port, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } }));
                 },
-                Frontend::Flashcart => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Flashcart", inner: flashcart::Subscription { log: self.log } })),
+                Frontend::Flashcart => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Flashcart", inner: flashcart::Subscription { log: self.log, device: self.frontend.flashcart.device.clone() } })),
                 #[cfg(not(any(target_os = "linux", target_os = "windows")))] Frontend::BizHawk => unreachable!("no BizHawk support on this platform"),
                 Frontend::Pj64V3 => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Listener { frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })),
                 Frontend::Pj64V4 => subscriptions.push(subscription::from_recipe(LoggingSubscription { log: self.log, context: "from Project64", inner: subscriptions::Connection { port: frontend::PORT, frontend: self.frontend.kind, log: self.log, connection_id: self.frontend_connection_id } })), //TODO allow Project64 to specify port via command-line arg
@@ -2135,6 +2153,7 @@ enum FrontendArgs {
     #[clap(name = "dummy-frontend")]
     Dummy,
     EverDrive,
+    Flashcart,
     BizHawk {
         path: PathBuf,
         pid: Pid,
