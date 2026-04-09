@@ -45,7 +45,6 @@ use {
         collections::HashMap,
         hash::Hash as _,
         io::prelude::*,
-        mem,
         num::NonZeroU8,
         pin::Pin,
         sync::Arc,
@@ -178,6 +177,11 @@ async fn n64_recv() -> Result<(n64flashcart::Header, Vec<u8>), DeviceError> {
         let res = spawn_blocking(|| n64flashcart::read()).await.expect("flashcart read panic");
         match res {
             Ok((header, data)) if header.datatype != USBDataType::EMPTY => {
+                match header.datatype {
+                    USBDataType::INGAME_STATE => dbg_println!("< RECV < Datatype: {:?}, Length: {}", header.datatype, header.length),
+                    USBDataType::HEARTBEAT => dbg_println!("< RECV < Heartbeat"),
+                    _ => dbg_println!("< RECV < Datatype: {:?}, Length: {}, data: {:?}", header.datatype, header.length, data)
+                };
                 return Ok((header, data));
             }
             Ok(_) => {
@@ -189,6 +193,7 @@ async fn n64_recv() -> Result<(n64flashcart::Header, Vec<u8>), DeviceError> {
 }
 
 async fn n64_send(datatype: USBDataType, msg: Vec<u8>) -> Result<(), DeviceError> {
+    dbg_println!("> SEND > Datatype: {:?}, Length: {}, data: {:?}", datatype, msg.len(), msg);
     let header = n64flashcart::Header { datatype: datatype, length: msg.len() };
     let status = spawn_blocking(|| n64flashcart::write(header, msg)).await.expect("flashcart send panic");
     match status {
@@ -257,11 +262,6 @@ async fn send_item(item: u16) -> Result<(), DeviceError> {
 async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: &mut InGameStruct) -> Result<(Option<InGameState>, Option<Vec<Message>>), DeviceError>
 {
     match header.datatype {
-        USBDataType::INGAME_STATE => dbg_println!("Datatype: {:?}, Length: {}", header.datatype, header.length),
-        _ => dbg_println!("Datatype: {:?}, Length: {}, data: {:?}", header.datatype, header.length, data)
-    };
-
-    match header.datatype {
         USBDataType::HANDSHAKE | USBDataType::RESET => {
             Ok((Some(InGameState::NotKnown), None))
         },
@@ -308,8 +308,8 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
                 let item_pending = if let InGameState::InGame { item_pending, .. } = struc.ingame_state {
                     item_pending
                 } else {
-                    for (world, (name, progressive_items)) in mem::take(&mut struc.player_data) {
-                        let _ = send_player_data(world, name, progressive_items);
+                    for (world, (name, progressive_items)) in struc.player_data.clone() {
+                        let _ = send_player_data(world, name, progressive_items).await;
                     }
                     get_item(&struc.item_queue, &mut internal_count).await?
                 };
@@ -606,12 +606,12 @@ async fn read(comm_state: &CommState) -> Result<(Option<CommState>, Vec<Message>
                         ServerMessage::PlayerName(world, new_name) => {
                             let (name, progressive_items) = struc.player_data.entry(world).or_default();
                             *name = new_name;
-                            let _ = send_player_data(world, *name, *progressive_items);
+                            let _ = send_player_data(world, *name, *progressive_items).await;
                         },
                         ServerMessage::ProgressiveItems(world, new_progressive_items) => {
                             let (name, progressive_items) = struc.player_data.entry(world).or_default();
                             *progressive_items = new_progressive_items;
-                            let _ = send_player_data(world, *name, *progressive_items);
+                            let _ = send_player_data(world, *name, *progressive_items).await;
                         },
                     }
                     None
