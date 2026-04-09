@@ -961,9 +961,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.53"
+version = "1.2.59"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "755d2fce177175ffca841e9a06afdb2c4ab0f593d53b4dee48147dfaade85932"
+checksum = "b7a4d3ec6524d28a329fc53654bbadc9bdd7b0431f5d65f1a56ffb28a1ee5283"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -2264,9 +2264,9 @@ dependencies = [
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8591b0bcc8a98a64310a2fae1bb3e9b8564dd10e381e6e28010fde8e8e8568db"
+checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "flate2"
@@ -5807,10 +5807,11 @@ checksum = "13d2233c9842d08cfe13f9eac96e207ca6a2ea10b80259ebe8ad0268be27d2af"
 
 [[package]]
 name = "n64flashcart"
-version = "0.1.0"
-source = "git+https://github.com/mracsys/n64usb#78f8ccadba034a51207bb961add279a302f7278b"
+version = "1.2.0"
+source = "git+https://github.com/mracsys/n64usb?rev=6ca2863a4fdc5f00718947ab6f478d31d9497ec5#6ca2863a4fdc5f00718947ab6f478d31d9497ec5"
 dependencies = [
  "bindgen",
+ "cc",
 ]
 
 [[package]]

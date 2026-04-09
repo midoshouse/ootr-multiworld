@@ -681,6 +681,9 @@ impl Recipe for Subscription {
                         let status = n64flashcart::open();
                         if status != DeviceError::OK {
                             dbg_println!("Failed to open USB connection to flashcart, retrying, error code {}", status.value());
+                            if status == DeviceError::CANTOPEN {
+                                messages.push(Message::FlashcartLocked);
+                            }
                             Some(FlashcartState::DISCONNECTED)
                         } else {
                             dbg_println!("Flashcart USB connection opened");

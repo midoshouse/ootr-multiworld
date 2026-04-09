@@ -315,6 +315,7 @@ enum Message {
     FlashcartHandshakeSuccessful(),
     FlashcartCommError(Arc<Vec<flashcart::ConnectError>>),
     FlashcartStateChanged(FlashcartState),
+    FlashcartLocked,
     FrontendConnected(FrontendWriter),
     FrontendSubscriptionError(Arc<Error>),
     JoinRoom,
@@ -592,6 +593,7 @@ struct FrontendFlashcartState {
     errors: Arc<Vec<flashcart::ConnectError>>,
     device: Option<UsbSerialPort>,
     device_list: Vec<UsbSerialPort>,
+    device_locked: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -666,6 +668,7 @@ impl State {
                 errors: Arc::new(vec![]),
                 device: None,
                 device_list: n64flashcart::list(),
+                device_locked: false,
             }
         };
         Self {
@@ -885,6 +888,9 @@ impl State {
                         _ => {}
                     }
                 }
+            },
+            Message::FlashcartLocked => {
+                self.frontend.flashcart.device_locked = true;
             }
             Message::FrontendConnected(inner) => {
                 if let Frontend::EverDrive = self.frontend.kind {
@@ -1464,8 +1470,16 @@ impl State {
                 }
                 self.show_room_filter = false;
             },
-            Message::SetFlashcartDevice(new_device) => self.frontend.flashcart.device = Some(new_device),
-            Message::SetFrontend(new_frontend) => self.frontend.kind = new_frontend,
+            Message::SetFlashcartDevice(new_device) => {
+                self.frontend.flashcart.device = Some(new_device);
+                self.frontend.flashcart.device_locked = false;
+            },
+            Message::SetFrontend(new_frontend) => {
+                if let Frontend::Flashcart = self.frontend.kind {
+                    self.frontend.flashcart.device = None;
+                }
+                self.frontend.kind = new_frontend;
+            }
             Message::SetMaintenanceDontShowAgain(dont_show_again) => self.maintenance_dont_show_again = dont_show_again,
             Message::SetNewRoomName(name) => if let SessionState::Lobby { ref mut new_room_name, .. } = self.server_connection { *new_room_name = name },
             Message::SetPassword(new_password) => if let SessionState::Lobby { ref mut password, .. } = self.server_connection { *password = new_password },
@@ -1599,6 +1613,9 @@ impl State {
                         self.frontend.flashcart.device_list.clone(),
                         self.frontend.flashcart.device.clone(),
                         Message::SetFlashcartDevice).padding(Padding {top: 5.0, right: 20.0, bottom: 30.0, left: 10.0}));
+                    if self.frontend.flashcart.device_locked {
+                        col = col.push("Selected device is currently locked. Restart the app or use another device.");
+                    }
                     match &self.frontend.flashcart.state {
                         FlashcartState::INITIALIZE => col = col.push("Starting flashcart connection"),
                         FlashcartState::DISCONNECTED => col = col.push("Disconnected from flashcart, waiting 5 seconds..."),
