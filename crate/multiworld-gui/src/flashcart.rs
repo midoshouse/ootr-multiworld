@@ -63,7 +63,7 @@ macro_rules! dbg_println {
     };
 }
 
-const PROTOCOL_VERSION: u8 = 2;
+const PROTOCOL_VERSION: u8 = 3;
 const MW_SEND_OWN_ITEMS: u8 = 1;
 const MW_PROGRESSIVE_ITEMS_ENABLE: u8 = 1;
 
