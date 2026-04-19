@@ -33,7 +33,7 @@ image = { version = "0.25", default-features = false, features = ["ico"] }
 itertools = "0.14"
 log-lock = { git = "https://github.com/fenhl/log-lock" }
 multiworld = { path = "../multiworld" }
-n64flashcart = { git = "https://github.com/mracsys/n64usb", rev = "047326569ede0730752ddeb0da0955e8f9e27e85" }
+n64flashcart = { git = "https://github.com/mracsys/n64usb", rev = "1cf73fd9ead7cf45227867b521da8e624189f2b2" }
 num-traits = { version = "0.2.19", default-features = false }
 oauth2 = "4"
 once_cell = "1"

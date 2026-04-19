@@ -3,54 +3,42 @@ use {
         FrontendWriter,
         Message,
         UsbSerialPort,
-    },
-    arrayref::{
+    }, arrayref::{
         array_mut_ref,
         array_ref
-    },
-    chrono::prelude::*,
-    enum_iterator::all,
-    futures::{
+    }, chrono::prelude::*, enum_iterator::all, futures::{
         TryStreamExt as _,
         stream::{
             self,
             Stream,
             StreamExt as _,
         },
-    },
-    iced::advanced::subscription::{
+    }, iced::advanced::subscription::{
         EventStream,
         Recipe,
-    },
-    log_lock::lock,
-    multiworld::{
-        Filename,
-        frontend::{
+    }, log_lock::lock, multiworld::{
+        Filename, HintArea, OptHintArea, frontend::{
             ClientMessage,
             ServerMessage
-        },
-        HintArea,
-        OptHintArea,
-    },
-    n64flashcart::{
+        }
+    }, n64flashcart::{
         self,
         DeviceError,
         ProtocolVer,
         USBDataType,
-    },
-    num_traits::FromPrimitive as _,
-    ootr_utils::spoiler::HashIcon,
-    std::{
+    }, num_traits::FromPrimitive as _, ootr_utils::spoiler::HashIcon, std::{
         any::TypeId,
-        collections::HashMap,
+        collections::{HashMap, VecDeque},
         hash::Hash as _,
         io::prelude::*,
         num::NonZeroU8,
         pin::Pin,
         sync::Arc,
-        time::Duration
-    },
-    tokio::{
+        time::{
+            Duration,
+            Instant,
+        },
+    }, tokio::{
         select,
         sync::{
             Mutex,
@@ -61,7 +49,7 @@ use {
             sleep,
             timeout
         }
-    },
+    }
 };
 #[cfg(unix)] use std::ffi::OsString;
 
@@ -119,6 +107,7 @@ pub(crate) struct Subscription {
 #[derive(Debug, Clone)]
 pub(crate) enum InGameState {
     NotKnown,
+    Desynced,
     FileSelect,
     InGame {
         internal_count: u16,
@@ -134,6 +123,8 @@ pub(crate) struct InGameStruct {
     ingame_state: InGameState,
     filename: Option<Filename>,
     player_data: HashMap<NonZeroU8, (Filename, u32)>,
+    message_queue: VecDeque<(USBDataType, Vec<u8>)>,
+    pending_message: Option<Instant>,
 } 
 
 #[derive(Debug, Clone)]
@@ -187,7 +178,23 @@ async fn n64_recv() -> Result<(n64flashcart::Header, Vec<u8>), DeviceError> {
             Ok(_) => {
                 sleep(Duration::from_millis(1)).await;
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                // Purge read buffer to hopefully prevent errors on future reads
+                match e {
+                    DeviceError::READFAIL |
+                    DeviceError::BADHEADER |
+                    DeviceError::BADPADDING |
+                    DeviceError::BADPACKSIZE |
+                    DeviceError::_64D_BADCMP |
+                    DeviceError::_64D_BADDMA |
+                    DeviceError::SC64_COMMFAIL => {
+                        spawn_blocking(|| n64flashcart::purge()).await.expect("flashcart purge panic");
+                        n64_send(USBDataType::UNRECOVERABLE, vec![0u8; 16]).await?;
+                    }
+                    _ => {}
+                }
+                return Err(e);
+            }
         };
     }
 }
@@ -203,9 +210,7 @@ async fn n64_send(datatype: USBDataType, msg: Vec<u8>) -> Result<(), DeviceError
 }
 
 async fn send_handshake() {
-    let msg = "cmdt".as_bytes().to_vec();
-
-    let _ = n64_send(USBDataType::HANDSHAKE, msg).await;
+    let _ = n64_send(USBDataType::HANDSHAKE, "cmdt".as_bytes().to_vec()).await;
 }
 
 async fn send_handshake_response() -> Result<(), DeviceError> {
@@ -218,45 +223,44 @@ async fn send_handshake_response() -> Result<(), DeviceError> {
 }
 
 async fn send_reset() {
-    let msg = "cmdt".as_bytes().to_vec();
-
-    let _ = n64_send(USBDataType::RESET, msg).await;
+    let _ = n64_send(USBDataType::RESET, vec![0u8, 16]).await;
 }
 
-async fn send_player_data(world: NonZeroU8, name: Filename, progressive_items: u32) -> Result<(), DeviceError> {
+async fn send_ack() {
+    let _ = n64_send(USBDataType::ACK_MESSAGE, vec![0u8, 16]).await;
+}
+
+async fn send_err() {
+    let _ = n64_send(USBDataType::UNRECOVERABLE, vec![0u8, 16]).await;
+}
+
+async fn send_player_data(world: NonZeroU8, name: Filename, progressive_items: u32) -> (USBDataType, Vec<u8>) {
     let mut buf = [0; 16];
 
     buf[0] = world.get();
     *array_mut_ref![buf, 1, 8] = name.0;
     *array_mut_ref![buf, 9, 4] = progressive_items.to_be_bytes();
-
-    n64_send(USBDataType::PLAYER_NAMES, Vec::from(buf)).await
+    
+    return (USBDataType::PLAYER_NAMES, Vec::from(buf));
 }
 
-async fn get_item(queue: &[u16], internal_count: &mut u16) -> Result<bool, DeviceError> {
+async fn get_item(queue: &[u16], internal_count: &u16, messages: &mut VecDeque<(USBDataType, Vec<u8>)>) -> bool {
     if let Some(item) = queue.get(usize::from(*internal_count)) {
-        match send_item(*item).await {
-            Ok(_) => {
-                *internal_count += 1;
-                Ok(true)
-            },
-            Err(_) => {
-                Ok(false)
-            }
-        }
+        messages.push_back(send_item(*item).await);
+        return true;
     } else {
-        Ok(false)
+        return false;
     }
 }
 
-async fn send_item(item: u16) -> Result<(), DeviceError> {
+async fn send_item(item: u16) -> (USBDataType, Vec<u8>) {
     let mut msg: Vec<u8> = Vec::new();
 
     let [b1, b2] = item.to_be_bytes();
     msg.push(b1);
     msg.push(b2);
 
-    n64_send(USBDataType::SEND_ITEM, msg).await
+    return (USBDataType::SEND_ITEM, msg);
 }
 
 async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: &mut InGameStruct) -> Result<(Option<InGameState>, Option<Vec<Message>>), DeviceError>
@@ -287,8 +291,10 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
                 let filename = Filename(*array_ref![data_slice, 0, 8]);
                 struc.filename = Some(filename);
 
+                send_ack().await;
                 Ok((Some(InGameState::FileSelect), Some(vec![Message::Plugin(Box::new(ClientMessage::PlayerName(filename)))])))
             } else {
+                send_err().await;
                 Ok((None, None))
             }
         },
@@ -302,19 +308,22 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
                     struc.filename = Some(filename);
                     messages.push(Message::Plugin(Box::new(ClientMessage::PlayerName(filename))));
                 }
-                let mut internal_count = u16::from_be_bytes(*array_ref![savedata, 0x90, 2]);
+                let internal_count = u16::from_be_bytes(*array_ref![savedata, 0x90, 2]);
 
                 messages.push(Message::Plugin(Box::new(ClientMessage::SaveData(savedata))));
                 let item_pending = if let InGameState::InGame { item_pending, .. } = struc.ingame_state {
                     item_pending
                 } else {
                     for (world, (name, progressive_items)) in struc.player_data.clone() {
-                        let _ = send_player_data(world, name, progressive_items).await;
+                        struc.message_queue.push_back(send_player_data(world, name, progressive_items).await);
                     }
-                    get_item(&struc.item_queue, &mut internal_count).await?
+                    get_item(&struc.item_queue, &internal_count, &mut struc.message_queue).await
                 };
+
+                send_ack().await;
                 Ok((Some(InGameState::InGame { internal_count, item_pending }), Some(messages)))
             } else {
+                send_err().await;
                 Ok((Some(InGameState::NotKnown), None))
             }
         },
@@ -334,19 +343,52 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
                     target_world: target_world,
                 }));
 
+                send_ack().await;
                 Ok((None, Some(vec![message])))
             } else {
+                send_err().await;
                 Ok((None, None))
             }
         },
 
-        USBDataType::ACK_ITEM => {
-            if let InGameState::InGame { ref mut internal_count, ref mut item_pending } = struc.ingame_state {
-                if !get_item(&struc.item_queue, internal_count).await? {
-                    *item_pending = false;
+        USBDataType::ACK_MESSAGE => {
+            let InGameStruct {
+                ref mut ingame_state,
+                ref mut message_queue,
+                ref mut pending_message,
+                ..
+            } = *struc;
+            // Check if we actually sent a message to acknowledge.
+            if let None = pending_message {
+                Ok((Some(InGameState::Desynced), None))
+            } else {
+                if let Some((datatype, _)) = message_queue.pop_front() {
+                    match datatype {
+                        USBDataType::SEND_ITEM => {
+                            if let InGameState::InGame { ref mut internal_count, ref mut item_pending } = ingame_state {
+                                *internal_count += 1;
+                                if !get_item(&struc.item_queue, internal_count, message_queue).await {
+                                    *item_pending = false;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    *pending_message = None;
                 }
+                Ok((None, None))
             }
-            Ok((None, None))
+        },
+
+        USBDataType::UNRECOVERABLE => {
+            // Check if we actually sent a message to acknowledge.
+            if let None = struc.pending_message {
+                Ok((Some(InGameState::Desynced), None))
+            } else {
+                // Retry sending message, don't remove from queue yet
+                struc.pending_message = None;
+                Ok((None, None))
+            }
         },
 
         USBDataType::DUNGEON_REWARDS => {
@@ -383,13 +425,39 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
                     shadow: if let (Some(world), Some(area)) = (NonZeroU8::new(shadow_world), OptHintArea::from_u8(shadow_area).and_then(|area| HintArea::try_from(area).ok())) { Some((world, area)) } else { None },
                     spirit: if let (Some(world), Some(area)) = (NonZeroU8::new(spirit_world), OptHintArea::from_u8(spirit_area).and_then(|area| HintArea::try_from(area).ok())) { Some((world, area)) } else { None },
                 }))];
+
+                send_ack().await;
                 Ok((None, Some(message)))
             } else {
+                send_err().await;
                 Ok((None, None))
             }
         }
 
         USBDataType::HEARTBEAT => Ok((None, None)),
+
+        USBDataType::RAWBINARY => {
+            // Read arbitrary memory from console.
+            // Currently unused, but skeleton kept to
+            // keep message queue moving if added later.
+
+            let InGameStruct {
+                ref mut message_queue,
+                ref mut pending_message,
+                ..
+            } = *struc;
+            // Check if we actually sent a message to acknowledge.
+            if let None = pending_message {
+                Ok((Some(InGameState::Desynced), None))
+            } else {
+                if let Some(_) = message_queue.pop_front() {
+                    // Handle raw byte message here
+                    *pending_message = None;
+                }
+                send_ack().await;
+                Ok((None, None))
+            }
+        }
 
         _ => {
             Err(DeviceError::SC64_FIRMWAREUNSUPPORTED)
@@ -502,7 +570,9 @@ async fn read(comm_state: &CommState) -> Result<(Option<CommState>, Vec<Message>
                                     item_queue: Vec::default(),
                                     ingame_state: InGameState::NotKnown,
                                     filename: None,
-                                    player_data: HashMap::default()
+                                    player_data: HashMap::default(),
+                                    message_queue: VecDeque::default(),
+                                    pending_message: None,
                                 };
 
                                 Some(CommState::Ready(Arc::new(Mutex::new(struc))))
@@ -530,6 +600,30 @@ async fn read(comm_state: &CommState) -> Result<(Option<CommState>, Vec<Message>
 
             dbg_println!("InGameState: {:?}", struc.ingame_state);
 
+            // Handle potentially lost acknowledge packet without
+            // total communications loss. Force reset the connection
+            // to avoid duplicating items and desyncing the item counter.
+            // 5 seconds is approximately the time between heartbeats,
+            // with 10 seconds as the normal timeout. 7 seconds is checked
+            // here as the ack should not take longer than a full heartbeat
+            // cycle to be sent, accounting for some generous console lag.
+            // Timeout starts after the message is sent to minimize lag.
+            if let Some(message_timeout) = struc.pending_message {
+                if message_timeout.elapsed().as_secs_f32() > 7.0 {
+                    dbg_println!("N64 did not acknowledge message, resetting");
+                    return Ok((Some(CommState::Disconnect), messages));
+                }
+            }
+
+            if let None = struc.pending_message {
+                if let Some((datatype, msg)) = struc.message_queue.front() {
+                    match n64_send(*datatype, msg.clone()).await {
+                        Ok(_) => struc.pending_message = Some(Instant::now()),
+                        Err(_) => struc.pending_message = None,
+                    }
+                }
+            }
+
             select! {
                 read_or_timeout = timeout(Duration::from_secs(10), n64_recv()) => {
                     match read_or_timeout {
@@ -544,6 +638,8 @@ async fn read(comm_state: &CommState) -> Result<(Option<CommState>, Vec<Message>
                                             }
                                             if let Some(InGameState::NotKnown) = state_ {
                                                 Some(CommState::WaitForGame)
+                                            } else if let Some(InGameState::Desynced) = state_ {
+                                                Some(CommState::Disconnect)
                                             } else if let Some(value) = state_ {
                                                 struc.ingame_state = value;
                                                 None
@@ -583,10 +679,15 @@ async fn read(comm_state: &CommState) -> Result<(Option<CommState>, Vec<Message>
                     match msg {
                         ServerMessage::ItemQueue(items) => {
                             struc.item_queue = items;
-                            let item_queue = struc.item_queue.clone();
-                            if let InGameState::InGame { ref mut internal_count, ref mut item_pending } = struc.ingame_state {
+                            let InGameStruct {
+                                ref mut ingame_state,
+                                ref mut message_queue,
+                                ref item_queue,
+                                ..
+                            } = *struc;
+                            if let InGameState::InGame { ref internal_count, ref mut item_pending } = ingame_state {
                                 if !*item_pending {
-                                    if let Ok(true) = get_item(&item_queue, internal_count).await {
+                                    if let true = get_item(item_queue, internal_count, message_queue).await {
                                         *item_pending = true;
                                     }
                                 }
@@ -594,24 +695,39 @@ async fn read(comm_state: &CommState) -> Result<(Option<CommState>, Vec<Message>
                         },
                         ServerMessage::GetItem(item) => {
                             struc.item_queue.push(item);
-                            let item_queue = struc.item_queue.clone();
-                            if let InGameState::InGame { ref mut internal_count, ref mut item_pending } = struc.ingame_state {
+                            let InGameStruct {
+                                ref mut ingame_state,
+                                ref mut message_queue,
+                                ref item_queue,
+                                ..
+                            } = *struc;
+                            if let InGameState::InGame { ref internal_count, ref mut item_pending } = ingame_state {
                                 if !*item_pending {
-                                    if let Ok(true) = get_item(&item_queue, internal_count).await {
+                                    if let true = get_item(item_queue, internal_count, message_queue).await {
                                         *item_pending = true;
                                     }
                                 }
                             }
                         },
                         ServerMessage::PlayerName(world, new_name) => {
-                            let (name, progressive_items) = struc.player_data.entry(world).or_default();
+                            let InGameStruct {
+                                ref mut message_queue,
+                                ref mut player_data,
+                                ..
+                            } = *struc;
+                            let (name, progressive_items) = player_data.entry(world).or_default();
                             *name = new_name;
-                            let _ = send_player_data(world, *name, *progressive_items).await;
+                            message_queue.push_back(send_player_data(world, *name, *progressive_items).await);
                         },
                         ServerMessage::ProgressiveItems(world, new_progressive_items) => {
-                            let (name, progressive_items) = struc.player_data.entry(world).or_default();
+                            let InGameStruct {
+                                ref mut message_queue,
+                                ref mut player_data,
+                                ..
+                            } = *struc;
+                            let (name, progressive_items) = player_data.entry(world).or_default();
                             *progressive_items = new_progressive_items;
-                            let _ = send_player_data(world, *name, *progressive_items).await;
+                            message_queue.push_back(send_player_data(world, *name, *progressive_items).await);
                         },
                     }
                     None
