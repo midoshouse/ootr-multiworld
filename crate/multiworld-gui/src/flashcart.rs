@@ -55,11 +55,19 @@ use {
 
 const DEBUG_LOGGING: bool = true;
 
+macro_rules! log_println {
+    ($enable_log:expr, $($arg:tt)*) => {
+        if $enable_log {
+            let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S");
+            println!("[{timestamp}] {}", format_args!($($arg)*));
+            let _ = lock!(log = crate::LOG; writeln!(&*log, "[{timestamp}] {}", format_args!($($arg)*)));
+        }
+    };
+}
+
 macro_rules! dbg_println {
     ($($arg:tt)*) => {
-        if DEBUG_LOGGING {
-            println!($($arg)*);
-        }
+        log_println!(DEBUG_LOGGING, $($arg)*)
     };
 }
 
@@ -774,9 +782,7 @@ impl Recipe for Subscription {
                     Some(FlashcartState::SEARCHING(FlashcartCache { player_data: HashMap::default() }))
                 },
                 FlashcartState::DISCONNECTED(cache) => {
-                    if log {
-                        let _ = lock!(log = crate::LOG; writeln!(&*log, "{} Flashcart: waiting 5 seconds before next scan", Utc::now().format("%Y-%m-%d %H:%M:%S")));
-                    }
+                    log_println!(log, "Flashcart: waiting 5 seconds before next scan");
                     let _ = sleep(Duration::from_secs(5)).await;
                     Some(FlashcartState::SEARCHING(cache.to_owned()))
                 },
@@ -863,8 +869,8 @@ impl Recipe for Subscription {
             }
 
             Ok::<_, ConnectError>(Some((stream::iter(messages).map(Ok::<_, ConnectError>), new_state.unwrap_or(state))))
-        }}).try_flatten().map(|res| {
-            let mut print_debug = true;
+        }}).try_flatten().then(|res| async move {
+            let mut print_debug = DEBUG_LOGGING;
 
             if let Ok(message) = &res {
                 if let Message::Plugin(plugin) = message {
