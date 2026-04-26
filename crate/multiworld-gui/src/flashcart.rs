@@ -128,6 +128,11 @@ pub(crate) struct InGameStruct {
 } 
 
 #[derive(Debug, Clone)]
+pub(crate) struct FlashcartCache {
+    player_data: HashMap<NonZeroU8, (Filename, u32)>,
+}
+
+#[derive(Debug, Clone)]
 pub(crate) enum CommState {
     Disconnect,
     SendHandshake,
@@ -139,10 +144,10 @@ pub(crate) enum CommState {
 #[derive(Debug, Clone)]
 pub enum FlashcartState {
     INITIALIZE,
-    DISCONNECTED,
-    SEARCHING,
-    OPENING(String),
-    CONNECTED(String, CommState, Arc<FlashcartGuard>)
+    DISCONNECTED(FlashcartCache),
+    SEARCHING(FlashcartCache),
+    OPENING(String, FlashcartCache),
+    CONNECTED(String, CommState, FlashcartCache, Arc<FlashcartGuard>)
 }
 
 #[derive(Debug)]
@@ -510,7 +515,7 @@ async fn process_handshake(header: n64flashcart::Header, data: Vec<u8>) -> Resul
     }
 }
 
-async fn read(comm_state: &CommState) -> Result<(Option<CommState>, Vec<Message>), DeviceError> {
+async fn read(comm_state: &CommState, cache: &FlashcartCache) -> Result<(Option<CommState>, Vec<Message>), DeviceError> {
     let mut messages = Vec::new();
     let next_state = match comm_state {
         CommState::Disconnect => Some(CommState::Disconnect),
@@ -570,7 +575,7 @@ async fn read(comm_state: &CommState) -> Result<(Option<CommState>, Vec<Message>
                                     item_queue: Vec::default(),
                                     ingame_state: InGameState::NotKnown,
                                     filename: None,
-                                    player_data: HashMap::default(),
+                                    player_data: cache.player_data.clone(),
                                     message_queue: VecDeque::default(),
                                     pending_message: None,
                                 };
@@ -766,33 +771,33 @@ impl Recipe for Subscription {
                 FlashcartState::INITIALIZE => {
                     n64flashcart::initialize();
                     n64flashcart::set_protocol(ProtocolVer::VERSION2);
-                    Some(FlashcartState::SEARCHING)
+                    Some(FlashcartState::SEARCHING(FlashcartCache { player_data: HashMap::default() }))
                 },
-                FlashcartState::DISCONNECTED => {
+                FlashcartState::DISCONNECTED(cache) => {
                     if log {
                         let _ = lock!(log = crate::LOG; writeln!(&*log, "{} Flashcart: waiting 5 seconds before next scan", Utc::now().format("%Y-%m-%d %H:%M:%S")));
                     }
                     let _ = sleep(Duration::from_secs(5)).await;
-                    Some(FlashcartState::SEARCHING)
+                    Some(FlashcartState::SEARCHING(cache.to_owned()))
                 },
-                FlashcartState::SEARCHING => {
+                FlashcartState::SEARCHING(cache) => {
                     if let Some(attached_device) = device {
                         let status = n64flashcart::connect(attached_device.vid, attached_device.pid, &attached_device.serial);
                         if status == DeviceError::CARTFINDFAIL {
                             n64flashcart::initialize();
                             n64flashcart::set_protocol(ProtocolVer::VERSION2);
-                            Some(FlashcartState::DISCONNECTED)
+                            Some(FlashcartState::DISCONNECTED(cache.to_owned()))
                         } else if status != DeviceError::OK {
-                            Some(FlashcartState::DISCONNECTED)
+                            Some(FlashcartState::DISCONNECTED(cache.to_owned()))
                         } else {
                             let cart_name = n64flashcart::cart_type_to_str(n64flashcart::get_cart());
-                            Some(FlashcartState::OPENING(cart_name.to_string()))
+                            Some(FlashcartState::OPENING(cart_name.to_string(), cache.to_owned()))
                         }
                     } else {
                         None
                     }
                 },
-                FlashcartState::OPENING(name) => {
+                FlashcartState::OPENING(name, cache) => {
                     if let Some(_) = device {
                         let status = n64flashcart::open();
                         if status != DeviceError::OK {
@@ -800,33 +805,55 @@ impl Recipe for Subscription {
                             if status == DeviceError::CANTOPEN {
                                 messages.push(Message::FlashcartLocked);
                             }
-                            Some(FlashcartState::DISCONNECTED)
+                            Some(FlashcartState::DISCONNECTED(cache.to_owned()))
                         } else {
                             dbg_println!("Flashcart USB connection opened");
-                            Some(FlashcartState::CONNECTED(name.to_owned(), CommState::WaitForGame, Arc::new(FlashcartGuard)))
+                            Some(FlashcartState::CONNECTED(name.to_owned(), CommState::WaitForGame, cache.to_owned(), Arc::new(FlashcartGuard)))
                         }
                     } else {
-                        Some(FlashcartState::SEARCHING)
+                        Some(FlashcartState::SEARCHING(cache.to_owned()))
                     }
                 },
-                FlashcartState::CONNECTED(name, comm_state, guard) => {
+                FlashcartState::CONNECTED(name, comm_state, cache, guard) => {
                     if let Some(_) = device {
-                        match read(comm_state).await {
+                        match read(comm_state, cache).await {
                             Ok((next_state, m)) => {
                                 messages.extend(m);
-                                match next_state {
-                                    Some(CommState::Disconnect) => Some(FlashcartState::DISCONNECTED),
-                                    Some(new_state) => Some(FlashcartState::CONNECTED(name.to_owned(), new_state, guard.to_owned())),
-                                    None => None,
+                                match comm_state {
+                                    CommState::Ready(_struc) => {
+                                        match next_state {
+                                            Some(ready_state @ CommState::Ready(_)) => Some(FlashcartState::CONNECTED(name.to_owned(), ready_state, cache.to_owned(), guard.to_owned())),
+                                            Some(CommState::Disconnect) => {
+                                                let struc = _struc.lock().await;
+                                                let mut new_cache = cache.to_owned();
+                                                new_cache.player_data = struc.player_data.clone();
+                                                Some(FlashcartState::DISCONNECTED(new_cache))
+                                            },
+                                            Some(new_state) => {
+                                                let struc = _struc.lock().await;
+                                                let mut new_cache = cache.to_owned();
+                                                new_cache.player_data = struc.player_data.clone();
+                                                Some(FlashcartState::CONNECTED(name.to_owned(), new_state, new_cache, guard.to_owned()))
+                                            },
+                                            None => None,
+                                        }
+                                    },
+                                    _ => {
+                                        match next_state {
+                                            Some(CommState::Disconnect) => Some(FlashcartState::DISCONNECTED(cache.to_owned())),
+                                            Some(new_state) => Some(FlashcartState::CONNECTED(name.to_owned(), new_state, cache.to_owned(), guard.to_owned())),
+                                            None => None,
+                                        }
+                                    }
                                 }
                             },
                             Err(e) => {
                                 messages.push(Message::FlashcartCommError(Arc::new(vec![ConnectError::DeviceError(e)])));
-                                Some(FlashcartState::CONNECTED(name.to_owned(), comm_state.to_owned(), guard.to_owned()))
+                                Some(FlashcartState::CONNECTED(name.to_owned(), comm_state.to_owned(), cache.to_owned(), guard.to_owned()))
                             }
                         }
                     } else {
-                        Some(FlashcartState::SEARCHING)
+                        Some(FlashcartState::SEARCHING(cache.to_owned()))
                     }
                 }
             };

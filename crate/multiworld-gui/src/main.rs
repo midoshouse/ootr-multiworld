@@ -664,7 +664,7 @@ impl State {
             },
             everdrive: EverDriveState::default(),
             flashcart: FrontendFlashcartState {
-                state: FlashcartState::DISCONNECTED,
+                state: FlashcartState::INITIALIZE,
                 errors: Arc::new(vec![]),
                 device: None,
                 device_list: n64flashcart::list(),
@@ -884,7 +884,7 @@ impl State {
 
                 if let Frontend::Flashcart = self.frontend.kind {
                     match self.frontend.flashcart.state {
-                        FlashcartState::DISCONNECTED | FlashcartState::SEARCHING => self.frontend_writer = None,
+                        FlashcartState::DISCONNECTED(_) | FlashcartState::SEARCHING(_) => self.frontend_writer = None,
                         _ => {}
                     }
                 }
@@ -1618,10 +1618,10 @@ impl State {
                     }
                     match &self.frontend.flashcart.state {
                         FlashcartState::INITIALIZE => col = col.push("Starting flashcart connection"),
-                        FlashcartState::DISCONNECTED => col = col.push("Disconnected from flashcart, waiting 5 seconds..."),
-                        FlashcartState::SEARCHING => col = col.push("Looking for supported flashcarts"),
-                        FlashcartState::OPENING(name) => col = col.push(Text::new(format!("Opening flashcart {}", name))),
-                        FlashcartState::CONNECTED(name, comm_state, _) => {
+                        FlashcartState::DISCONNECTED(_) => col = col.push("Disconnected from flashcart, waiting 5 seconds..."),
+                        FlashcartState::SEARCHING(_) => col = col.push("Looking for supported flashcarts"),
+                        FlashcartState::OPENING(name,_) => col = col.push(Text::new(format!("Opening flashcart {}", name))),
+                        FlashcartState::CONNECTED(name, comm_state, _, _) => {
                             col = col.push(Text::new(format!("Connected to flashcart {}", name)));
                             col = col.push(match comm_state {
                                 flashcart::CommState::Disconnect => "Lost connection",
