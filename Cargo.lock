@@ -5807,8 +5807,8 @@ checksum = "13d2233c9842d08cfe13f9eac96e207ca6a2ea10b80259ebe8ad0268be27d2af"
 
 [[package]]
 name = "n64flashcart"
-version = "1.3.3"
-source = "git+https://github.com/mracsys/n64usb?rev=33574d1882a35606f0e93199fabc2cc11aad5db3#33574d1882a35606f0e93199fabc2cc11aad5db3"
+version = "1.4.1"
+source = "git+https://github.com/mracsys/n64usb?rev=62ba806f8ed7e0ded2e090b31e23c32c12d4663a#62ba806f8ed7e0ded2e090b31e23c32c12d4663a"
 dependencies = [
  "bindgen",
  "cc",
