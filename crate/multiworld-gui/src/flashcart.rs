@@ -390,7 +390,7 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
                 if !*item_pending {
                     Ok((Some(InGameState::Desynced), None))
                 } else {
-                    //send_ack().await;
+                    send_ack().await;
                     *internal_count += 1;
                     if !get_item(&struc.item_queue, internal_count, message_queue).await {
                         *item_pending = false;
