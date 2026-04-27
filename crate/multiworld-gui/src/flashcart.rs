@@ -13,10 +13,10 @@ use {
             Stream,
             StreamExt as _,
         },
-    }, iced::advanced::subscription::{
+    }, iced::{advanced::subscription::{
         EventStream,
         Recipe,
-    }, log_lock::lock, multiworld::{
+    }}, log_lock::lock, multiworld::{
         Filename, HintArea, OptHintArea, frontend::{
             ClientMessage,
             ServerMessage
@@ -366,7 +366,6 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
 
         USBDataType::ACK_MESSAGE => {
             let InGameStruct {
-                ref mut ingame_state,
                 ref mut message_queue,
                 ref mut pending_message,
                 ..
@@ -375,23 +374,33 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
             if let None = pending_message {
                 Ok((Some(InGameState::Desynced), None))
             } else {
-                if let Some((datatype, _)) = message_queue.pop_front() {
-                    match datatype {
-                        USBDataType::SEND_ITEM => {
-                            if let InGameState::InGame { ref mut internal_count, ref mut item_pending } = ingame_state {
-                                *internal_count += 1;
-                                if !get_item(&struc.item_queue, internal_count, message_queue).await {
-                                    *item_pending = false;
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                    *pending_message = None;
-                }
+                let _ = message_queue.pop_front();
+                *pending_message = None;
                 Ok((None, None))
             }
         },
+
+        USBDataType::ITEM_GIVEN => {
+            let InGameStruct {
+                ref mut ingame_state,
+                ref mut message_queue,
+                ..
+            } = *struc;
+            if let InGameState::InGame { ref mut internal_count, ref mut item_pending } = ingame_state {
+                if !*item_pending {
+                    Ok((Some(InGameState::Desynced), None))
+                } else {
+                    send_ack().await;
+                    *internal_count += 1;
+                    if !get_item(&struc.item_queue, internal_count, message_queue).await {
+                        *item_pending = false;
+                    }
+                    Ok((None, None))
+                }
+            } else {
+                Err(DeviceError::READFAIL)
+            }
+        }
 
         USBDataType::UNRECOVERABLE => {
             // Check if we actually sent a message to acknowledge.
