@@ -705,9 +705,10 @@ impl State {
                         match emulator {
                             Emulator::Dummy => unreachable!(),
                             Emulator::Flashcart => {
-                                let multiworld_path = multiworld_path.as_ref().expect("multiworld app path must be set for flashcarts");
-                                if let Err(e) = std::process::Command::new(multiworld_path).spawn() {
-                                    return cmd(future::ready(Err(e).at(multiworld_path).map_err(Error::from)))
+                                #[cfg(target_os = "linux")] let multiworld_path = PathBuf::from(multiworld_path.as_ref().expect("multiworld app path must be set for flashcarts")).join("multiworld-gui");
+                                #[cfg(target_os = "windows")] let multiworld_path = PathBuf::from(multiworld_path.as_ref().expect("multiworld app path must be set for flashcarts")).join("multiworld-gui.exe");
+                                if let Err(e) = std::process::Command::new(&multiworld_path).spawn() {
+                                    return cmd(future::ready(Err(e).at(&multiworld_path).map_err(Error::from)))
                                 }
                             }
                             Emulator::EverDrive => {
@@ -785,18 +786,15 @@ impl State {
                         let create_desktop_shortcut = self.create_multiworld_desktop_shortcut;
                         return cmd(async move {
                             let mut new_mw_config = Config::load().await?;
-                            new_mw_config.default_frontend = Some(Emulator::EverDrive);
+                            new_mw_config.default_frontend = Some(Emulator::Flashcart);
                             new_mw_config.save().await?;
-                            let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Project64"));
-                            fs::create_dir_all(multiworld_path.parent().ok_or(Error::Root)?).await?;
+                            let multiworld_path = PathBuf::from(multiworld_path.expect("multiworld app path must be set for Flashcart executable"));
+                            fs::create_dir_all(multiworld_path.clone()).await?;
                             #[cfg(all(target_os = "linux", debug_assertions))] fs::write(&multiworld_path.join("multiworld-gui"), include_bytes!("../../../target/debug/multiworld-gui")).await?;
-                            #[cfg(all(target_os = "linux", debug_assertions))] fs::write(&multiworld_path.join("libflashcart.so"), include_bytes!("../../../target/debug/libflashcart.so")).await?;
                             #[cfg(all(target_os = "linux", not(debug_assertions)))] fs::write(&multiworld_path.join("multiworld-gui"), include_bytes!("../../../target/release/multiworld-gui")).await?;
-                            #[cfg(all(target_os = "linux", not(debug_assertions)))] fs::write(&multiworld_path.join("libflashcart.so"), include_bytes!("../../../target/release/libflashcart.so")).await?;
+                            #[cfg(all(target_os = "linux"))] fs::set_permissions(&multiworld_path.join("multiworld-gui"), std::fs::Permissions::from_mode(0o755)).await?;
                             #[cfg(all(target_os = "windows", debug_assertions))] fs::write(&multiworld_path.join("multiworld-gui.exe"), include_bytes!("../../../target/debug/multiworld-gui.exe")).await?;
-                            #[cfg(all(target_os = "windows", debug_assertions))] fs::write(&multiworld_path.join("Flashcart_x64.dll"), include_bytes!("../../../target/debug/Flashcart_x64.dll")).await?;
                             #[cfg(all(target_os = "windows", not(debug_assertions)))] fs::write(&multiworld_path.join("multiworld-gui.exe"), include_bytes!("../../../target/release/multiworld-gui.exe")).await?;
-                            #[cfg(all(target_os = "windows", not(debug_assertions)))] fs::write(&multiworld_path.join("Flashcart_x64.dll"), include_bytes!("../../../target/release/Flashcart_x64.dll")).await?;
                             #[cfg(target_os = "windows")] {
                                 let base_dirs = BaseDirs::new().ok_or(Error::MissingHomeDir)?;
                                 ShellLink::new(&multiworld_path)?

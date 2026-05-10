@@ -414,9 +414,8 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
         },
 
         USBDataType::DUNGEON_REWARDS => {
-            if let Ok(rewarddata) = TryInto::<[u8 ; 19]>::try_into(data) {
+            if let Ok(rewarddata) = TryInto::<[u8 ; 18]>::try_into(data) {
                 let [
-                    _,
                     emerald_world,
                     emerald_area,
                     ruby_world,
