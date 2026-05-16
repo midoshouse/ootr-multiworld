@@ -453,7 +453,17 @@ async fn process_n64_packet(header: n64flashcart::Header, data: Vec<u8>, struc: 
                 send_err().await;
                 Ok((None, None))
             }
-        }
+        },
+
+        USBDataType::SEND_HINT => {
+            send_ack().await;
+            Ok((None, None))
+        },
+
+        USBDataType::SEND_ENTRANCE => {
+            send_ack().await;
+            Ok((None, None))
+        },
 
         USBDataType::HEARTBEAT => Ok((None, None)),
 
