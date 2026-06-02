@@ -193,6 +193,30 @@ async fn not_found() -> RawHtml<String> {
     }
 }
 
+#[rocket::catch(410)]
+async fn gone() -> RawHtml<String> {
+    html! {
+        : Doctype;
+        html {
+            head {
+                meta(charset = "utf-8");
+                meta(name = "viewport", content = "width=device-width, initial-scale=1, shrink-to-fit=no");
+                title : "Gone — Mido's House Multiworld";
+                link(rel = "icon", sizes = "1024x1024", type = "image/png", href = uri!("https://midos.house/static/mw.png").to_string());
+                link(rel = "stylesheet", href = uri!("https://midos.house/static/common.css").to_string());
+            }
+            body {
+                h1 : "Error 410: Gone";
+                p {
+                    : "This version of Mido's House Multiworld is no longer supported. Please update to the latest version. If the in-app updater doesn't work, you can update by ";
+                    a(href = "https://midos.house/mw") : "installing the latest version";
+                    : " (no need to uninstall the old version first).";
+                }
+            }
+        }
+    }
+}
+
 #[rocket::catch(500)]
 async fn internal_server_error() -> Result<RawHtml<String>, rocket_util::Error<wheel::Error>> {
     wheel::night_report("/games/zelda/oot/mhmw/error", Some("internal server error")).await?;
@@ -255,6 +279,7 @@ pub(crate) async fn rocket(db_pool: PgPool, http_client: reqwest::Client, rng: A
     ])
     .register("/", rocket::catchers![
         not_found,
+        gone,
         internal_server_error,
         fallback_catcher,
     ])
