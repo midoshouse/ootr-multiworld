@@ -52,7 +52,7 @@ wheel = { git = "https://github.com/fenhl/wheel", features = ["gui"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 async-compression = { version = "0.4", features = ["gzip", "tokio"] }
-astral-tokio-tar = "0.5.6"
+astral-tokio-tar = "0.6"
 which = "8"
 xdg = "3"
 

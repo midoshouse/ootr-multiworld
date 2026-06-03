@@ -1,6 +1,5 @@
 #!/bin/sh
 
-PATH="$HOME/.cargo/bin:$PATH"
 set -e
 
 # multiworld-updater

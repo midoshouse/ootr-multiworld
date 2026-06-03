@@ -1,2 +1,10 @@
+include = [
+    { path = "extra-config.toml", optional = true },
+    { path = "secrets.toml", optional = true },
+]
+
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "code-model=medium"]
