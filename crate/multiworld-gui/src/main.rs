@@ -884,7 +884,7 @@ impl State {
 
                 if let Frontend::Flashcart = self.frontend.kind {
                     match self.frontend.flashcart.state {
-                        FlashcartState::DISCONNECTED(_) | FlashcartState::SEARCHING(_) => self.frontend_writer = None,
+                        FlashcartState::DISCONNECTED{ .. } | FlashcartState::SEARCHING{ .. } => self.frontend_writer = None,
                         _ => {}
                     }
                 }
@@ -1618,17 +1618,17 @@ impl State {
                     }
                     match &self.frontend.flashcart.state {
                         FlashcartState::INITIALIZE => col = col.push("Starting flashcart connection"),
-                        FlashcartState::DISCONNECTED(_) => col = col.push("Disconnected from flashcart, waiting 5 seconds..."),
-                        FlashcartState::SEARCHING(_) => col = col.push("Looking for supported flashcarts"),
-                        FlashcartState::OPENING(name,_) => col = col.push(Text::new(format!("Opening flashcart {}", name))),
-                        FlashcartState::CONNECTED(name, comm_state, _, _) => {
-                            col = col.push(Text::new(format!("Connected to flashcart {}", name)));
-                            col = col.push(match comm_state {
+                        FlashcartState::DISCONNECTED{ .. } => col = col.push("Disconnected from flashcart, waiting 5 seconds..."),
+                        FlashcartState::SEARCHING{ .. } => col = col.push("Looking for supported flashcarts"),
+                        FlashcartState::OPENING{ cart_name, .. } => col = col.push(Text::new(format!("Opening flashcart {}", cart_name))),
+                        FlashcartState::CONNECTED{ cart_name, connection_state, .. } => {
+                            col = col.push(Text::new(format!("Connected to flashcart {}", cart_name)));
+                            col = col.push(match connection_state {
                                 flashcart::CommState::Disconnect => "Lost connection",
                                 flashcart::CommState::WaitForGame => "Waiting for game...",
                                 flashcart::CommState::SendHandshake => "Sending handshake",
                                 flashcart::CommState::Handshake => "Waiting for handshake response",
-                                flashcart::CommState::Ready(_) => "Ready",
+                                flashcart::CommState::Ready{ .. } => "Ready",
                             })
                         }
                     }
@@ -1659,7 +1659,7 @@ impl State {
                 }
                 Frontend::Pj64V4 => {
                     col = col
-                        .push("Waiting forFrontend::Dummy => {} Project64…")
+                        .push("Waiting for Project64…")
                         .push("This should take less than 5 seconds.");
                 }
             }

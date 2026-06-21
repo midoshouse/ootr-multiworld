@@ -10,12 +10,6 @@ use {
 };
 
 fn main() -> io::Result<()> {
-    #[cfg(target_os = "linux")]
-    println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
-
-    #[cfg(target_os = "macos")]
-    println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
-
     if env::var_os("CARGO_CFG_WINDOWS").is_some() {
         WindowsResource::new()
             .set_icon("../../assets/icon.ico")
