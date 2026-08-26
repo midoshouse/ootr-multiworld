@@ -145,11 +145,14 @@ enum SessionError {
     #[error(transparent)] Read(#[from] async_proto::ReadError),
     #[error(transparent)] Reqwest(#[from] reqwest::Error),
     #[error(transparent)] Ring(#[from] ring::error::Unspecified),
-    #[error(transparent)] Room(#[from] multiworld::RoomError),
     #[error(transparent)] SendAll(#[from] SendAllError),
     #[error(transparent)] Sql(#[from] sqlx::Error),
     #[error(transparent)] Wheel(#[from] wheel::Error),
     #[error(transparent)] Write(#[from] async_proto::WriteError),
+    #[error("{source}")]
+    Room {
+        source: multiworld::RoomError,
+    },
     #[error("{0}")]
     Server(String),
     #[error("server is shutting down")]
@@ -165,7 +168,7 @@ impl IsNetworkError for SessionError {
             Self::Read(e) => e.is_network_error(),
             Self::Reqwest(e) => e.is_network_error(),
             Self::Ring(_) => false,
-            Self::Room(e) => e.is_network_error(),
+            Self::Room { source } => source.is_network_error(),
             Self::SendAll(e) => e.is_network_error(),
             Self::Sql(_) => false,
             Self::Wheel(e) => e.is_network_error(),
@@ -360,7 +363,8 @@ async fn lobby_session<C: ClientKind>(
                             if authorized {
                                 if room.clients.len() >= usize::from(u8::MAX) { error!("this room is full") }
                                 let (end_tx, end_rx) = oneshot::channel();
-                                room.add_client(version.clone(), socket_id, Arc::clone(&writer), end_tx).await?;
+                                room.add_client(version.clone(), socket_id, Arc::clone(&writer), end_tx).await
+                                    .handle_wrong_file_hash::<C>(&writer).await?;
                                 let mut players = Vec::<Player>::default();
                                 let mut num_unassigned_clients = 0;
                                 for client in room.clients.values() {
@@ -612,7 +616,7 @@ impl SessionResultExt for Result<(), multiworld::RoomError> {
             Err(multiworld::RoomError::FileHash { server, client }) => {
                 lock!(writer = writer; writer.write(ServerMessage::WrongFileHash { server, client }).await)?;
             }
-            Err(e) => return Err(e.into()),
+            Err(source) => return Err(SessionError::Room { source }),
         }
         Ok(())
     }
@@ -685,28 +689,33 @@ async fn room_session<C: ClientKind>(
                         Ok(true) => {}
                         Ok(false) => lock!(writer = writer; writer.write(ServerMessage::WorldTaken(id)).await)?,
                         Err(multiworld::RoomError::FileHash { server, client }) => lock!(writer = writer; writer.write(ServerMessage::WrongFileHash { server, client }).await)?,
-                        Err(e) => return Err(e.into()),
+                        Err(source) => return Err(SessionError::Room { source }),
                     },
-                    ClientMessage::ResetPlayerId => lock!(@write room = room; room.unload_player(socket_id).await)?,
-                    ClientMessage::PlayerName(name) => lock!(@write room = room; room.set_player_name(socket_id, name).await)?,
+                    ClientMessage::ResetPlayerId => lock!(@write room = room; room.unload_player(socket_id).await)
+                        .handle_wrong_file_hash::<C>(&writer).await?,
+                    ClientMessage::PlayerName(name) => lock!(@write room = room; room.set_player_name(socket_id, name).await)
+                        .handle_wrong_file_hash::<C>(&writer).await?,
                     ClientMessage::SendItem { key, kind, target_world } => lock!(@write room = room; room.queue_item(socket_id, key, kind, target_world, config.verbose_logging).await)
                         .handle_wrong_file_hash::<C>(&writer).await?,
                     ClientMessage::KickPlayer(id) => lock!(@write room = room; for (&socket_id, client) in &room.clients {
                         if let Some(Player { world, .. }) = client.player {
                             if world == id {
-                                room.remove_client(socket_id, EndRoomSession::ToLobby).await?;
+                                room.remove_client(socket_id, EndRoomSession::ToLobby).await
+                                    .handle_wrong_file_hash::<C>(&writer).await?;
                                 break
                             }
                         }
                     }),
                     ClientMessage::DeleteRoom => {
                         let id = lock!(@write room = room; {
-                            room.delete().await?;
+                            room.delete().await
+                                .handle_wrong_file_hash::<C>(&writer).await?;
                             room.id
                         });
                         rooms.remove(id).await;
                     }
-                    ClientMessage::SaveData(save) => lock!(@write room = room; room.set_save_data(socket_id, save).await)?,
+                    ClientMessage::SaveData(save) => lock!(@write room = room; room.set_save_data(socket_id, save).await)
+                        .handle_wrong_file_hash::<C>(&writer).await?,
                     ClientMessage::SendAll { source_world, spoiler_log } => lock!(@write room = room; room.send_all(source_world, &spoiler_log, logged_in_as_admin).await)
                         .handle_wrong_file_hash::<C>(&writer).await?,
                     ClientMessage::SaveDataError { debug, version } => if version >= multiworld::version() && lock!(@read room = room; !room.allow_send_all || room.tracker_state.is_some()) { // only report for tournament rooms and tracked rooms, as these errors can also be caused by people playing with glitches
@@ -715,8 +724,10 @@ async fn room_session<C: ClientKind>(
                     },
                     ClientMessage::FileHash(hash) => lock!(@write room = room; room.set_file_hash(socket_id, hash).await)
                         .handle_wrong_file_hash::<C>(&writer).await?,
-                    ClientMessage::AutoDeleteDelta(new_delta) => lock!(@write room = room; room.set_autodelete_delta(new_delta).await)?,
-                    ClientMessage::LeaveRoom => lock!(@write room = room; room.remove_client(socket_id, EndRoomSession::ToLobby).await)?,
+                    ClientMessage::AutoDeleteDelta(new_delta) => lock!(@write room = room; room.set_autodelete_delta(new_delta).await)
+                        .handle_wrong_file_hash::<C>(&writer).await?,
+                    ClientMessage::LeaveRoom => lock!(@write room = room; room.remove_client(socket_id, EndRoomSession::ToLobby).await)
+                        .handle_wrong_file_hash::<C>(&writer).await?,
                     ClientMessage::DungeonRewardInfo { reward, world, area } => if let Ok(location) = area.try_into() {
                         lock!(@write room = room; room.add_dungeon_reward_info(socket_id, reward, world, location).await)?;
                     },
